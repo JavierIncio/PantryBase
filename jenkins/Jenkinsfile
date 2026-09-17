@@ -1,0 +1,24 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+        stage('Backend: build & tests (JaCoCo gate)') {
+            steps { dir('backend/pantry-api') { sh './mvnw -B verify' } }
+        }
+        stage('Frontend: build') {
+            steps { dir('frontend/pantry-web') { sh 'npm ci && npm run build' } }
+        }
+        stage('Docker: build image') {
+            steps { dir('backend/pantry-api') { sh 'docker build -t pantrybase/pantry-api:${BUILD_NUMBER} .' } }
+        }
+        stage('Docker: publish') {
+            steps {
+                sh 'docker tag pantrybase/pantry-api:${BUILD_NUMBER} pantrybase/pantry-api:latest'
+                sh 'docker push pantrybase/pantry-api:latest'
+            }
+        }
+    }
+}

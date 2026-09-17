@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "references": {
+    "docs": {
+      "path": "../docs",
+      "description": "Documentación del proyecto: README (arquitectura y modelo de dominio), ROADMAP.md (fases del proyecto) y VERSIONS.md (versiones fijadas de dependencias e infraestructura)."
+    }
+  }
+}

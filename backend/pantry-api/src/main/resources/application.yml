@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: pantry-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pantrybase}
+    username: ${DB_USER:pantry}
+    password: ${DB_PASSWORD:pantry}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+server:
+  port: ${PORT:8080}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

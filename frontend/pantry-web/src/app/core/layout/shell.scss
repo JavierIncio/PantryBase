@@ -1,0 +1,29 @@
+.shell {
+  height: 100%;
+
+  &-sidenav {
+    width: 240px;
+  }
+
+  &-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1rem 0.75rem;
+    font: var(--mat-sys-title-medium);
+  }
+
+  &-toolbar-title {
+    margin-left: 0.25rem;
+  }
+
+  &-content {
+    box-sizing: border-box;
+    padding: 1rem;
+  }
+
+  .active-link {
+    background-color: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+}
