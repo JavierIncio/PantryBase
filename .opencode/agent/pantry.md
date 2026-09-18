@@ -23,7 +23,7 @@ El proyecto es **una plataforma de aprendizaje**: la persona está aprendiendo S
 
 ## 2. Contexto del proyecto (snapshot)
 
-- **Backend:** `backend/pantry-api` — Spring Boot **4.1.1**, Java 21, Maven. JPA + Flyway (PostgreSQL **18**), Redis **8** (caché/rate limiting), Testcontainers **2.0.5** (Postgres/Redis reales en tests), JaCoCo **0.8.15** con gate de cobertura de línea ≥ 0.80, springdoc-openapi **3.1.1**, JJWT **0.13.0** + `spring-security-oauth2-jose` (BOM) para H1.
+- **Backend:** `backend/pantry-api` — Spring Boot **4.1.1**, Java 21, Maven. JPA + Flyway (PostgreSQL **18**), Redis **8** (caché/rate limiting), Testcontainers **2.0.5** (Postgres/Redis reales en tests), JaCoCo **0.8.15** con gate de cobertura de línea ≥ 0.80, springdoc-openapi **3.1.1**. Auth H1: **JJWT 0.13.0** (stack único de JWT) + `spring-boot-starter-security-oauth2-client` (BOM) para login social (Google); ver `docs/VERSIONS.md`.
 - **Frontend:** `frontend/pantry-web` — Angular **22.1** + Material, TypeScript `~6.0.2`, RxJS `~7.8.0`, Vitest + jsdom, Node 24 LTS (≥ 24.15).
 - **Infra:** `infra/docker-compose.yml` — postgres 18-alpine, redis 8-alpine, prometheus v3.14.0, grafana 13.0.9, con healthchecks. `infra/.env` para secretos (ignorado por git).
 - **CI:** `jenkins/Jenkinsfile` (build → tests → gate JaCoCo → imagen Docker). Servidor Jenkins aún por desplegar.

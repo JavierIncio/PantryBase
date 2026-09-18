@@ -33,12 +33,15 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 ## H1 — Autenticación y usuario
 
 - [ ] Registro/login con Spring Security + JWT (refresh token).
+- [ ] Login social OAuth2 (Google) con link-or-create (añadido a H1 en sept 2026).
 - [ ] Perfil: `UserPreferences` (modo de filtrado por defecto, umbral laxo, dieta).
 - [ ] Exclusión de alérgenos por usuario (`UserAllergyExclusion`).
 - [ ] Rate limiting en Redis por usuario + endpoint (token bucket).
 - [ ] Frontend: pantalla de login, guardas de rutas, interceptores de JWT.
 
 **Definition of done:** permisos por rol y datos de preferencias persistidos; sesión expirada redirige al login.
+
+**Estado H1 (sept 2026):** bloque H1-A implementado en backend: registro/login/logout y refresh con JWT (JJWT), refresh token hasheado en BBDD con rotación, cookie `httpOnly` para el refresh, `GET /api/users/me`, y login OAuth2 Google con link-or-create. Pendiente dentro de H1: perfil (`UserPreferences`, `UserAllergyExclusion`), rate limiting en Redis (token bucket) y frontend; **tests de integración del bloque H1-A aplazados deliberadamente** (regla: el hito no se cierra hasta tenerlos verdes y pasar el gate JaCoCo).
 
 ---
 

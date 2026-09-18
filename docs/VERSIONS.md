@@ -26,13 +26,14 @@
 | Flyway            | **13.7.0** (standalone)                | En el proyecto usar `spring-boot-starter-flyway` (**BOM**)                          |
 | Testcontainers    | **2.0.5**                              | Importar `testcontainers-bom` con esa versión                                       |
 | JaCoCo            | **0.8.15**                             | Plugin Maven; quality gate en `verify`: cobertura de línea ≥ 0.80 (goal `check`)    |
-| JWT (JJWT)        | **0.13.0**                             | Artefactos `jjwt-api`, `jjwt-impl`, `jjwt-jackson` (0.13.0, verificada ago 2025)    |
-| oauth2-jose       | (BOM) Spring Security 7               | `spring-security-oauth2-jose`: `JwtEncoder`/`JwtDecoder` (Nimbus); gestionada por Boot, no versionar |
+| JWT (JJWT)        | **0.13.0**                             | **Stack único de JWT** (decidido en H1 frente a `oauth2-jose`/Nimbus): `jjwt-api`, `jjwt-impl`, `jjwt-jackson` (0.13.0, verificada ago 2025) |
+| Spring Security   | (BOM)                                 | `spring-boot-starter-security`: cadena de filtros, autenticación sin estado y BCrypt via `spring-security-crypto` (H1) |
+| OAuth2 (cliente)  | (BOM)                                 | `spring-boot-starter-security-oauth2-client`: login social (Google, H1) con link-or-create; credenciales solo por entorno (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) |
 | BCrypt            | (BOM)                                 | `BCryptPasswordEncoder` via `spring-security-crypto` (incluida en `spring-boot-starter-security`) |
 
 ### Dependencias gestionadas por el BOM (no fijar manualmente)
 
-JUnit 5, AssertJ, Mockito, Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*`, `spring-boot-starter-actuator`, `spring-security-oauth2-jose`, `spring-security-crypto` (BCrypt).
+JUnit 5, AssertJ, Mockito, Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*` (incluye `spring-boot-starter-security` y `spring-boot-starter-security-oauth2-client`), `spring-security-crypto` (BCrypt).
 
 ---
 

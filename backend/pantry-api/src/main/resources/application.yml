@@ -16,6 +16,14 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: 6379
 
+security:
+  oauth2:
+    client:
+      registration:
+        google:
+          client-id: ${GOOGLE_CLIENT_ID}
+          client-secret: ${GOOGLE_CLIENT_SECRET}
+
 management:
   endpoints:
     web:
@@ -30,3 +38,14 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    access-ttl: 15m
+    refresh-ttl: 7d
+  security:
+    cookie:
+      secure: false
+    oauth2:
+      redirect-uri: http://localhost:4200/oauth2/callback

@@ -13,6 +13,7 @@ El usuario registra su inventario de ingredientes con cantidades en medidas esta
 ### Funcionalidades principales
 
 - **Inventario (despensa):** CRUD de ingredientes con cantidades en unidades estandarizadas.
+- **Autenticación:** registro y login con JWT (access token por header, refresh token en cookie `httpOnly` con rotación) y login social OAuth2 (Google) con link-or-create.
 - **Catálogo de ingredientes:** datos, nutrición y alérgenos vía API de Edamam (Food Database), cacheado en base de datos.
 - **Recetas:** búsqueda y detalle desde Edamam (Recipe Search API): ingredientes con cantidades, nutrición y alérgenos.
 - **Filtrado por disponibilidad:**
@@ -32,7 +33,7 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 | Capa           | Tecnología                              | Uso                                                          |
 | -------------- | --------------------------------------- | ------------------------------------------------------------ |
 | Backend        | Spring Boot 4.1 (Java 21)               | API REST                                                     |
-| Backend        | Spring Security + JWT                   | Autenticación y autorización                                 |
+| Backend        | Spring Security + JWT + OAuth2 (cliente) | Autenticación, autorización y login social |
 | BBDD           | PostgreSQL 18 (+)                       | Datos persistentes (inventario, usuarios, catálogo cacheado) |
 | BBDD           | Flyway (+)                              | Migraciones versionadas del esquema                          |
 | Backend        | Spring Data JPA                         | Acceso a datos                                               |
@@ -187,7 +188,7 @@ npm install && npm start        # dev server con proxy a la API
 # API docs en http://localhost:8080/swagger-ui.html
 ```
 
-Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `EDAMAM_APP_ID`, `EDAMAM_APP_KEY`, `LLM_PROVIDERS` (lista ordenada de proveedores con fallback).
+Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EDAMAM_APP_ID`, `EDAMAM_APP_KEY`, `LLM_PROVIDERS` (lista ordenada de proveedores con fallback). Secretos solo en `infra/.env` (ignorado por git).
 
 ---
 
