@@ -26,11 +26,13 @@
 | Flyway            | **13.7.0** (standalone)                | En el proyecto usar `spring-boot-starter-flyway` (**BOM**)                          |
 | Testcontainers    | **2.0.5**                              | Importar `testcontainers-bom` con esa versión                                       |
 | JaCoCo            | **0.8.15**                             | Plugin Maven; quality gate en `verify`: cobertura de línea ≥ 0.80 (goal `check`)    |
-| JavaMail / JWT    | (decidir en H1)                        | P. ej. `jjwt` 0.12.x o `spring-security-oauth2-jose`; registrar al elegirlo         |
+| JWT (JJWT)        | **0.13.0**                             | Artefactos `jjwt-api`, `jjwt-impl`, `jjwt-jackson` (0.13.0, verificada ago 2025)    |
+| oauth2-jose       | (BOM) Spring Security 7               | `spring-security-oauth2-jose`: `JwtEncoder`/`JwtDecoder` (Nimbus); gestionada por Boot, no versionar |
+| BCrypt            | (BOM)                                 | `BCryptPasswordEncoder` via `spring-security-crypto` (incluida en `spring-boot-starter-security`) |
 
 ### Dependencias gestionadas por el BOM (no fijar manualmente)
 
-JUnit 5, AssertJ, Mockito, Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*`, `spring-boot-starter-actuator`.
+JUnit 5, AssertJ, Mockito, Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*`, `spring-boot-starter-actuator`, `spring-security-oauth2-jose`, `spring-security-crypto` (BCrypt).
 
 ---
 

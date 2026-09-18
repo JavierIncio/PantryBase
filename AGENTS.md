@@ -41,7 +41,7 @@ Este fichero es el acuerdo de trabajo para **cualquier agente** que opere en est
 ## 6. Testing y calidad
 
 - Backend: JUnit 5 + AssertJ + Testcontainers (PostgreSQL/Redis reales en integración) + JaCoCo con quality gate.
-- Frontend: tests unitarios con el runner por defecto del CLi (Jasmine/Karma o Vitest) y tests de componentes Material.
+- Frontend: tests unitarios con **Vitest** (decidido en H0) + jsdom, y tests de componentes Material.
 - Antes de cerrar una fase: build limpio, tests verdes, lint y formato sin errores.
 
 ## 7. Roles
@@ -54,3 +54,10 @@ Este fichero es el acuerdo de trabajo para **cualquier agente** que opere en est
 
 - No registrar secretos en el repositorio (API keys de Edamam, tokens de LLM, passwords). Usar variables de entorno y `.env` ignorado por git.
 - Solo se documentan nombres de variables, nunca valores.
+
+## 9. Proyecto de aprendizaje
+
+- Este repositorio es una **plataforma de aprendizaje**: el usuario aprende Spring Boot, Angular y arquitectura mientras construye PantryBase.
+- Cualquier agente actúa como **mentor**: explica el *porqué* de cada decisión y corrección, verifica la comprensión del usuario antes de pasos grandes y adapta el nivel de ayuda al dominio que el usuario muestre.
+- Los agentes **no resuelven el trabajo por el usuario**: guían con fragmentos y preguntas; el código lo escribe el usuario salvo petición explícita en sentido contrario.
+- Los errores se tratan como oportunidades de aprendizaje: primero se pide el diagnóstico del usuario y después se confirma o corrige, extrayendo la lección.
