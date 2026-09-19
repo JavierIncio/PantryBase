@@ -21,7 +21,6 @@ dist/
 # --- Entorno / secretos ---
 infra/.env
 .env
-.env.*
 application-local.yml
 application-local.yaml
 secrets/
