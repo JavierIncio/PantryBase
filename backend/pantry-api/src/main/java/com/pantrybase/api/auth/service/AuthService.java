@@ -3,10 +3,7 @@ package com.pantrybase.api.auth.service;
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.dto.LoginRequest;
 import com.pantrybase.api.auth.dto.RegisterRequest;
-import com.pantrybase.api.common.exception.EmailAlreadyExistsException;
-import com.pantrybase.api.common.exception.InvalidRefreshTokenException;
-import com.pantrybase.api.common.exception.UserNotFoundException;
-import com.pantrybase.api.common.exception.UsernameAlreadyExistsException;
+import com.pantrybase.api.common.exception.*;
 import com.pantrybase.api.common.security.JwtService;
 import com.pantrybase.api.user.domain.Role;
 import com.pantrybase.api.user.domain.User;
@@ -14,6 +11,7 @@ import com.pantrybase.api.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -66,8 +64,12 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        authManager.authenticate(new UsernamePasswordAuthenticationToken(
-                request.loginMethod(), request.password()));
+        try {
+            authManager.authenticate(new UsernamePasswordAuthenticationToken(
+                    request.loginMethod(), request.password()));
+        } catch (BadCredentialsException e) {
+            throw new InvalidCredentialsException();
+        }
         User user = userRepo.findByUsernameOrEmail(request.loginMethod(), request.loginMethod())
                 .orElseThrow(() -> new UserNotFoundException(request.loginMethod()));
         return issueTokens(user);

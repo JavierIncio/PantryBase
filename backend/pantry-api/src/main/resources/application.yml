@@ -15,14 +15,13 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: 6379
-
-security:
-  oauth2:
-    client:
-      registration:
-        google:
-          client-id: ${GOOGLE_CLIENT_ID}
-          client-secret: ${GOOGLE_CLIENT_SECRET}
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
 
 management:
   endpoints:
