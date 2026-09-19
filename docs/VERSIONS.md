@@ -14,6 +14,8 @@
 
 ## Backend (Java)
 
+### Producción (runtime)
+
 | Componente        | Versión                                | Notas                                                                               |
 | ----------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
 | JDK               | **21 (LTS)** mínima; 25 (LTS) opcional | Spring Boot 4.1 soporta Java 17–26                                                  |
@@ -24,16 +26,24 @@
 | Spring AI         | **2.0.1**                              | Requiere Spring Boot 4.x; soporta multi-proveedor                                   |
 | Resilience4j      | **2.4.0**                              | Usar artefacto `resilience4j-spring-boot4` (compatibilidad Boot 4)                  |
 | Flyway            | **13.7.0** (standalone)                | En el proyecto usar `spring-boot-starter-flyway` (**BOM**)                          |
-| Testcontainers    | **2.0.5**                              | Importar `testcontainers-bom` con esa versión                                       |
-| JaCoCo            | **0.8.15**                             | Plugin Maven; quality gate en `verify`: cobertura de línea ≥ 0.80 (goal `check`)    |
 | JWT (JJWT)        | **0.13.0**                             | **Stack único de JWT** (decidido en H1 frente a `oauth2-jose`/Nimbus): `jjwt-api`, `jjwt-impl`, `jjwt-jackson` (0.13.0, verificada ago 2025) |
 | Spring Security   | (BOM)                                 | `spring-boot-starter-security`: cadena de filtros, autenticación sin estado y BCrypt via `spring-security-crypto` (H1) |
 | OAuth2 (cliente)  | (BOM)                                 | `spring-boot-starter-security-oauth2-client`: login social (Google, H1) con link-or-create; credenciales solo por entorno (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) |
 | BCrypt            | (BOM)                                 | `BCryptPasswordEncoder` via `spring-security-crypto` (incluida en `spring-boot-starter-security`) |
 
+### Tests
+
+| Componente        | Versión                                | Notas                                                                               |
+| ----------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
+| Testcontainers    | **2.0.5**                              | Importar `testcontainers-bom` con esa versión; Postgres/Redis reales en integración |
+| Test HTTP (Boot 4) | (BOM)                                 | `spring-boot-resttestclient` (TestRestTemplate) + `spring-boot-restclient` (aporta `RestTemplateBuilder`, requerido por la autoconfig de `TestRestTemplate`). Activación explícita con `@AutoConfigureTestRestTemplate`; `spring-boot-starter-webmvc-test` arrastra `resttestclient` pero **no** `restclient` (H1) |
+| Spring Boot Test  | (BOM)                                 | `spring-boot-starter-test`: JUnit 5 (`junit-jupiter-api`/`params`/`engine`), AssertJ, Mockito, JSONassert |
+| JaCoCo            | **0.8.15**                             | Plugin Maven (no dependencia); quality gate en `verify`: cobertura de línea ≥ 0.80 (goal `check`) |
+
 ### Dependencias gestionadas por el BOM (no fijar manualmente)
 
-JUnit 5, AssertJ, Mockito, Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*` (incluye `spring-boot-starter-security` y `spring-boot-starter-security-oauth2-client`), `spring-security-crypto` (BCrypt).
+- **Runtime:** Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*` (incluye `spring-boot-starter-security` y `spring-boot-starter-security-oauth2-client`), `spring-security-crypto` (BCrypt).
+- **Test:** `spring-boot-starter-test` (JUnit 5 + AssertJ + Mockito), `spring-boot-resttestclient` y `spring-boot-restclient` (test HTTP), `testcontainers-bom` (fila arriba).
 
 ---
 

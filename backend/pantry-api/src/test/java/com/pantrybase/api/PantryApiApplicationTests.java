@@ -8,7 +8,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.GenericContainer;
 
 import java.io.IOException;
-import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,7 +23,7 @@ class PantryApiApplicationTests {
     private GenericContainer<?> redisContainer;
 
     @Test
-	void contextLoads() throws IOException, InterruptedException {
+    void contextLoads() throws IOException, InterruptedException {
         Integer migrations = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history;", Integer.class);
         assertThat(migrations).isGreaterThanOrEqualTo(1);
@@ -33,6 +32,5 @@ class PantryApiApplicationTests {
                 .execInContainer("redis-cli", "PING")
                 .getStdout().trim();
         assertThat(pong).isEqualTo("PONG");
-	}
-
+    }
 }
