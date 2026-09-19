@@ -16,10 +16,10 @@ public class UserService {
         this.repo = repo;
     }
 
-    public UserResponse me(String identifier) {
-        return repo.findByUsernameOrEmail(identifier, identifier)
+    public UserResponse me(Long id) {
+        return repo.findById(id)
                 .map(this::toDto)
-                .orElseThrow(() -> new UserNotFoundException(identifier));
+                .orElseThrow(() -> new UserNotFoundException(String.valueOf(id)));
     }
 
     private UserResponse toDto(User user) {

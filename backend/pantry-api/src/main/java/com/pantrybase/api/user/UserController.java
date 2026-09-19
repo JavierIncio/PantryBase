@@ -2,10 +2,7 @@ package com.pantrybase.api.user;
 
 import com.pantrybase.api.user.dto.UserResponse;
 import com.pantrybase.api.user.service.UserService;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,7 +18,7 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public UserResponse me(@AuthenticationPrincipal UserDetails userDetails) {
-        return userService.me(userDetails.getUsername());
+    public UserResponse me(@AuthenticationPrincipal Long userId) {
+        return userService.me(userId);
     }
 }

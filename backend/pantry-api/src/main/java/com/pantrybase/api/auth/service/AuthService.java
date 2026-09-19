@@ -3,6 +3,7 @@ package com.pantrybase.api.auth.service;
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.dto.LoginRequest;
 import com.pantrybase.api.auth.dto.RegisterRequest;
+import com.pantrybase.api.common.exception.EmailAlreadyExistsException;
 import com.pantrybase.api.common.exception.InvalidRefreshTokenException;
 import com.pantrybase.api.common.exception.UserNotFoundException;
 import com.pantrybase.api.common.exception.UsernameAlreadyExistsException;
@@ -49,7 +50,7 @@ public class AuthService {
             throw new UsernameAlreadyExistsException(request.username());
 
         if (userRepo.existsByEmail(request.email()))
-            throw new UsernameAlreadyExistsException(request.username());
+            throw new EmailAlreadyExistsException(request.email());
 
         User user = new User(
                 request.username(),
@@ -86,9 +87,8 @@ public class AuthService {
         if (!tokenService.isRefreshTokenValid(rawToken))
             throw new InvalidRefreshTokenException();
 
-        User user = userRepo
-                .findById(Long.valueOf(claims.getSubject()))
-                .orElseThrow();
+        User user = userRepo.findById(Long.valueOf(claims.getSubject()))
+                .orElseThrow(InvalidRefreshTokenException::new);
 
         tokenService.revokeRefreshToken(rawToken);
 

@@ -4,6 +4,7 @@ import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.dto.LoginRequest;
 import com.pantrybase.api.auth.dto.RegisterRequest;
 import com.pantrybase.api.auth.service.AuthService;
+import com.pantrybase.api.common.exception.InvalidRefreshTokenException;
 import com.pantrybase.api.common.security.CookieService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -42,16 +43,16 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(@CookieValue("refresh_token") String rtCookie,
+    public ResponseEntity<AuthResponse> refresh(@CookieValue(value = "refresh_token", required = false) String rtCookie,
                                                 HttpServletResponse response) {
-        if (rtCookie == null) throw new IllegalArgumentException("Refresh token cookie is missing");
+        if (rtCookie == null) throw new InvalidRefreshTokenException();
         AuthResponse tokens = authService.refreshTokens(rtCookie);
         response.addHeader(HttpHeaders.SET_COOKIE, cookieService.create(tokens.refreshToken()).toString());
         return ResponseEntity.ok(tokens);
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@CookieValue("refresh_token") String rtCookie,
+    public ResponseEntity<Void> logout(@CookieValue(value = "refresh_token", required = false) String rtCookie,
                                        HttpServletResponse response) {
         if (rtCookie != null) authService.logout(rtCookie);
         response.addHeader(HttpHeaders.SET_COOKIE, cookieService.clear().toString());

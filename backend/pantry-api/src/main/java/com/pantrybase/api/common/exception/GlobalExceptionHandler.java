@@ -1,49 +1,70 @@
 package com.pantrybase.api.common.exception;
 
 import com.pantrybase.api.common.dto.ErrorResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleUsernameAlreadyExistsException(UsernameAlreadyExistsException ex) {
+    public ResponseEntity<ErrorResponse> handleUsernameAlreadyExistsException(UsernameAlreadyExistsException ex,
+                                                                              HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse(
                         Instant.now(), 409, "Conflict",
-                        ex.getMessage(), "api/auth/register"));
+                        ex.getMessage(), request.getRequestURI()));
     }
 
     @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleEmailAlreadyExistsException(EmailAlreadyExistsException ex) {
+    public ResponseEntity<ErrorResponse> handleEmailAlreadyExistsException(EmailAlreadyExistsException ex,
+                                                                            HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse(
                         Instant.now(), 409, "Conflict",
-                        ex.getMessage(), "api/auth/register"));
+                        ex.getMessage(), request.getRequestURI()));
     }
 
     @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleUserNotFoundException(UserNotFoundException ex) {
+    public ResponseEntity<ErrorResponse> handleUserNotFoundException(UserNotFoundException ex,
+                                                                      HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(new ErrorResponse(
                         Instant.now(), 404, "Not Found",
-                        ex.getMessage(), "api/auth/login"));
+                        ex.getMessage(), request.getRequestURI()));
     }
 
     @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleInvalidRefreshTokenException(InvalidRefreshTokenException ex) {
+    public ResponseEntity<ErrorResponse> handleInvalidRefreshTokenException(InvalidRefreshTokenException ex,
+                                                                            HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(new ErrorResponse(
                         Instant.now(), 401, "Unauthorized",
-                        ex.getMessage(), "api/auth/refresh"));
+                        ex.getMessage(), request.getRequestURI()));
     }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex,
+                                                          HttpServletRequest request) {
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+                .collect(Collectors.joining("; "));
+
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponse(
+                        Instant.now(), 400, "Bad Request",
+                        message, request.getRequestURI()));
+    }
+
 }
