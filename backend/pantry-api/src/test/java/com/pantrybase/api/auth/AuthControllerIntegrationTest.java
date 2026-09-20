@@ -22,6 +22,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,6 +40,8 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
     public static final String REGISTER = "/api/auth/register";
     public static final String LOGIN = "/api/auth/login";
+    public static final String REFRESH = "/api/auth/refresh";
+    public static final String LOGOUT = "/api/auth/logout";
 
     private record Session(AuthResponse tokens, String refreshTokenCookie) {}
 
@@ -144,6 +147,83 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         assertError(HttpStatus.UNAUTHORIZED, response, LOGIN);
     }
 
+    @Test
+    void refreshToken_validRequest_shouldReturnNewAccessToken() {
+        Session session = registerAndGetRefreshToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.COOKIE, "refresh_token=" + session.refreshTokenCookie());
+
+        ResponseEntity<AuthResponse> response =
+                rest.postForEntity(REFRESH, new HttpEntity<>(headers), AuthResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+
+        assertThat(response.getBody().accessToken()).isNotBlank();
+        assertThat(response.getBody().accessToken()).isNotEqualTo(session.tokens().accessToken());
+        assertThat(response.getBody().refreshToken()).isNotBlank();
+        assertThat(response.getBody().refreshToken()).isNotEqualTo(session.tokens().refreshToken());
+        assertThat(response.getBody().expiresIn()).isEqualTo(900L);
+
+        ResponseEntity<ErrorResponse> reuseResponse =
+                rest.postForEntity(REFRESH, new HttpEntity<>(headers), ErrorResponse.class);
+        assertError(HttpStatus.UNAUTHORIZED, reuseResponse, REFRESH);
+    }
+
+    @Test
+    void refreshToken_invalidToken_shouldReturn401() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.COOKIE, "refresh_token=invalidtoken");
+
+        ResponseEntity<ErrorResponse> response =
+                rest.postForEntity(REFRESH, new HttpEntity<>(headers), ErrorResponse.class);
+
+        assertError(HttpStatus.UNAUTHORIZED, response, REFRESH);
+    }
+
+    @Test
+    void refreshToken_missingCookie_shouldReturn401() {
+        ResponseEntity<ErrorResponse> response =
+                rest.postForEntity(REFRESH, new HttpEntity<>(new HttpHeaders()), ErrorResponse.class);
+
+        assertError(HttpStatus.UNAUTHORIZED, response, REFRESH);
+    }
+
+    @Test
+    void logout_shouldInvalidateRefreshToken() {
+        Session session = registerAndGetRefreshToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.COOKIE, "refresh_token=" + session.refreshTokenCookie());
+
+        ResponseEntity<Void> response =
+                rest.postForEntity(LOGOUT, new HttpEntity<>(headers), Void.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        Map<String, String> attrs = extractCookieAttributes(response.getHeaders().getFirst(HttpHeaders.SET_COOKIE));
+
+        assertThat(attrs)
+                .containsEntry("refresh_token", "")
+                .containsEntry("Max-Age", "0")
+                .containsEntry("Path", "/api/auth")
+                .containsEntry("HttpOnly", "");
+
+        ResponseEntity<ErrorResponse> refreshResponse =
+                rest.postForEntity(REFRESH, new HttpEntity<>(headers), ErrorResponse.class);
+
+        assertError(HttpStatus.UNAUTHORIZED, refreshResponse, REFRESH);
+    }
+
+    @Test
+    void logout_missingCookie_shouldReturn204() {
+        ResponseEntity<Void> response =
+                rest.postForEntity(LOGOUT, new HttpEntity<>(new HttpHeaders()), Void.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
     private static Stream<Arguments> invalidRegisterPayloads() {
         return Stream.of(
                 Arguments.of("username too short", "ab", "ok@test.com", "password123", null, null),
@@ -200,6 +280,18 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
                 .map(part -> part.substring("refresh_token=".length()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Refresh token not found in Set-Cookie header"));
+    }
+
+    private Map<String, String> extractCookieAttributes(String setCookie) {
+        assertThat(setCookie).isNotBlank();
+
+        return Arrays.stream(setCookie.split(";"))
+                .map(String::trim)
+                .map(part -> part.split("=", 2))
+                .collect(Collectors.toMap(
+                        parts -> parts[0],
+                        parts -> parts.length > 1 ? parts[1] : "",
+                        (existing, replacement) -> existing));
     }
 
     private void login(String identifier) {
