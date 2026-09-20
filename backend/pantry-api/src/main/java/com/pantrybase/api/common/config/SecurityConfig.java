@@ -1,5 +1,6 @@
 package com.pantrybase.api.common.config;
 
+import com.pantrybase.api.common.ratelimit.RateLimitFilter;
 import com.pantrybase.api.common.security.JwtAuthFilter;
 import com.pantrybase.api.common.security.OAuth2AuthenticationFailureHandler;
 import com.pantrybase.api.common.security.OAuth2AuthenticationSuccessHandler;
@@ -39,7 +40,8 @@ public class SecurityConfig {
                                     RestAuthenticationEntryPoint entryPoint,
                                     OAuth2AuthenticationSuccessHandler successHandler,
                                     OAuth2AuthenticationFailureHandler failureHandler,
-                                    JwtAuthFilter jwtAuthFilter) throws Exception {
+                                    JwtAuthFilter jwtAuthFilter,
+                                    RateLimitFilter rateLimitFilter) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
@@ -64,7 +66,8 @@ public class SecurityConfig {
                                 "/swagger-ui.html"
                         ).permitAll()
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(rateLimitFilter, JwtAuthFilter.class);
         return http.build();
     }
 
