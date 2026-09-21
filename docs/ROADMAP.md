@@ -36,12 +36,12 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [ ] Login social OAuth2 (Google) con link-or-create (añadido a H1 en sept 2026).
 - [ ] Perfil: `UserPreferences` (modo de filtrado por defecto, umbral laxo, dieta).
 - [ ] Exclusión de alérgenos por usuario (`UserAllergyExclusion`).
-- [ ] Rate limiting en Redis por usuario + endpoint (token bucket).
+- [x] Rate limiting en Redis por usuario + endpoint (token bucket).
 - [ ] Frontend: pantalla de login, guardas de rutas, interceptores de JWT.
 
 **Definition of done:** permisos por rol y datos de preferencias persistidos; sesión expirada redirige al login.
 
-**Estado H1 (sept 2026):** bloque H1-A implementado en backend: registro/login/logout y refresh con JWT (JJWT), refresh token hasheado en BBDD con rotación, cookie `httpOnly` para el refresh, `GET /api/users/me`, y login OAuth2 Google con link-or-create. Pendiente dentro de H1: perfil (`UserPreferences`, `UserAllergyExclusion`), rate limiting en Redis (token bucket) y frontend. **Bloque H1-A cerrado en backend: 21 tests de integración verdes** (registro, login, refresh con rotación y reuso de token detectado, logout); el gate JaCoCo (≥0.80) se comprueba en el cierre del hito.
+**Estado H1 (sept 2026):** bloque H1-A y H1-B implementados en backend: registro/login/logout y refresh con JWT (JJWT), refresh token hasheado en BBDD con rotación, cookie `httpOnly` para el refresh, `GET /api/users/me`, login OAuth2 Google con link-or-create y rate limiting en Redis (token bucket). Pendiente dentro de H1: perfil (`UserPreferences`, `UserAllergyExclusion`) y frontend. **Bloques H1-A y H1-B cerrados en backend: 30 tests de integración verdes** (registro, login, refresh con rotación y reuso de token detectado, logout y rate limiting); el gate JaCoCo (≥0.80) verificado en el cierre de la bola (84,4%).
 
 ---
 
