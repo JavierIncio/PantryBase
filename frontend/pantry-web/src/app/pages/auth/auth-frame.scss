@@ -1,0 +1,26 @@
+// Full-viewport centering: the auth screens are shell-less, so the frame is
+// the whole page and must center the card vertically as well as horizontally.
+.auth-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+}
+
+// Form-level API error, styled with the Material system error token so it
+// matches the M3 theme regardless of light/dark mode.
+.auth-error {
+  color: var(--mat-sys-error);
+  background: color-mix(in srgb, var(--mat-sys-error) 8%, transparent);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font: var(--mat-sys-body-medium);
+}

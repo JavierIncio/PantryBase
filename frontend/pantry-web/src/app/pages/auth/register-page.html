@@ -1,0 +1,68 @@
+<app-auth-frame
+  title="Create your account"
+  subtitle="Start stocking your pantry"
+  [errorMessage]="errorMessage()"
+>
+  <form class="auth-form" [formGroup]="form" (ngSubmit)="submit()">
+    <mat-form-field>
+      <mat-label>Username</mat-label>
+      <input matInput formControlName="username" autocomplete="username" />
+      @if (form.controls.username.touched && form.controls.username.hasError('required')) {
+        <mat-error>A username is required.</mat-error>
+      } @else if (form.controls.username.touched && form.controls.username.hasError('minlength')) {
+        <mat-error>Use at least 3 characters.</mat-error>
+      } @else if (form.controls.username.touched && form.controls.username.hasError('maxlength')) {
+        <mat-error>Use at most 20 characters.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field>
+      <mat-label>Email</mat-label>
+      <input matInput formControlName="email" type="email" autocomplete="email" />
+      @if (form.controls.email.touched && form.controls.email.hasError('required')) {
+        <mat-error>An email is required.</mat-error>
+      } @else if (form.controls.email.touched && form.controls.email.hasError('email')) {
+        <mat-error>Enter a valid email address.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field>
+      <mat-label>Password</mat-label>
+      <input matInput formControlName="password" type="password" autocomplete="new-password" />
+      @if (form.controls.password.touched && form.controls.password.hasError('required')) {
+        <mat-error>A password is required.</mat-error>
+      } @else if (form.controls.password.touched && form.controls.password.hasError('minlength')) {
+        <mat-error>Use at least 8 characters.</mat-error>
+      } @else if (form.controls.password.touched && form.controls.password.hasError('maxlength')) {
+        <mat-error>Use at most 72 characters.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field>
+      <mat-label>First name (optional)</mat-label>
+      <input matInput formControlName="firstName" autocomplete="given-name" />
+      @if (form.controls.firstName.touched && form.controls.firstName.hasError('maxlength')) {
+        <mat-error>Use at most 50 characters.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field>
+      <mat-label>Last name (optional)</mat-label>
+      <input matInput formControlName="lastName" autocomplete="family-name" />
+      @if (form.controls.lastName.touched && form.controls.lastName.hasError('maxlength')) {
+        <mat-error>Use at most 50 characters.</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="auth-actions">
+      <button mat-flat-button type="submit" [disabled]="submitting()">
+        @if (submitting()) {
+          <mat-spinner diameter="20" />
+        } @else {
+          Create account
+        }
+      </button>
+      <a mat-button routerLink="/login">Already have an account? Sign in</a>
+    </div>
+  </form>
+</app-auth-frame>

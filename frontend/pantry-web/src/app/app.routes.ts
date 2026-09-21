@@ -1,10 +1,35 @@
 import { Routes } from '@angular/router';
 import { Shell } from './core/layout/shell';
+import { authGuard } from './core/auth/auth.guard';
 
-/** Route definitions of the application: feature pages are lazy-loaded leaves under the shell. */
+/**
+ * Route definitions of the application.
+ *
+ * The authentication screens are public and live outside the shell (no
+ * toolbar/navigation). Every product area hangs from the guarded shell route:
+ * an anonymous visitor is either silently restored through the refresh cookie
+ * by {@link authGuard} or bounced to the login page.
+ */
 export const routes: Routes = [
   {
+    path: 'login',
+    title: 'Sign in',
+    loadComponent: () => import('./pages/auth/login-page').then((m) => m.LoginPage),
+  },
+  {
+    path: 'register',
+    title: 'Create account',
+    loadComponent: () => import('./pages/auth/register-page').then((m) => m.RegisterPage),
+  },
+  {
+    path: 'oauth2/callback',
+    title: 'Signing in',
+    loadComponent: () =>
+      import('./pages/auth/oauth-redirect-page').then((m) => m.OAuthRedirectPage),
+  },
+  {
     path: '',
+    canMatch: [authGuard],
     component: Shell,
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'pantry' },

@@ -1,0 +1,15 @@
+<div class="auth-frame">
+  <mat-card class="auth-card" appearance="outlined">
+    <mat-card-header>
+      <mat-icon mat-card-avatar>kitchen</mat-icon>
+      <mat-card-title>{{ title() }}</mat-card-title>
+      <mat-card-subtitle>{{ subtitle() }}</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (errorMessage(); as message) {
+        <div class="auth-error" role="alert">{{ message }}</div>
+      }
+      <ng-content />
+    </mat-card-content>
+  </mat-card>
+</div>

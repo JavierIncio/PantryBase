@@ -1,0 +1,34 @@
+<app-auth-frame
+  title="Welcome back"
+  subtitle="Sign in to your pantry"
+  [errorMessage]="errorMessage()"
+>
+  <form class="auth-form" [formGroup]="form" (ngSubmit)="submit()">
+    <mat-form-field>
+      <mat-label>Username or email</mat-label>
+      <input matInput formControlName="loginMethod" autocomplete="username" />
+      @if (form.controls.loginMethod.touched && form.controls.loginMethod.hasError('required')) {
+        <mat-error>Enter your username or email.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field>
+      <mat-label>Password</mat-label>
+      <input matInput formControlName="password" type="password" autocomplete="current-password" />
+      @if (form.controls.password.touched && form.controls.password.hasError('required')) {
+        <mat-error>Enter your password.</mat-error>
+      }
+    </mat-form-field>
+
+    <div class="auth-actions">
+      <button mat-flat-button type="submit" [disabled]="submitting()">
+        @if (submitting()) {
+          <mat-spinner diameter="20" />
+        } @else {
+          Sign in
+        }
+      </button>
+      <a mat-button routerLink="/register">Create an account</a>
+    </div>
+  </form>
+</app-auth-frame>

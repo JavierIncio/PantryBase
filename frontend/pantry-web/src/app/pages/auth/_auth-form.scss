@@ -1,0 +1,23 @@
+// Shared vertical form layout for the auth pages. Imported with `@use` from
+// login-page.scss and register-page.scss so each page stays visually
+// consistent without duplicating the rules (Sass partial, never emitted alone).
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  mat-form-field {
+    width: 100%;
+  }
+}
+
+.auth-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+
+  button[mat-flat-button] {
+    width: 100%;
+  }
+}
