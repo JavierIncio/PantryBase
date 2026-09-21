@@ -1,6 +1,6 @@
 package com.pantrybase.api.common.ratelimit;
 
-import com.pantrybase.api.common.dto.ErrorResponse;
+import com.pantrybase.api.common.dto.ErrorResponseFactory;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,7 +15,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.time.Instant;
 
 /**
  * RateLimitFilter is a Spring filter that enforces rate limiting on incoming HTTP requests.
@@ -27,6 +26,8 @@ import java.time.Instant;
 public class RateLimitFilter extends OncePerRequestFilter {
 
     public static final String RATE_LIMIT_BUCKET_KEY = "rate:{user}:{method}:{path}";
+    public static final String RATE_LIMIT_REMAINING_HEADER = "X-RateLimit-Remaining";
+    public static final String RATE_LIMIT_LIMIT_HEADER = "X-RateLimit-Limit";
 
     private final TokenBucketRateLimiter rateLimiter;
     private final RateLimitProperties properties;
@@ -66,17 +67,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String bucketKey = resolveBucketKey(request);
         TokenBucketRateLimiter.RateLimitResult result = rateLimiter.consume(bucketKey);
 
-        response.setHeader("X-RateLimit-Limit", String.valueOf(properties.capacity()));
-        response.setHeader("X-RateLimit-Remaining", String.valueOf(result.remainingTokens()));
-
+        response.setHeader(RATE_LIMIT_LIMIT_HEADER, String.valueOf(properties.capacity()));
+        response.setHeader(RATE_LIMIT_REMAINING_HEADER, String.valueOf(result.remainingTokens()));
 
         if (!result.allowed()) {
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
-            objectMapper.writeValue(response.getWriter(), new ErrorResponse(
-                    Instant.now(), 429, "Too Many Requests",
-                    "Rate limit exceeded.", request.getRequestURI()));
+            objectMapper.writeValue(response.getWriter(), ErrorResponseFactory
+                    .of(HttpStatus.TOO_MANY_REQUESTS, "Rate limit exceeded.", request));
             return;
         }
 

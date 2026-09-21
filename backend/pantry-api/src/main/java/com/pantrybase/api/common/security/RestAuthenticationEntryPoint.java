@@ -1,6 +1,7 @@
 package com.pantrybase.api.common.security;
 
 import com.pantrybase.api.common.dto.ErrorResponse;
+import com.pantrybase.api.common.dto.ErrorResponseFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.AuthenticationException;
@@ -9,8 +10,6 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.time.Instant;
-
 
 @Component
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
@@ -25,10 +24,8 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
     public void commence(HttpServletRequest request,
                          HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
-        ErrorResponse body = new ErrorResponse(
-                Instant.now(), 401, "Unauthorized",
-                "Authentication required", request.getRequestURI());
 
+        ErrorResponse body = ErrorResponseFactory.unauthorized(request);
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
         response.getWriter().write(objectMapper.writeValueAsString(body));
