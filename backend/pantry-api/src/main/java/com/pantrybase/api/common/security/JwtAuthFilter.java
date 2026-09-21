@@ -15,6 +15,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * A filter that intercepts incoming HTTP requests to authenticate users based on JWT tokens.
+ *
+ * <p>This filter checks for the presence of a Bearer token in the Authorization header, validates it,
+ * and sets the authentication context if the token is valid.</p>
+ *
+ * <p>It extends {@link OncePerRequestFilter} to ensure that the filter is executed only once per request.</p>
+ */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
 
@@ -24,6 +32,29 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         this.jwtService = jwtService;
     }
 
+    /**
+     * Filters incoming HTTP requests to authenticate users based on JWT tokens.
+     *
+     * <ol>
+     *   <li>Checks for the presence of a Bearer token in the Authorization header</li>
+     *   <li>Validates the token</li>
+     *   <li>Creates an authentication containing the user ID and granted authorities</li>
+     *   <li>Stores the authentication in the security context for the current request</li>
+     * </ol>
+     *
+     * <p>Storing the authentication in the security context allows Spring Security
+     * to recognize the request as authenticated and makes the authenticated principal
+     * available through mechanisms such as {@code @AuthenticationPrincipal}.</p>
+     *
+     * <p>If the token is invalid, the security context is cleared and the request
+     * continues through the filter chain without authentication.</p>
+     *
+     * @param request     the HttpServletRequest object
+     * @param response    the HttpServletResponse object
+     * @param filterChain the FilterChain object to pass the request and response to the next filter
+     * @throws ServletException if an error occurs during filtering
+     * @throws IOException      if an I/O error occurs during filtering
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,

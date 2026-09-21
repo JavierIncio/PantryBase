@@ -13,6 +13,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * Controller for handling authentication-related endpoints.
+ */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -25,6 +28,13 @@ public class AuthController {
         this.cookieService = cookieService;
     }
 
+    /**
+     * Registers a new user and returns authentication tokens.
+     *
+     * @param request  the registration request containing user details
+     * @param response the HTTP response to add cookies to
+     * @return a ResponseEntity containing the authentication tokens
+     */
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request,
                                                  HttpServletResponse response) {
@@ -33,6 +43,13 @@ public class AuthController {
         return ResponseEntity.status(HttpStatus.CREATED).body(tokens);
     }
 
+    /**
+     * Logs in a user and returns authentication tokens.
+     *
+     * @param request  the login request containing user credentials
+     * @param response the HTTP response to add cookies to
+     * @return a ResponseEntity containing the authentication tokens
+     */
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
                                               HttpServletResponse response) {
@@ -42,6 +59,13 @@ public class AuthController {
         return ResponseEntity.ok(tokens);
     }
 
+    /**
+     * Refreshes the authentication tokens using the provided refresh token.
+     *
+     * @param rtCookie the refresh token cookie
+     * @param response the HTTP response to add cookies to
+     * @return a ResponseEntity containing the new authentication tokens
+     */
     @PostMapping("/refresh")
     public ResponseEntity<AuthResponse> refresh(@CookieValue(value = "refresh_token", required = false) String rtCookie,
                                                 HttpServletResponse response) {
@@ -51,6 +75,13 @@ public class AuthController {
         return ResponseEntity.ok(tokens);
     }
 
+    /**
+     * Logs out a user by invalidating the refresh token and clearing the cookie.
+     *
+     * @param rtCookie the refresh token cookie
+     * @param response the HTTP response to clear cookies
+     * @return a ResponseEntity with no content
+     */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@CookieValue(value = "refresh_token", required = false) String rtCookie,
                                        HttpServletResponse response) {

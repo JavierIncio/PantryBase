@@ -22,6 +22,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * Service class for handling authentication-related operations.
+ */
 @Service
 public class AuthService {
 
@@ -43,6 +46,14 @@ public class AuthService {
         this.tokenService = tokenService;
     }
 
+    /**
+     * Registers a new user based on the provided registration request.
+     *
+     * @param request the registration request containing user details
+     * @return an AuthResponse containing access and refresh tokens
+     * @throws UsernameAlreadyExistsException if the username is already taken
+     * @throws EmailAlreadyExistsException    if the email is already registered
+     */
     public AuthResponse register(RegisterRequest request) {
         if (userRepo.existsByUsername(request.username()))
             throw new UsernameAlreadyExistsException(request.username());
@@ -63,6 +74,13 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    /**
+     * Authenticates a user based on the provided login request.
+     *
+     * @param request the login request containing user credentials
+     * @return an AuthResponse containing access and refresh tokens
+     * @throws InvalidCredentialsException if the credentials are invalid
+     */
     public AuthResponse login(LoginRequest request) {
         try {
             authManager.authenticate(new UsernamePasswordAuthenticationToken(
@@ -75,6 +93,21 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    /**
+     * Refreshes the access and refresh tokens for a user.
+     *
+     * <ol>
+     *   <li>Parse the raw refresh token to extract its claims.</li>
+     *   <li>Validate the token type and its validity.</li>
+     *   <li>Retrieve the user associated with the token.</li>
+     *   <li>Revoke the old refresh token.</li>
+     *   <li>Issue new access and refresh tokens for the user.</li>
+     * </ol>
+     *
+     * @param rawToken the raw refresh token
+     * @return an AuthResponse containing the new access and refresh tokens
+     * @throws InvalidRefreshTokenException if the refresh token is invalid
+     */
     public AuthResponse refreshTokens(String rawToken) {
         Claims claims;
         try {
@@ -97,18 +130,34 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    /**
+     * Logs out a user by revoking their refresh token.
+     *
+     * @param rawToken the raw refresh token
+     */
     public void logout(String rawToken) {
         tokenService.revokeRefreshToken(rawToken);
     }
 
+    /**
+     * Links or creates a user from OAuth2 provider attributes.
+     *
+     * @param attributes OAuth2 provider attributes
+     * @return the linked or newly created user
+     * @throws IllegalArgumentException if the email is missing
+     */
     public User linkOrCreateOAuthUser(Map<String, Object> attributes) {
         String googleId = (String) attributes.get("sub");
         String email = (String) attributes.get("email");
-        if (email == null || email.isBlank())
+
+        if (email == null || email.isBlank()) {
             throw new IllegalArgumentException("Email is missing in OAuth2 attributes");
+        }
 
         Optional<User> userByGoogleId = userRepo.findByGoogleId(googleId);
-        if (userByGoogleId.isPresent()) return userByGoogleId.get();
+        if (userByGoogleId.isPresent()) {
+            return userByGoogleId.get();
+        }
 
         Optional<User> userByEmail = userRepo.findByUsernameOrEmail(null, email);
         if (userByEmail.isPresent()) {
@@ -128,11 +177,16 @@ public class AuthService {
         newUser.setEnabled(true);
         newUser.setRoles(Set.of(Role.USER));
         newUser.setGoogleId(googleId);
-        userRepo.save(newUser);
-        return newUser;
+
+        return userRepo.save(newUser);
     }
 
-
+    /**
+     * Issues access and refresh tokens for the given user.
+     *
+     * @param user the user for whom to issue tokens
+     * @return an AuthResponse containing the issued tokens
+     */
     public AuthResponse issueTokens(User user) {
         String accessToken = jwtService.generateAccessToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);

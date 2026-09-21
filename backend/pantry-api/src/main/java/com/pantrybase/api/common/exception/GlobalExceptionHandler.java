@@ -11,9 +11,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.stream.Collectors;
 
+/**
+ * Centralizes exception handling for the REST API.
+ *
+ * <p>Maps application and validation exceptions to standardized {@link ErrorResponse} objects
+ * and appropriate HTTP status codes.</p>
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    /**
+     * Handles bean validation failures by returning the field errors as a single message.
+     */
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex,
                                                           HttpServletRequest request) {
@@ -52,7 +61,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handleUsernameAlreadyExistsException(UsernameAlreadyExistsException ex,
                                                                               HttpServletRequest request) {
-        ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request);
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));

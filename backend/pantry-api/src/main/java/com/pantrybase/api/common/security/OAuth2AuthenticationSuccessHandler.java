@@ -15,6 +15,9 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
+/**
+ * Handles successful OAuth2 authentication by linking or creating a user, issuing tokens, and redirecting to the frontend.
+ */
 @Component
 public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccessHandler {
 
@@ -29,6 +32,21 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
         this.cookieService = cookieService;
     }
 
+    /**
+     * Called when OAuth2 authentication is successful.
+     *
+     * <p>Links or creates a user, issues access and refresh tokens, stores the
+     * refresh token in a cookie, and redirects the browser to the frontend with
+     * the access token in the URL fragment.</p>
+     *
+     * <p>The URL fragment is handled by the browser and is not included in the
+     * HTTP request sent to the frontend server.</p>
+     *
+     * @param request        the HttpServletRequest
+     * @param response       the HttpServletResponse
+     * @param authentication the Authentication object containing the authenticated OAuth2 user
+     * @throws IOException if an input or output exception occurs
+     */
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request,
                                         HttpServletResponse response,
