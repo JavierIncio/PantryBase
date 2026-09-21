@@ -6,26 +6,12 @@ import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.user.dto.UserResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.*;
-
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
 
-    private static final String RATE_LIMIT_REMAINING = "X-RateLimit-Remaining";
-    private static final String RATE_LIMIT_LIMIT = "X-RateLimit-Limit";
-
-    private static final Map<String, String> DEFAULT_USER = Map.of(
-            "username", "JohnDoe",
-            "email", "john.doe@example.com",
-            "password", "password123"
-    );
-
-    @Autowired
-    private TestRestTemplate rest;
     @Autowired
     private RateLimitProperties props;
 
@@ -65,7 +51,7 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
         assertLimited(meFailed(session), ME);
 
         HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.COOKIE, "refresh_token=" + session.refreshToken());
+        headers.add(HttpHeaders.COOKIE, "refresh_token=" + session.tokens().refreshToken());
         ResponseEntity<AuthResponse> refresh =
                 rest.postForEntity(REFRESH, new HttpEntity<>(headers), AuthResponse.class);
 
@@ -99,37 +85,14 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
         for (int request = 1; request <= props.capacity() + 5; request++) {
             ResponseEntity<Void> response = rest.exchange("/actuator/health", HttpMethod.GET, null, Void.class);
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-            assertThat(response.getHeaders().containsHeader(RATE_LIMIT_LIMIT)).isFalse();
-            assertThat(response.getHeaders().containsHeader(RATE_LIMIT_REMAINING)).isFalse();
+            assertThat(response.getHeaders().containsHeader(RateLimitFilter.RATE_LIMIT_LIMIT_HEADER)).isFalse();
+            assertThat(response.getHeaders().containsHeader(RateLimitFilter.RATE_LIMIT_REMAINING_HEADER)).isFalse();
         }
     }
 
 
-    // Helper methods for making requests and assertions
-
-    private ResponseEntity<AuthResponse> registerUser(Map<String, String> user) {
-        ResponseEntity<AuthResponse> response =
-                rest.postForEntity(REGISTER, new HttpEntity<>(user), AuthResponse.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(response.getBody()).isNotNull();
-
-        return response;
-    }
-
-    private Session registerSession() {
-        AuthResponse auth = registerUser(DEFAULT_USER).getBody();
-        assertThat(auth).isNotNull();
-        assertThat(auth.accessToken()).isNotNull();
-        return new Session(auth.accessToken(), auth.refreshToken());
-    }
-
     private ResponseEntity<ErrorResponse> loginWith(String password) {
         return rest.postForEntity(LOGIN, credentials("JohnDoe", password), ErrorResponse.class);
-    }
-
-    private HttpEntity<Map<String, String>> credentials(String loginMethod, String password) {
-        return new HttpEntity<>(Map.of("loginMethod", loginMethod, "password", password));
     }
 
     private ResponseEntity<UserResponse> me(Session session) {
@@ -142,7 +105,7 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
 
     private HttpEntity<Void> authenticated(Session session) {
         HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(session.accessToken());
+        headers.setBearerAuth(session.tokens().accessToken());
         return new HttpEntity<>(headers);
     }
 
@@ -152,27 +115,12 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
 
     private void assertRateLimitHeaders(ResponseEntity<?> response, long remaining) {
         HttpHeaders headers = response.getHeaders();
-        assertThat(headers.getFirst(RATE_LIMIT_LIMIT)).isEqualTo(String.valueOf(props.capacity()));
-        assertThat(headers.getFirst(RATE_LIMIT_REMAINING)).isEqualTo(String.valueOf(remaining));
+        assertThat(headers.getFirst(RateLimitFilter.RATE_LIMIT_LIMIT_HEADER)).isEqualTo(String.valueOf(props.capacity()));
+        assertThat(headers.getFirst(RateLimitFilter.RATE_LIMIT_REMAINING_HEADER)).isEqualTo(String.valueOf(remaining));
     }
 
     private void assertLimited(ResponseEntity<ErrorResponse> response, String path) {
         assertError(response, HttpStatus.TOO_MANY_REQUESTS, path);
         assertRateLimitHeaders(response, 0);
     }
-
-    private void assertError(ResponseEntity<ErrorResponse> response,
-                             HttpStatus expectedStatus,
-                             String expectedPath) {
-        assertThat(response.getStatusCode()).isEqualTo(expectedStatus);
-        assertThat(response.getBody()).isNotNull().satisfies(body -> {
-            assertThat(body.status()).isEqualTo(expectedStatus.value());
-            assertThat(body.error()).isEqualTo(expectedStatus.getReasonPhrase());
-            assertThat(body.message()).isNotBlank();
-            assertThat(body.path()).isEqualTo(expectedPath);
-            assertThat(body.timestamp()).isNotNull();
-        });
-    }
-
-    private record Session(String accessToken, String refreshToken) {}
 }
