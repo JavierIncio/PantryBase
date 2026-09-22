@@ -5,6 +5,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.Set;
 
 @Entity
@@ -42,6 +43,13 @@ public class User {
 
     @Column(name = "google_id", unique = true)
     private String googleId;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_allergy_exclusions",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "allergen_id"))
+    private Set<Allergen> allergyExclusions = new HashSet<>();
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -134,6 +142,14 @@ public class User {
 
     public void setGoogleId(String googleId) {
         this.googleId = googleId;
+    }
+
+    public Set<Allergen> getAllergyExclusions() {
+        return allergyExclusions;
+    }
+
+    public void setAllergyExclusions(Set<Allergen> allergyExclusions) {
+        this.allergyExclusions = allergyExclusions;
     }
 
     public Instant getCreatedAt() {

@@ -3,6 +3,7 @@ package com.pantrybase.api;
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.repository.RefreshTokenRepository;
 import com.pantrybase.api.common.dto.ErrorResponse;
+import com.pantrybase.api.user.repository.UserPreferencesRepository;
 import com.pantrybase.api.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,11 +48,15 @@ public abstract class AbstractIntegrationTest {
     protected UserRepository userRepository;
     @Autowired
     protected RefreshTokenRepository refreshTokenRepository;
+    @Autowired
+    protected UserPreferencesRepository preferencesRepository;
 
     @BeforeEach
     void setUp() {
         userRepository.deleteAll();
         refreshTokenRepository.deleteAll();
+        preferencesRepository.deleteAll();
+
         Set<String> keys = redisTemplate.keys("rate:*");
         if (keys != null && !keys.isEmpty()) {
             redisTemplate.delete(keys);

@@ -5,6 +5,7 @@ import com.pantrybase.api.common.dto.ErrorResponseFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -32,6 +33,28 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity.badRequest()
                 .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, message, request));
+    }
+
+    /**
+     * Maps unknown allergen codes (invalid request values) to a standardized 400 response.
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleUnknownAllergenCodeException(UnknownAllergenCodeException ex,
+                                                                            HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps malformed JSON bodies (including unknown enum values) to a standardized 400 response.
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex,
+                                                              HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, "Malformed request body", request));
     }
 
     @ExceptionHandler

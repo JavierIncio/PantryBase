@@ -34,14 +34,15 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 - [x] Registro/login con Spring Security + JWT (refresh token).
 - [x] Login social OAuth2 (Google) con link-or-create (añadido a H1 en sept 2026).
-- [ ] Perfil: `UserPreferences` (modo de filtrado por defecto, umbral laxo, dieta).
-- [ ] Exclusión de alérgenos por usuario (`UserAllergyExclusion`).
+- [x] Perfil: `UserPreferences` (modo de filtrado por defecto, umbral laxo, dieta).
+- [x] Exclusión de alérgenos por usuario (`UserAllergyExclusion`).
+- [x] Catálogo de alérgenos consultable (`GET /api/users/allergens`).
 - [x] Rate limiting en Redis por usuario + endpoint (token bucket).
 - [x] Frontend: pantalla de login, guardas de rutas, interceptores de JWT.
 
 **Definition of done:** permisos por rol y datos de preferencias persistidos; sesión expirada redirige al login.
 
-**Estado H1 (sept 2026):** bloque H1-A y H1-B implementados en backend: registro/login/logout y refresh con JWT (JJWT), refresh token hasheado en BBDD con rotación, cookie `httpOnly` para el refresh, `GET /api/users/me`, login OAuth2 Google con link-or-create y rate limiting en Redis (token bucket). Pendiente dentro de H1: perfil (`UserPreferences`, `UserAllergyExclusion`). **Bloques H1-A y H1-B cerrados en backend: 30 tests de integración verdes** (registro, login, refresh con rotación y reuso de token detectado, logout y rate limiting); el gate JaCoCo (≥0.80) verificado en el cierre de la bola (84,4%). **Bloque F1 frontend cerrado (sept 2026):** login/registro y callback OAuth2 públicos fuera del shell, guarda de rutas con restauración de sesión en arranque vía cookie `httpOnly` (D2: `POST /api/auth/refresh` + `GET /api/users/me`), interceptor JWT con `Bearer` y refresh single-flight con reintento único; proxy dev `/api` → `localhost:8080` sin CORS; 30 tests Vitest verdes y `ng build` limpio; requiere Node ≥ 24.15 (Angular CLI 22).
+**Estado H1 (sept 2026):** bloque H1-A y H1-B implementados en backend: registro/login/logout y refresh con JWT (JJWT), refresh token hasheado en BBDD con rotación, cookie `httpOnly` para el refresh, `GET /api/users/me`, login OAuth2 Google con link-or-create y rate limiting en Redis (token bucket). Pendiente dentro de H1: pantalla de perfil en el frontend (F2). **Bloque H1-C cerrado (sept 2026):** perfil (`UserPreferences` con `@Id @MapsId` + `Persistable` para clave asignada, valores por defecto sin fila persistida vía dirty-checking), exclusión de alérgenos (14 códigos UE seedeados, contrato estricto — `"peanut"`/`"EGGS"` → 400) y catálogo `GET /api/users/allergens` con orden determinista. **41 tests de integración verdes y gate JaCoCo verificado.** **Bloques H1-A y H1-B cerrados en backend: 30 tests de integración verdes** (registro, login, refresh con rotación y reuso de token detectado, logout y rate limiting); el gate JaCoCo (≥0.80) verificado en el cierre de la bola (84,4%). **Bloque F1 frontend cerrado (sept 2026):** login/registro y callback OAuth2 públicos fuera del shell, guarda de rutas con restauración de sesión en arranque vía cookie `httpOnly` (D2: `POST /api/auth/refresh` + `GET /api/users/me`), interceptor JWT con `Bearer` y refresh single-flight con reintento único; proxy dev `/api` → `localhost:8080` sin CORS; 30 tests Vitest verdes y `ng build` limpio; requiere Node ≥ 24.15 (Angular CLI 22).
 
 ---
 
