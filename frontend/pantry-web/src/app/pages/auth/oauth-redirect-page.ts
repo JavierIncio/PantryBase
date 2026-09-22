@@ -19,7 +19,7 @@ export function readAccessTokenFromHash(hash: string): string | null {
 }
 
 /**
- * OAuth2 callback page rendered at `/oauth2/callback`.
+ * OAuth2 callback page rendered at `/auth/callback`.
  *
  * Reads the access token from the fragment, pairs it with the profile fetched
  * from `/api/users/me` and redirects to the pantry. This page has no UI: it

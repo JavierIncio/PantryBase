@@ -47,7 +47,7 @@ app:
     cookie:
       secure: false
     oauth2:
-      redirect-uri: http://localhost:4200/oauth2/callback
+      redirect-uri: http://localhost:4200/auth/callback
   rate-limit:
     capacity: 10
     refill-interval-millis: 1000

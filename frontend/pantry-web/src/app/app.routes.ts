@@ -22,7 +22,7 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/auth/register-page').then((m) => m.RegisterPage),
   },
   {
-    path: 'oauth2/callback',
+    path: 'auth/callback',
     title: 'Signing in',
     loadComponent: () =>
       import('./pages/auth/oauth-redirect-page').then((m) => m.OAuthRedirectPage),
