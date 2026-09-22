@@ -45,6 +45,7 @@
               min="0"
               max="100"
               step="1"
+              [disabled]="coverageLocked()"
             >
               <input matSliderThumb formControlName="coverageThreshold" />
             </mat-slider>

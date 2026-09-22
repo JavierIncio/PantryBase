@@ -57,6 +57,10 @@ const DIET_OPTIONS: ReadonlyArray<{ value: Diet; label: string }> = [
  * Saving is explicit (no auto-save): the Save buttons stay disabled until the
  * user edits something, and a successful PUT re-syncs the form with the server
  * values — which also clears the dirty flag without extra bookkeeping.
+ *
+ * The Preferences card enforces the domain invariant `filterMode == 'STRICT'`
+ * ⟺ `coverageThreshold == 100` (see `wireCoverageInvariant`): the fields can
+ * never contradict each other, whatever direction the change comes from.
  */
 @Component({
   selector: 'app-profile-page',
@@ -113,6 +117,15 @@ export class ProfilePage implements OnInit {
   protected readonly prefsSaveError = signal<string | null>(null);
   protected readonly savingPrefs = signal(false);
 
+  /**
+   * True while the filter mode is STRICT: the coverage slider is locked at 100.
+   *
+   * Kept as a signal feeding the slider's `[disabled]` binding — instead of
+   * `control.disable()` — so locking never marks the form dirty or touched and
+   * the pristine-load flow is preserved. Updated by `wireCoverageInvariant`.
+   */
+  protected readonly coverageLocked = signal(false);
+
   // --- Allergy exclusions card ---------------------------------------------
 
   /** Allergens of the catalog, in the API-driven order (by name). */
@@ -126,8 +139,33 @@ export class ProfilePage implements OnInit {
   protected readonly savingExclusions = signal(false);
 
   ngOnInit(): void {
+    this.wireCoverageInvariant();
     this.loadPreferences();
     this.loadExclusions();
+  }
+
+  /**
+   * Enforces `filterMode == 'STRICT'` ⟺ `coverageThreshold == 100` on user edits.
+   *
+   * Both directions listen to the other field's `valueChanges` and guard their
+   * write against an already-consistent sibling, so the two converge to the
+   * invariant without echoing each other's changes in a loop. Programmatic
+   * `setValue` never marks the form dirty, so load and post-save resets keep a
+   * pristine form even when the handler fires during them.
+   */
+  private wireCoverageInvariant(): void {
+    this.prefsForm.controls.filterMode.valueChanges.subscribe((mode) => {
+      this.coverageLocked.set(mode === 'STRICT');
+      if (mode === 'STRICT' && this.prefsForm.controls.coverageThreshold.value !== 100) {
+        this.prefsForm.controls.coverageThreshold.setValue(100);
+      }
+    });
+
+    this.prefsForm.controls.coverageThreshold.valueChanges.subscribe((threshold) => {
+      if (threshold === 100 && this.prefsForm.controls.filterMode.value !== 'STRICT') {
+        this.prefsForm.controls.filterMode.setValue('STRICT');
+      }
+    });
   }
 
   /** Fetches the stored preferences (or the backend defaults) into the form. */
@@ -136,7 +174,7 @@ export class ProfilePage implements OnInit {
     this.prefsLoadError.set(null);
     this.profile.getPreferences().subscribe({
       next: (prefs) => {
-        this.prefsForm.reset(prefs);
+        this.prefsForm.reset(this.normalizePreferences(prefs));
         this.prefsLoading.set(false);
       },
       error: (error: HttpErrorResponse) => {
@@ -144,6 +182,20 @@ export class ProfilePage implements OnInit {
         this.prefsLoadError.set(toErrorResponse(error).message || 'Unable to load preferences.');
       },
     });
+  }
+
+  /**
+   * Aligns a server response with the coverage invariant before resetting.
+   *
+   * The backend contract is permissive (threshold 0-100, no cross-field
+   * validation), but the domain forbids the STRICT + threshold < 100 pair, so
+   * it is normalized here — before `reset()` — to load a pristine form.
+   */
+  private normalizePreferences(prefs: UserPreferences): UserPreferences {
+    if (prefs.filterMode === 'STRICT' && prefs.coverageThreshold !== 100) {
+      return { ...prefs, coverageThreshold: 100 };
+    }
+    return prefs;
   }
 
   /** Sends the edited preferences; on success re-syncs the form with the server. */

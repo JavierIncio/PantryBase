@@ -295,4 +295,70 @@ describe('ProfilePage', () => {
 
     expect(host.querySelector('.preferences-card .save-preferences')).toBeTruthy();
   });
+
+  /**
+   * The slider's underlying `<input>` thumb: MatSlider reflects its `[disabled]`
+   * input by propagating it to the thumb, which lands on this element.
+   */
+  const thresholdInput = (fixture: ComponentFixture<ProfilePage>) =>
+    fixture.nativeElement.querySelector('.threshold-slider input') as HTMLInputElement;
+
+  it('locks the coverage threshold at 100 and disables the slider when the mode turns strict', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const threshold = component.prefsForm.controls.coverageThreshold;
+
+    component.prefsForm.controls.filterMode.setValue('STRICT');
+    fixture.detectChanges();
+
+    expect(threshold.value).toBe(100);
+    expect(thresholdInput(fixture).disabled).toBe(true);
+    // Domino effect: the flip also normalizes a previous divergent threshold.
+    component.prefsForm.controls.filterMode.setValue('LAX');
+    fixture.detectChanges();
+    expect(thresholdInput(fixture).disabled).toBe(false);
+    expect(threshold.value).toBe(100); // preserved, the user can lower it now
+  });
+
+  it('switches the filter mode to strict when the coverage threshold reaches 100', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const mode = component.prefsForm.controls.filterMode;
+
+    expect(mode.value).toBe('LAX');
+    component.prefsForm.controls.coverageThreshold.setValue(100);
+    fixture.detectChanges();
+
+    expect(mode.value).toBe('STRICT');
+    expect(thresholdInput(fixture).disabled).toBe(true);
+  });
+
+  it('normalizes a strict response with a threshold below 100 to a pristine 100% form', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    service.getPreferences.mockReturnValue(
+      of({ filterMode: 'STRICT', coverageThreshold: 80, diet: 'LOW_CARB' }),
+    );
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(component.prefsForm.controls.coverageThreshold.value).toBe(100);
+    expect(component.prefsForm.controls.filterMode.value).toBe('STRICT');
+    expect(host.querySelector('.threshold-value')?.textContent).toContain('100%');
+    // Normalizing before reset keeps the load pristine, so Save stays disabled.
+    expect(component.prefsForm.pristine).toBe(true);
+    expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
+    expect(component.prefsForm.getRawValue().coverageThreshold).toBe(100);
+  });
 });
