@@ -1,0 +1,85 @@
+// Profile layout: a header on top and two independent cards side by side on
+// wide viewports, stacked on narrow ones (auto-fit handles both cases).
+.profile-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1.5rem;
+
+  h1 {
+    margin: 0;
+    font-size: var(--mat-sys-headline-medium-size);
+  }
+
+  p {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.profile-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  align-items: start;
+  gap: 1.5rem;
+}
+
+.profile-card {
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  mat-form-field {
+    width: 100%;
+  }
+}
+
+// Shared state block used for the loading spinner and the error + retry UI.
+.card-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 0;
+
+  p {
+    margin: 0;
+    color: var(--mat-sys-error);
+  }
+}
+
+.threshold-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 1rem;
+  align-items: center;
+
+  .threshold-slider {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+.threshold-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.allergen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  column-gap: 1.5rem;
+  row-gap: 0.5rem;
+}
+
+.save-error {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}

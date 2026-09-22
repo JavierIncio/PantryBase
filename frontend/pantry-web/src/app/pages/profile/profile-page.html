@@ -1,0 +1,134 @@
+<header class="profile-header">
+  <h1>Profile</h1>
+  <p class="profile-email">{{ email() }}</p>
+</header>
+
+<div class="profile-cards">
+  <mat-card class="profile-card preferences-card">
+    <mat-card-header>
+      <mat-card-title>Preferences</mat-card-title>
+      <mat-card-subtitle>Defaults used by the recipe filter</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (prefsLoading()) {
+        <div class="card-status"><mat-spinner diameter="32" /></div>
+      } @else if (prefsLoadError()) {
+        <div class="card-status card-error">
+          <p>{{ prefsLoadError() }}</p>
+          <button
+            mat-stroked-button
+            type="button"
+            class="retry-preferences"
+            (click)="loadPreferences()"
+          >
+            Retry
+          </button>
+        </div>
+      } @else {
+        <form [formGroup]="prefsForm">
+          <mat-form-field>
+            <mat-label>Filter mode</mat-label>
+            <mat-select formControlName="filterMode">
+              @for (option of filterModeOptions; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          <div class="threshold-row">
+            <span class="threshold-label">Coverage threshold</span>
+            <span class="threshold-value">{{ prefsForm.controls.coverageThreshold.value }}%</span>
+            <mat-slider
+              class="threshold-slider"
+              [discrete]="true"
+              [showTickMarks]="true"
+              min="0"
+              max="100"
+              step="1"
+            >
+              <input matSliderThumb formControlName="coverageThreshold" />
+            </mat-slider>
+          </div>
+
+          <mat-form-field>
+            <mat-label>Diet</mat-label>
+            <mat-select formControlName="diet">
+              @for (option of dietOptions; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+
+          @if (prefsSaveError()) {
+            <p class="save-error">{{ prefsSaveError() }}</p>
+          }
+        </form>
+        <div class="card-actions">
+          <button
+            mat-flat-button
+            type="button"
+            class="save-preferences"
+            [disabled]="!prefsForm.dirty || prefsForm.invalid || savingPrefs()"
+            (click)="savePreferences()"
+          >
+            @if (savingPrefs()) {
+              <mat-spinner diameter="20" />
+            } @else {
+              Save
+            }
+          </button>
+        </div>
+      }
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card class="profile-card exclusions-card">
+    <mat-card-header>
+      <mat-card-title>Allergy exclusions</mat-card-title>
+      <mat-card-subtitle>Recipes containing these allergens are filtered out</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (exclusionsLoading()) {
+        <div class="card-status"><mat-spinner diameter="32" /></div>
+      } @else if (exclusionsLoadError()) {
+        <div class="card-status card-error">
+          <p>{{ exclusionsLoadError() }}</p>
+          <button
+            mat-stroked-button
+            type="button"
+            class="retry-exclusions"
+            (click)="loadExclusions()"
+          >
+            Retry
+          </button>
+        </div>
+      } @else {
+        <div class="allergen-grid">
+          @for (allergen of allergens(); track allergen.code; let i = $index) {
+            <mat-checkbox [formControl]="exclusions.at(i)">{{ allergen.name }}</mat-checkbox>
+          }
+        </div>
+
+        @if (exclusionsSaveError()) {
+          <p class="save-error">{{ exclusionsSaveError() }}</p>
+        }
+
+        <div class="card-actions">
+          <button
+            mat-flat-button
+            type="button"
+            class="save-exclusions"
+            [disabled]="!exclusions.dirty || savingExclusions()"
+            (click)="saveExclusions()"
+          >
+            @if (savingExclusions()) {
+              <mat-spinner diameter="20" />
+            } @else {
+              Save
+            }
+          </button>
+        </div>
+      }
+    </mat-card-content>
+  </mat-card>
+</div>

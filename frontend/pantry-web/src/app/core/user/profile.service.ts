@@ -1,0 +1,48 @@
+import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+import { Allergen, AllergyExclusions, UserPreferences } from './profile.models';
+
+/**
+ * Reads and updates the per-user profile settings under `/api/users`:
+ * filtering preferences and the allergy exclusion list.
+ *
+ * Lives outside the page so the component stays presentational and each
+ * endpoint is typed in exactly one place. Authentication is handled by the
+ * JWT interceptor, so this service never touches headers itself.
+ */
+@Injectable({ providedIn: 'root' })
+export class ProfileService {
+  private readonly http = inject(HttpClient);
+
+  /** Current preferences; the backend answers with defaults when never saved. */
+  getPreferences(): Observable<UserPreferences> {
+    return this.http.get<UserPreferences>('/api/users/preferences');
+  }
+
+  /** Persists the three preference fields and returns the stored values. */
+  updatePreferences(preferences: UserPreferences): Observable<UserPreferences> {
+    return this.http.put<UserPreferences>('/api/users/preferences', preferences);
+  }
+
+  /** Current exclusion list (empty when the user has none). */
+  getAllergyExclusions(): Observable<AllergyExclusions> {
+    return this.http.get<AllergyExclusions>('/api/users/allergy-exclusions');
+  }
+
+  /**
+   * Replaces the whole exclusion list with `codes` (an empty array clears it).
+   *
+   * The codes must match the catalog exactly: the backend rejects anything
+   * unknown — e.g. lowercase `peanut` — with a 400, so callers always send
+   * the catalog value as-is and handle that error shape in the UI.
+   */
+  updateAllergyExclusions(codes: string[]): Observable<AllergyExclusions> {
+    return this.http.put<AllergyExclusions>('/api/users/allergy-exclusions', { codes });
+  }
+
+  /** Full allergen catalog (the 14 EU allergens, sorted by name). */
+  getAllergenCatalog(): Observable<Allergen[]> {
+    return this.http.get<Allergen[]>('/api/users/allergens');
+  }
+}
