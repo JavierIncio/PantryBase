@@ -136,4 +136,17 @@ describe('LoginPage', () => {
 
     expect(authStub.login).not.toHaveBeenCalled();
   });
+
+  it('offers Google sign-in as a plain link to the OAuth2 endpoint', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('a.google-login') as HTMLAnchorElement;
+    expect(link).toBeTruthy();
+    expect(link.getAttribute('href')).toBe('/oauth2/authorization/google');
+    expect(link.textContent).toContain('Sign in with Google');
+  });
 });

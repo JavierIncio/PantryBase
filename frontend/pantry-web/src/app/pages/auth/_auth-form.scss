@@ -21,3 +21,39 @@
     width: 100%;
   }
 }
+
+// Social sign-in section below the form: the "or" divider separates the two
+// flows and the Google CTA is a full-width stroked Material button. The icon
+// is an inline SVG because Material's icon font has no brand glyphs.
+.auth-social {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 24px;
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-medium);
+
+    &::before,
+    &::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--mat-sys-outline-variant);
+    }
+  }
+
+  .google-login {
+    width: 100%;
+
+    .google-icon {
+      width: 18px;
+      height: 18px;
+      margin-right: 8px;
+    }
+  }
+}
