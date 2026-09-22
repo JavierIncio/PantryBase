@@ -5,8 +5,10 @@ Este fichero es el acuerdo de trabajo para **cualquier agente** que opere en est
 ## 1. Idioma
 
 - **Código, identificadores y comentarios de código: en inglés.**
-- Backend Java: comentarios en formato **Javadoc** (`/** ... */`) explicando el *qué* y el *porqué* en clases/métodos públicos.
-- Frontend TypeScript: comentarios en formato **TSDoc** con la misma intención.
+- Backend Java: comentarios en formato **Javadoc** (`/** ... */`) y frontend TypeScript en **TSDoc**. Convención: documentar el *porqué* y el *contrato*; nunca restatar el *qué* de la firma.
+  - **Requerido:** clases públicas (propósito y por qué existe) y métodos cuyo contrato no sea obvio desde la firma (semántica de estado/reemplazo, invariantes, excepciones lanzadas, efectos laterales, decisiones no evidentes).
+  - **Nunca:** constructores triviales (inicializan parámetros evidentes), getters/setters, métodos autodescriptivos (delegación pura) y métodos de test (los nombres son la documentación).
+  - **Prueba de fuego:** si un llamador podría usar mal el método sin el doc, documéntalo; si el doc solo resta la firma, elimínalo.
 - **Documentación (`README.md`, `docs/`): en español.**
 
 ## 2. Diseño y calidad de código
