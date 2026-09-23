@@ -2,12 +2,14 @@ package com.pantrybase.api.user.service;
 
 import com.pantrybase.api.common.exception.UnknownAllergenCodeException;
 import com.pantrybase.api.common.exception.UserNotFoundException;
+import com.pantrybase.api.common.exception.UsernameAlreadyExistsException;
 import com.pantrybase.api.user.domain.Allergen;
 import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.domain.UserPreferences;
 import com.pantrybase.api.user.dto.AllergenResponse;
 import com.pantrybase.api.user.dto.AllergyExclusionsResponse;
 import com.pantrybase.api.user.dto.ReplaceAllergyExclusionsRequest;
+import com.pantrybase.api.user.dto.UpdateProfileRequest;
 import com.pantrybase.api.user.dto.UserPreferencesRequest;
 import com.pantrybase.api.user.dto.UserPreferencesResponse;
 import com.pantrybase.api.user.dto.UserResponse;
@@ -50,6 +52,35 @@ public class UserService {
      */
     public UserResponse me(Long id) {
         return toUserResponse(findUser(id));
+    }
+
+    /**
+     * Updates the user's profile information based on the provided request.
+     *
+     * <p>If the username is provided and is already taken by another user, a
+     * {@link UsernameAlreadyExistsException} is thrown.</p>
+     *
+     * <p>First name and last name are updated to the provided values, or cleared
+     * if null.</p>
+     *
+     * @param userId  the ID of the user whose profile is to be updated
+     * @param request the request containing the new profile information
+     * @return a UserResponse containing the updated user's information
+     * @throws UsernameAlreadyExistsException if the requested username is already taken by another user
+     */
+    public UserResponse updateProfile(Long userId, UpdateProfileRequest request) {
+        User user = findUser(userId);
+        if (request.username() != null) {
+            if (userRepo.existsByUsernameAndIdNot(request.username(), user.getId())) {
+                throw new UsernameAlreadyExistsException(request.username());
+            }
+            user.setUsername(request.username());
+        }
+        user.setFirstName(request.firstName());
+        user.setLastName(request.lastName());
+
+        userRepo.save(user);
+        return toUserResponse(user);
     }
 
     /**

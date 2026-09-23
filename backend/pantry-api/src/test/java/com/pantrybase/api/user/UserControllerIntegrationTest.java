@@ -7,6 +7,7 @@ import com.pantrybase.api.user.domain.FilterMode;
 import com.pantrybase.api.user.dto.AllergenResponse;
 import com.pantrybase.api.user.dto.AllergyExclusionsResponse;
 import com.pantrybase.api.user.dto.ReplaceAllergyExclusionsRequest;
+import com.pantrybase.api.user.dto.UpdateProfileRequest;
 import com.pantrybase.api.user.dto.UserPreferencesResponse;
 import com.pantrybase.api.user.dto.UserResponse;
 import org.junit.jupiter.api.Test;
@@ -17,14 +18,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class UserControllerIntegrationTest extends AbstractIntegrationTest {
 
-    private final static String PREFERENCES = "/api/users/preferences";
-    private final static String EXCLUSIONS = "/api/users/allergy-exclusions";
-    private final static String ALLERGENS = "/api/users/allergens";
+    private static final String PROFILE = "/api/users/profile";
+    private static final String PREFERENCES = "/api/users/preferences";
+    private static final String EXCLUSIONS = "/api/users/allergy-exclusions";
+    private static final String ALLERGENS = "/api/users/allergens";
 
     @Test
     void me_withBearerToken_shouldReturn200() {
@@ -57,6 +60,91 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
                 rest.exchange(ME, HttpMethod.GET, new HttpEntity<>(headers), ErrorResponse.class);
 
         assertError(response, HttpStatus.UNAUTHORIZED, ME);
+    }
+
+    @Test
+    void update_withAllFields_shouldReturn200AndPersist() {
+        HttpHeaders headers = authenticate();
+
+        var body = new UpdateProfileRequest("JaneDoe", "Jane", "Doe");
+
+        ResponseEntity<UserResponse> response = rest.exchange(
+                PROFILE, HttpMethod.PUT, new HttpEntity<>(body, headers), UserResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody())
+                .extracting(
+                        UserResponse::username,
+                        UserResponse::firstName,
+                        UserResponse::lastName)
+                .containsExactly("JaneDoe", "Jane", "Doe");
+
+        ResponseEntity<UserResponse> after = rest.exchange(
+                ME, HttpMethod.GET, new HttpEntity<>(headers), UserResponse.class);
+
+        assertThat(after.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(after.getBody()).isNotNull();
+        assertThat(after.getBody()).extracting(
+                        UserResponse::username,
+                        UserResponse::firstName,
+                        UserResponse::lastName)
+                .containsExactly("JaneDoe", "Jane", "Doe");
+    }
+
+    @Test
+    void update_withDuplicateUsername_shouldReturn409() {
+        HttpHeaders headers = authenticate();
+
+        registerUser(Map.of(
+                "username", "ExistingUser",
+                "email", "existinguser@example.com",
+                "password", "password123"));
+
+        var body = new UpdateProfileRequest("ExistingUser", "Jane", "Doe");
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                PROFILE, HttpMethod.PUT, new HttpEntity<>(body, headers), ErrorResponse.class);
+
+        assertError(response, HttpStatus.CONFLICT, PROFILE);
+    }
+
+    @Test
+    void update_withCurrentUsername_shouldReturn200() {
+        HttpHeaders headers = authenticate();
+
+        var body = new UpdateProfileRequest("JohnDoe", "John", "Doe");
+
+        ResponseEntity<UserResponse> response = rest.exchange(
+                PROFILE, HttpMethod.PUT, new HttpEntity<>(body, headers), UserResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody())
+                .extracting(
+                        UserResponse::username,
+                        UserResponse::firstName,
+                        UserResponse::lastName)
+                .containsExactly("JohnDoe", "John", "Doe");
+    }
+
+    @Test
+    void update_withNullFields_shouldClearFirstNameAndLastName() {
+        HttpHeaders headers = authenticate();
+
+        var body = new UpdateProfileRequest(null, null, null);
+
+        ResponseEntity<UserResponse> response = rest.exchange(
+                PROFILE, HttpMethod.PUT, new HttpEntity<>(body, headers), UserResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody())
+                .extracting(
+                        UserResponse::username,
+                        UserResponse::firstName,
+                        UserResponse::lastName)
+                .containsExactly("JohnDoe", null, null);
     }
 
     @Test
@@ -258,19 +346,12 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void unauthorizedAccess_shouldReturn401() {
+        assertUnauthorized(PROFILE, HttpMethod.PUT);
         assertUnauthorized(PREFERENCES, HttpMethod.GET);
         assertUnauthorized(PREFERENCES, HttpMethod.PUT);
         assertUnauthorized(EXCLUSIONS, HttpMethod.GET);
         assertUnauthorized(EXCLUSIONS, HttpMethod.PUT);
         assertUnauthorized(ALLERGENS, HttpMethod.GET);
-    }
-
-    private HttpHeaders authenticate() {
-        Session session = registerSession();
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(session.tokens().accessToken());
-
-        return headers;
     }
 
     private void assertUnauthorized(String endpoint, HttpMethod method) {

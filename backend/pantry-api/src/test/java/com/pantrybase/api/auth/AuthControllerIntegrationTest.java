@@ -3,6 +3,7 @@ package com.pantrybase.api.auth;
 import com.pantrybase.api.AbstractIntegrationTest;
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.dto.RegisterRequest;
+import com.pantrybase.api.auth.service.AuthService;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.user.domain.User;
 import org.junit.jupiter.api.Test;
@@ -17,16 +18,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
-        private static final Long ACCESS_TOKEN_TTL_SECONDS = 900L;
+    private static final Long ACCESS_TOKEN_TTL_SECONDS = 900L;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private AuthService authService;
 
     @Test
     void register_validRequest_shouldCreateUserAndReturnTokens() {
@@ -194,6 +198,43 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
                 rest.postForEntity(LOGOUT, new HttpEntity<>(new HttpHeaders()), Void.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void linkOAuth_withCustomUsername_shouldLinkExistingUserAndKeepTheUsername() {
+        registerSession();
+
+        User linked = authService.linkOrCreateOAuthUser(Map.of(
+                "sub", "g-id",
+                "email", DEFAULT_USER.get("email")
+        ));
+
+        assertThat(linked.getUsername()).isEqualTo(DEFAULT_USER.get("username"));
+        assertThat(linked.getGoogleId()).isEqualTo("g-id");
+
+        User persisted = userRepository.findByGoogleId("g-id").orElseThrow();
+        assertThat(persisted.getUsername()).isEqualTo(DEFAULT_USER.get("username"));
+    }
+
+    @Test
+    void createOAuth_withFreePrefix_shouldDeriveUsernameFromEmail() {
+        User created = authService.linkOrCreateOAuthUser(Map.of(
+                "sub", "g-id", "email", "new.user@test.com"));
+
+        assertThat(created.getUsername()).isEqualTo("new.user");
+    }
+
+    @Test
+    void createOAuth_withOccupiedPrefix_shouldDeriveSuffixedUniqueUsernameFromEmail() {
+        registerUser(Map.of(
+                "username", "new.user",
+                "email", "local@test.com",
+                "password", "password123"));
+        
+        User created = authService.linkOrCreateOAuthUser(Map.of(
+                "sub", "g-id", "email", "new.user@test.com"));
+
+        assertThat(created.getUsername()).isEqualTo("new.user1");
     }
 
     private static Stream<Arguments> invalidRegisterPayloads() {

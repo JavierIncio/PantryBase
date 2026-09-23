@@ -144,11 +144,11 @@ public class AuthService {
     }
 
     /**
-     * Links or creates a user from OAuth2 provider attributes.
+     * Links an existing user account with an OAuth2 provider or creates a new user if none exists.
      *
-     * @param attributes OAuth2 provider attributes
-     * @return the linked or newly created user
-     * @throws IllegalArgumentException if the email is missing
+     * @param attributes the attributes received from the OAuth2 provider
+     * @return the linked or newly created User
+     * @throws IllegalArgumentException if the email is missing in the OAuth2 attributes
      */
     public User linkOrCreateOAuthUser(Map<String, Object> attributes) {
         String googleId = (String) attributes.get("sub");
@@ -166,14 +166,13 @@ public class AuthService {
         Optional<User> userByEmail = userRepo.findByUsernameOrEmail(null, email);
         if (userByEmail.isPresent()) {
             User existingUser = userByEmail.get();
-            existingUser.setUsername(email.split("@")[0]);
             existingUser.setGoogleId(googleId);
             userRepo.save(existingUser);
             return existingUser;
         }
 
         User newUser = new User();
-        newUser.setUsername(email.split("@")[0]);
+        newUser.setUsername(deriveUniqueUsername(email));
         newUser.setEmail(email);
         newUser.setPasswordHash(encoder.encode(UUID.randomUUID().toString()));
         newUser.setFirstName((String) attributes.get("given_name"));
@@ -200,5 +199,17 @@ public class AuthService {
 
         return new AuthResponse(accessToken, refreshToken,
                 "Bearer", jwtService.getAccessTtl().getSeconds());
+    }
+
+    private String deriveUniqueUsername(String email) {
+        String baseUsername = email.split("@")[0];
+        String username = baseUsername;
+        int counter = 1;
+
+        while (userRepo.existsByUsername(username)) {
+            username = baseUsername + counter++;
+        }
+
+        return username;
     }
 }

@@ -76,6 +76,14 @@ public abstract class AbstractIntegrationTest {
         return response;
     }
 
+    protected HttpHeaders authenticate() {
+        Session session = registerSession();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(session.tokens().accessToken());
+
+        return headers;
+    }
+
     protected Session registerSession() {
         ResponseEntity<AuthResponse> response = registerUser(DEFAULT_USER);
 

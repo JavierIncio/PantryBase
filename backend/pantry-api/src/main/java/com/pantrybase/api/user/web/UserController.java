@@ -3,6 +3,7 @@ package com.pantrybase.api.user.web;
 import com.pantrybase.api.user.dto.AllergenResponse;
 import com.pantrybase.api.user.dto.AllergyExclusionsResponse;
 import com.pantrybase.api.user.dto.ReplaceAllergyExclusionsRequest;
+import com.pantrybase.api.user.dto.UpdateProfileRequest;
 import com.pantrybase.api.user.dto.UserPreferencesRequest;
 import com.pantrybase.api.user.dto.UserPreferencesResponse;
 import com.pantrybase.api.user.dto.UserResponse;
@@ -30,47 +31,28 @@ public class UserController {
         this.userService = userService;
     }
 
-    /**
-     * Returns the profile of the currently authenticated user.
-     *
-     * @param userId ID of the authenticated user
-     * @return the user's profile
-     */
     @GetMapping("/me")
     public UserResponse me(@AuthenticationPrincipal Long userId) {
         return userService.me(userId);
     }
 
-    /**
-     * Returns the preferences of the currently authenticated user.
-     *
-     * @param userId ID of the authenticated user
-     * @return the user's preferences
-     */
+    @PutMapping("/profile")
+    public UserResponse updateProfile(@AuthenticationPrincipal Long userId,
+                                      @Valid @RequestBody UpdateProfileRequest request) {
+        return userService.updateProfile(userId, request);
+    }
+
     @GetMapping("/preferences")
     public UserPreferencesResponse preferences(@AuthenticationPrincipal Long userId) {
         return userService.getPreferences(userId);
     }
 
-    /**
-     * Replaces the whole preferences resource; the row is created on first save.
-     *
-     * @param userId  the ID of the authenticated user
-     * @param request the full preference set (PUT semantics)
-     * @return the applied preferences
-     */
     @PutMapping("/preferences")
     public UserPreferencesResponse savePreferences(@AuthenticationPrincipal Long userId,
                                                    @Valid @RequestBody UserPreferencesRequest request) {
         return userService.savePreferences(userId, request);
     }
 
-    /**
-     * Returns the allergy exclusions of the currently authenticated user.
-     *
-     * @param userId ID of the authenticated user
-     * @return the user's allergy exclusions
-     */
     @GetMapping("/allergy-exclusions")
     public AllergyExclusionsResponse allergyExclusions(@AuthenticationPrincipal Long userId) {
         return userService.getExclusions(userId);
