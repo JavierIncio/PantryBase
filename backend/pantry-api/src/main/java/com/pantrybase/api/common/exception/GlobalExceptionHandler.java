@@ -46,6 +46,14 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
     }
 
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleCurrentPasswordMismatchException(CurrentPasswordMismatchException ex,
+                                                                                HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
     /**
      * Maps malformed JSON bodies (including unknown enum values) to a standardized 400 response.
      */
@@ -92,6 +100,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handleEmailAlreadyExistsException(EmailAlreadyExistsException ex,
                                                                             HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));
+    }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handlePasswordNotSetException(PasswordNotSetException ex,
+                                                                     HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));

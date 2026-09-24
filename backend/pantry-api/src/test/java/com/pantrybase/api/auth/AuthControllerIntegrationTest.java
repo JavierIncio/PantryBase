@@ -13,12 +13,12 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
 
     private static final Long ACCESS_TOKEN_TTL_SECONDS = 900L;
+    private static final String CHANGE_PASSWORD = "/api/auth/password";
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -104,13 +105,13 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     @Test
     void login_withUsername_shouldReturn200() {
         registerSession();
-        login("JohnDoe");
+        login("JohnDoe", "password123");
     }
 
     @Test
     void login_withEmail_shouldReturn200() {
         registerSession();
-        login("john.doe@example.com");
+        login("john.doe@example.com", "password123");
     }
 
     @Test
@@ -120,6 +121,17 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         ResponseEntity<ErrorResponse> response =
                 rest.postForEntity(LOGIN, credentials("JohnDoe", "wrongpassword"), ErrorResponse.class);
 
+        assertError(response, HttpStatus.UNAUTHORIZED, LOGIN);
+    }
+
+    @Test
+    void login_socialAccount_withAnyPassword_shouldBeUnauthorized() {
+        User created = authService.linkOrCreateOAuthUser(Map.of(
+                "sub", "g-id", "email", "new.user@test.com"));
+        assertThat(created.getPasswordHash()).isNull();
+
+        ResponseEntity<ErrorResponse> response =
+                rest.postForEntity(LOGIN, credentials("new.user@test.com", "anypassword"), ErrorResponse.class);
         assertError(response, HttpStatus.UNAUTHORIZED, LOGIN);
     }
 
@@ -230,11 +242,134 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
                 "username", "new.user",
                 "email", "local@test.com",
                 "password", "password123"));
-        
+
         User created = authService.linkOrCreateOAuthUser(Map.of(
                 "sub", "g-id", "email", "new.user@test.com"));
 
         assertThat(created.getUsername()).isEqualTo("new.user1");
+    }
+
+    @Test
+    void changePassword_validRequest_shouldUpdatePasswordAndRevokeTokens() {
+        Session session = registerSession();
+        String oldRefreshToken = session.tokens().refreshToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(session.tokens().accessToken());
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "currentPassword", "password123",
+                "newPassword", "newpassword456"
+        ), headers);
+
+        ResponseEntity<Void> response = rest.exchange(
+                CHANGE_PASSWORD, HttpMethod.PUT, request, Void.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // The old refresh token is dead: refreshing with it must fail.
+        HttpHeaders refreshOldHeaders = new HttpHeaders();
+        refreshOldHeaders.add(HttpHeaders.COOKIE, "refresh_token=" + oldRefreshToken);
+        ResponseEntity<ErrorResponse> refreshOldResponse =
+                rest.exchange(REFRESH, HttpMethod.POST, new HttpEntity<>(refreshOldHeaders), ErrorResponse.class);
+        assertThat(refreshOldResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // The stored hash matches only the new password.
+        User user = userRepository
+                .findByUsernameOrEmail("JohnDoe", "john.doe@example.com")
+                .orElseThrow();
+        assertThat(passwordEncoder.matches("newpassword456", user.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches("password123", user.getPasswordHash())).isFalse();
+
+        // The old password no longer logs in; the new one does.
+        ResponseEntity<ErrorResponse> oldLogin = rest.postForEntity(
+                LOGIN, credentials("JohnDoe", "password123"), ErrorResponse.class);
+        assertThat(oldLogin.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        login("JohnDoe", "newpassword456");
+    }
+
+    @Test
+    void changePassword_withWrongCurrentPassword_shouldReturn400() {
+        HttpHeaders headers = authenticate();
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "currentPassword", "wrongpassword",
+                "newPassword", "newpassword456"
+        ), headers);
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                CHANGE_PASSWORD, HttpMethod.PUT, request, ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_REQUEST, CHANGE_PASSWORD);
+    }
+
+    @Test
+    void changePassword_withBlankCurrentPassword_shouldReturn400() {
+        HttpHeaders headers = authenticate();
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "currentPassword", "",
+                "newPassword", "newpassword456"
+        ), headers);
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                CHANGE_PASSWORD, HttpMethod.PUT, request, ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_REQUEST, CHANGE_PASSWORD);
+    }
+
+    @Test
+    void changePassword_socialAccount_withCurrentPassword_shouldReturn409() {
+        User socialUser = authService.linkOrCreateOAuthUser(Map.of(
+                "sub", "g-id", "email", "new.user@test.com"));
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "currentPassword", "password123",
+                "newPassword", "newpassword456"
+        ), bearerFor(socialUser));
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                CHANGE_PASSWORD, HttpMethod.PUT, request, ErrorResponse.class);
+
+        assertError(response, HttpStatus.CONFLICT, CHANGE_PASSWORD);
+    }
+
+    @Test
+    void changePassword_socialAccount_withoutCurrentPassword_shouldEstablishPassword() {
+        User socialUser = authService.linkOrCreateOAuthUser(Map.of(
+                "sub", "g-id", "email", "new.user@test.com"));
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "currentPassword", "",
+                "newPassword", "newpassword456"
+        ), bearerFor(socialUser));
+
+        ResponseEntity<Void> response = rest.exchange(
+                CHANGE_PASSWORD, HttpMethod.PUT, request, Void.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // The social account now has a local credential.
+        login("new.user@test.com", "newpassword456");
+    }
+
+    @Test
+    void changePassword_unauthenticated_shouldReturn401() {
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "currentPassword", "password123",
+                "newPassword", "newpassword456"
+        ));
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                CHANGE_PASSWORD, HttpMethod.PUT, request, ErrorResponse.class);
+
+        assertError(response, HttpStatus.UNAUTHORIZED, CHANGE_PASSWORD);
+    }
+
+    /**
+     * Builds bearer headers for any user (also social ones, which cannot log in
+     * through the password flow because they have no local credential yet).
+     */
+    private HttpHeaders bearerFor(User user) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(authService.issueTokens(user).accessToken());
+        return headers;
     }
 
     private static Stream<Arguments> invalidRegisterPayloads() {
@@ -252,9 +387,9 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         );
     }
 
-    private void login(String identifier) {
+    private void login(String identifier, String password) {
         ResponseEntity<AuthResponse> response =
-                rest.postForEntity(LOGIN, credentials(identifier, "password123"), AuthResponse.class);
+                rest.postForEntity(LOGIN, credentials(identifier, password), AuthResponse.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 

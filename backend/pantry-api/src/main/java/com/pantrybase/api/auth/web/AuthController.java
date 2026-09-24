@@ -1,6 +1,7 @@
 package com.pantrybase.api.auth.web;
 
 import com.pantrybase.api.auth.dto.AuthResponse;
+import com.pantrybase.api.auth.dto.ChangePasswordRequest;
 import com.pantrybase.api.auth.dto.LoginRequest;
 import com.pantrybase.api.auth.dto.RegisterRequest;
 import com.pantrybase.api.auth.service.AuthService;
@@ -11,6 +12,7 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -87,6 +89,13 @@ public class AuthController {
                                        HttpServletResponse response) {
         if (rtCookie != null) authService.logout(rtCookie);
         response.addHeader(HttpHeaders.SET_COOKIE, cookieService.clear().toString());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/password")
+    public ResponseEntity<Void> changePassword(@AuthenticationPrincipal Long userId,
+                                               @Valid @RequestBody ChangePasswordRequest request) {
+        authService.changePassword(userId, request);
         return ResponseEntity.noContent().build();
     }
 }

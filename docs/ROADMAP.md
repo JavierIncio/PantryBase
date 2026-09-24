@@ -39,6 +39,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [x] Catálogo de alérgenos consultable (`GET /api/users/allergens`).
 - [x] Perfil: identidad editable (username + nombres; handle respetado en el enlace social) (sept 2026).
 - [x] Rate limiting en Redis por usuario + endpoint (token bucket).
+- [x] Cambio/establecimiento de contraseña (`PUT /api/auth/password`) (sept 2026).
 - [x] Frontend: pantalla de login, guardas de rutas, interceptores de JWT.
 - [x] Frontend: pantalla de perfil: preferencias y exclusión de alérgenos (F2, sept 2026).
 

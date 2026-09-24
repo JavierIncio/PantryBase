@@ -1,11 +1,15 @@
 package com.pantrybase.api.auth.service;
 
 import com.pantrybase.api.auth.dto.AuthResponse;
+import com.pantrybase.api.auth.dto.ChangePasswordRequest;
 import com.pantrybase.api.auth.dto.LoginRequest;
 import com.pantrybase.api.auth.dto.RegisterRequest;
+import com.pantrybase.api.auth.repository.RefreshTokenRepository;
+import com.pantrybase.api.common.exception.CurrentPasswordMismatchException;
 import com.pantrybase.api.common.exception.EmailAlreadyExistsException;
 import com.pantrybase.api.common.exception.InvalidCredentialsException;
 import com.pantrybase.api.common.exception.InvalidRefreshTokenException;
+import com.pantrybase.api.common.exception.PasswordNotSetException;
 import com.pantrybase.api.common.exception.UserNotFoundException;
 import com.pantrybase.api.common.exception.UsernameAlreadyExistsException;
 import com.pantrybase.api.common.security.JwtService;
@@ -19,12 +23,12 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Service class for handling authentication-related operations.
@@ -36,17 +40,20 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authManager;
     private final UserRepository userRepo;
+    private final RefreshTokenRepository rtRepo;
     private final TokenService tokenService;
 
     public AuthService(PasswordEncoder encoder,
                        JwtService jwtService,
                        AuthenticationManager authManager,
                        UserRepository userRepo,
+                       RefreshTokenRepository rtRepo,
                        TokenService tokenService) {
         this.encoder = encoder;
         this.jwtService = jwtService;
         this.authManager = authManager;
         this.userRepo = userRepo;
+        this.rtRepo = rtRepo;
         this.tokenService = tokenService;
     }
 
@@ -174,7 +181,6 @@ public class AuthService {
         User newUser = new User();
         newUser.setUsername(deriveUniqueUsername(email));
         newUser.setEmail(email);
-        newUser.setPasswordHash(encoder.encode(UUID.randomUUID().toString()));
         newUser.setFirstName((String) attributes.get("given_name"));
         newUser.setLastName((String) attributes.get("family_name"));
         newUser.setEnabled(true);
@@ -199,6 +205,47 @@ public class AuthService {
 
         return new AuthResponse(accessToken, refreshToken,
                 "Bearer", jwtService.getAccessTtl().getSeconds());
+    }
+
+    /**
+     * Changes the password of the specified user.
+     *
+     * <p>If the user already has a password, the current password must be
+     * provided and must match the stored password hash. If the user does not
+     * have a password, the current password must not be provided.</p>
+     *
+     * <p>After successfully changing the password, revokes all existing refresh tokens
+     * for the user.</p>
+     *
+     * <p>The operation is transactional to ensure that the password update and
+     * refresh-token deletion are performed atomically.</p>
+     *
+     * @param userId  the ID of the user whose password is being changed
+     * @param request the request containing the current password and the new password
+     * @throws UserNotFoundException            if no user exists with the specified ID
+     * @throws PasswordNotSetException          if the user has no password but a current password was provided
+     * @throws CurrentPasswordMismatchException if the current password is missing or does not match the stored password
+     */
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+
+        String passwordHash = user.getPasswordHash();
+        String currentPassword = request.currentPassword();
+
+        if (passwordHash == null) {
+            if (currentPassword != null && !currentPassword.isBlank())
+                throw new PasswordNotSetException();
+        } else {
+            if (currentPassword == null
+                    || currentPassword.isBlank()
+                    || !encoder.matches(currentPassword, passwordHash))
+                throw new CurrentPasswordMismatchException();
+        }
+
+        user.setPasswordHash(encoder.encode(request.newPassword()));
+        rtRepo.deleteByUserId(user.getId());
     }
 
     private String deriveUniqueUsername(String email) {

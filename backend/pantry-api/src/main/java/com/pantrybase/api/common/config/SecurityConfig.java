@@ -135,7 +135,7 @@ public class SecurityConfig {
         return identifier -> repo.findByUsernameOrEmail(identifier, identifier)
                 .map(user -> User
                         .withUsername(user.getUsername())
-                        .password(user.getPasswordHash())
+                        .password(user.getPasswordHash() == null ? "" : user.getPasswordHash())
                         .disabled(!user.isEnabled())
                         .authorities(user.getRoles().stream()
                                 .map(role -> "ROLE_" + role.name())
