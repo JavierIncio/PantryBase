@@ -1,16 +1,24 @@
 package com.pantrybase.api.auth;
 
 import com.pantrybase.api.AbstractIntegrationTest;
+import com.pantrybase.api.auth.domain.PasswordResetToken;
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.dto.RegisterRequest;
+import com.pantrybase.api.auth.mail.PasswordResetMailer;
+import com.pantrybase.api.auth.repository.PasswordResetTokenRepository;
 import com.pantrybase.api.auth.service.AuthService;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.user.domain.User;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -18,12 +26,34 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
+
+    @TestConfiguration
+    static class ResetMailerConfig {
+        @Bean
+        @Primary
+        PasswordResetMailer capturingPasswordResetMailer() { return new CapturingPasswordResetMailer(); }
+    }
+
+    static class CapturingPasswordResetMailer implements PasswordResetMailer {
+        final List<SentEmail> sent = new ArrayList<>();
+        record SentEmail(String to, String resetLink) {}
+        @Override public void sendPasswordResetEmail(String to, String name, String resetLink) {
+            sent.add(new SentEmail(to, resetLink));
+        }
+    }
 
     private static final Long ACCESS_TOKEN_TTL_SECONDS = 900L;
     private static final String CHANGE_PASSWORD = "/api/auth/password";
@@ -32,6 +62,18 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
     private PasswordEncoder passwordEncoder;
     @Autowired
     private AuthService authService;
+    @Autowired
+    private CapturingPasswordResetMailer mailer;
+    @Autowired
+    private PasswordResetTokenRepository passResetTokenRepo;
+
+    @Value("${app.frontend-base-url}")
+    private String frontendBaseUrl;
+
+    @BeforeEach
+    void clearCapturedMails() {
+        mailer.sent.clear();
+    }
 
     @Test
     void register_validRequest_shouldCreateUserAndReturnTokens() {
@@ -362,6 +404,142 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         assertError(response, HttpStatus.UNAUTHORIZED, CHANGE_PASSWORD);
     }
 
+    @Test
+    void requestReset_existingUser_shouldReturn204AndSendEmail() throws NoSuchAlgorithmException {
+        registerSession();
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "loginMethod", DEFAULT_USER.get("username")));
+
+        ResponseEntity<Void> response = rest.postForEntity(
+                "/api/auth/password-reset-token", request, Void.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(mailer.sent).hasSize(1);
+
+        CapturingPasswordResetMailer.SentEmail sentEmail = mailer.sent.getFirst();
+
+        assertThat(sentEmail.to()).isEqualTo(DEFAULT_USER.get("email"));
+
+        String rawToken = extractToken(sentEmail.resetLink());
+
+        PasswordResetToken token = passResetTokenRepo
+                .findByTokenHash(sha256Hex(rawToken))
+                .orElseThrow();
+
+        assertThat(token.getExpiresAt()).isAfter(Instant.now());
+        assertThat(sentEmail.resetLink()).isEqualTo(frontendBaseUrl + "/auth/reset-password?token=" + rawToken);
+    }
+
+    @Test
+    void requestReset_unknownUser_shouldReturn204AndSendNoEmail() {
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "loginMethod", "ghost"));
+
+        ResponseEntity<Void> response = rest.postForEntity(
+                "/api/auth/password-reset-token", request, Void.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(mailer.sent).isEmpty();
+    }
+
+    @Test
+    void reset_validToken_shouldUpdatePasswordAndRevokeSessions() {
+        Session session = registerSession();
+        String oldRefreshToken = session.tokens().refreshToken();
+
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "loginMethod", DEFAULT_USER.get("username")));
+
+        rest.postForEntity("/api/auth/password-reset-token", request, Void.class);
+
+        CapturingPasswordResetMailer.SentEmail sentEmail = mailer.sent.getFirst();
+        String rawToken = extractToken(sentEmail.resetLink());
+
+        HttpEntity<Map<String, String>> resetRequest = new HttpEntity<>(Map.of(
+                "token", rawToken,
+                "newPassword", "newpassword456"));
+
+        ResponseEntity<Void> resetResponse = rest.postForEntity(
+                "/api/auth/password-reset", resetRequest, Void.class);
+
+        assertThat(resetResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        ResponseEntity<ErrorResponse> oldLogin = rest.postForEntity(
+                LOGIN, credentials(DEFAULT_USER.get("username"), "password123"), ErrorResponse.class);
+        assertThat(oldLogin.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        login(DEFAULT_USER.get("username"), "newpassword456");
+
+        HttpHeaders refreshOldHeaders = new HttpHeaders();
+        refreshOldHeaders.add(HttpHeaders.COOKIE, "refresh_token=" + oldRefreshToken);
+        ResponseEntity<ErrorResponse> refreshOld = rest.exchange(
+                REFRESH, HttpMethod.POST, new HttpEntity<>(refreshOldHeaders), ErrorResponse.class);
+        assertThat(refreshOld.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void reset_invalidToken_shouldReturn400() {
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "token", "f".repeat(64),
+                "newPassword", "newpassword456"));
+
+        ResponseEntity<ErrorResponse> response = rest.postForEntity(
+                "/api/auth/password-reset", request, ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_REQUEST, "/api/auth/password-reset");
+    }
+
+    @Test
+    void reset_expiredToken_shouldReturn400() throws NoSuchAlgorithmException {
+        registerSession();
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "loginMethod", DEFAULT_USER.get("username")));
+        ResponseEntity<Void> response = rest.postForEntity(
+                "/api/auth/password-reset-token", request, Void.class);
+
+        CapturingPasswordResetMailer.SentEmail sentEmail = mailer.sent.getFirst();
+        String rawToken = extractToken(sentEmail.resetLink());
+
+        PasswordResetToken row = passResetTokenRepo
+                .findByTokenHash(sha256Hex(rawToken)).orElseThrow();
+        row.setExpiresAt(Instant.now().minusSeconds(60));
+        passResetTokenRepo.save(row);
+
+        HttpEntity<Map<String, String>> resetRequest = new HttpEntity<>(Map.of(
+                "token", rawToken,
+                "newPassword", "newpassword456"));
+
+        ResponseEntity<ErrorResponse> resetResponse = rest.postForEntity(
+                "/api/auth/password-reset", resetRequest, ErrorResponse.class);
+
+        assertError(resetResponse, HttpStatus.BAD_REQUEST, "/api/auth/password-reset");
+    }
+
+    @Test
+    void reset_validToken_shouldBeSingleUse() {
+        registerSession();
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of(
+                "loginMethod", DEFAULT_USER.get("username")));
+        ResponseEntity<Void> response = rest.postForEntity(
+                "/api/auth/password-reset-token", request, Void.class);
+
+        CapturingPasswordResetMailer.SentEmail sentEmail = mailer.sent.getFirst();
+        String rawToken = extractToken(sentEmail.resetLink());
+
+        HttpEntity<Map<String, String>> resetRequest = new HttpEntity<>(Map.of(
+                "token", rawToken,
+                "newPassword", "newpassword456"));
+
+        ResponseEntity<Void> resetResponse = rest.postForEntity(
+                "/api/auth/password-reset", resetRequest, Void.class);
+        assertThat(resetResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        ResponseEntity<ErrorResponse> reuseResponse = rest.postForEntity(
+                "/api/auth/password-reset", resetRequest, ErrorResponse.class);
+        assertError(reuseResponse, HttpStatus.BAD_REQUEST, "/api/auth/password-reset");
+    }
+
     /**
      * Builds bearer headers for any user (also social ones, which cannot log in
      * through the password flow because they have no local credential yet).
@@ -401,5 +579,14 @@ public class AuthControllerIntegrationTest extends AbstractIntegrationTest {
         String setCookie = response.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
 
         assertThat(setCookie).contains("refresh_token=").contains("HttpOnly");
+    }
+
+    private static String sha256Hex(String raw) throws NoSuchAlgorithmException {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String extractToken(String resetLink) {
+        return resetLink.substring(resetLink.indexOf("token=") + 6);
     }
 }

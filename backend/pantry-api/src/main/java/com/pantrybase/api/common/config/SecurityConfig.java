@@ -81,7 +81,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/register", "/api/auth/login",
-                                "/api/auth/refresh", "/api/auth/logout"
+                                "/api/auth/refresh", "/api/auth/logout",
+                                "/api/auth/password-reset-token", "/api/auth/password-reset"
                         ).permitAll()
                         .requestMatchers(
                                 "/oauth2/authorization/**", "/login/oauth2/code/**"

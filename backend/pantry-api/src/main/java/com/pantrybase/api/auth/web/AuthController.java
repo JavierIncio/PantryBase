@@ -3,8 +3,11 @@ package com.pantrybase.api.auth.web;
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.dto.ChangePasswordRequest;
 import com.pantrybase.api.auth.dto.LoginRequest;
+import com.pantrybase.api.auth.dto.PasswordResetRequest;
+import com.pantrybase.api.auth.dto.PasswordResetTokenRequest;
 import com.pantrybase.api.auth.dto.RegisterRequest;
 import com.pantrybase.api.auth.service.AuthService;
+import com.pantrybase.api.auth.service.PasswordResetService;
 import com.pantrybase.api.common.exception.InvalidRefreshTokenException;
 import com.pantrybase.api.common.security.CookieService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,10 +27,14 @@ public class AuthController {
 
     private final AuthService authService;
     private final CookieService cookieService;
+    private final PasswordResetService passwordResetService;
 
-    public AuthController(AuthService authService, CookieService cookieService) {
+    public AuthController(AuthService authService,
+                          CookieService cookieService,
+                          PasswordResetService passwordResetService) {
         this.authService = authService;
         this.cookieService = cookieService;
+        this.passwordResetService = passwordResetService;
     }
 
     /**
@@ -96,6 +103,18 @@ public class AuthController {
     public ResponseEntity<Void> changePassword(@AuthenticationPrincipal Long userId,
                                                @Valid @RequestBody ChangePasswordRequest request) {
         authService.changePassword(userId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password-reset-token")
+    public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetTokenRequest request) {
+        passwordResetService.requestReset(request.loginMethod());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password-reset")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        passwordResetService.reset(request.token(), request.newPassword());
         return ResponseEntity.noContent().build();
     }
 }

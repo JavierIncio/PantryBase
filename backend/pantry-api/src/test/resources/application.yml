@@ -22,12 +22,24 @@ spring:
           google:
             client-id: test-client-id
             client-secret: test-client-secret
+  mail:
+    host: localhost
+    port: 1025
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
+  health:
+    mail:
+      enabled: false
 
 server:
   port: 8080
@@ -57,3 +69,6 @@ app:
       - /swagger-ui.html
       - /v3/api-docs/**
       - /api/auth/logout
+  mail:
+    from: notifications@pantrybase.com
+  frontend-base-url: http://localhost:4200

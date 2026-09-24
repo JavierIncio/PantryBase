@@ -74,6 +74,20 @@ services:
       retries: 10
       start_period: 20s
 
+  mailpit:
+    image: axllent/mailpit:v1.31.0
+    container_name: pantry-mailpit
+    restart: always
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   pantry-api:
     build:
       context: ../backend/pantry-api
