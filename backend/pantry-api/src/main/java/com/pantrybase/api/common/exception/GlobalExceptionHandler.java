@@ -120,4 +120,12 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));
     }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleSmtpException(SmtpException ex, HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponseFactory.of(HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Failed to send password reset email", request));
+    }
 }
