@@ -9,6 +9,9 @@
       @if (errorMessage(); as message) {
         <div class="auth-error" role="alert">{{ message }}</div>
       }
+      @if (successMessage(); as message) {
+        <div class="auth-success" role="status">{{ message }}</div>
+      }
       <ng-content />
     </mat-card-content>
   </mat-card>

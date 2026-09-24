@@ -1,2 +1,16 @@
 // Reuses the shared auth form styles (see _auth-form.scss).
 @use './auth-form';
+
+// Right-aligned link to the forgot-password flow, expected under the password
+// field. The link is kept inside the flex column of .auth-form, so the rule
+// only needs to nudge it out of full width and give it link affordance.
+.forgot-link {
+  align-self: flex-end;
+  color: var(--mat-sys-primary);
+  font: var(--mat-sys-label-large);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

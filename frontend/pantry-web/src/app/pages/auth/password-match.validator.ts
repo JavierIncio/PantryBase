@@ -11,9 +11,29 @@ import { ErrorStateMatcher } from '@angular/material/core';
  * page's error-display convention.
  */
 export function passwordMatchValidator(group: AbstractControl): ValidationErrors | null {
-  const password = group.get('password')?.value as string | undefined;
-  const confirmPassword = group.get('confirmPassword')?.value as string | undefined;
-  return password === confirmPassword ? null : { passwordMismatch: true };
+  return createPasswordMatchValidator()(group);
+}
+
+/**
+ * Builds the same semantics as {@link passwordMatchValidator} over arbitrary
+ * control names.
+ *
+ * The default pairing is `password`/`confirmPassword` (register page); the
+ * reset-password and profile forms name the first field `newPassword`, which
+ * the name-bound validator above cannot check. Keeping a factory here instead
+ * of duplicating the comparison keeps the mismatch contract in exactly one
+ * place. The error key stays `passwordMismatch` so
+ * {@link PasswordMismatchErrorStateMatcher} works unchanged for every form.
+ */
+export function createPasswordMatchValidator(
+  passwordControl = 'password',
+  confirmControl = 'confirmPassword',
+): (group: AbstractControl) => ValidationErrors | null {
+  return (group: AbstractControl): ValidationErrors | null => {
+    const password = group.get(passwordControl)?.value as string | undefined;
+    const confirmPassword = group.get(confirmControl)?.value as string | undefined;
+    return password === confirmPassword ? null : { passwordMismatch: true };
+  };
 }
 
 /**

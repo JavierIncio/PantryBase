@@ -42,6 +42,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [x] Cambio/establecimiento de contraseña (`PUT /api/auth/password`) (sept 2026).
 - [x] Restablecimiento de contraseña (token por mail) (sept 2026).
 - [x] Frontend: pantalla de login, guardas de rutas, interceptores de JWT.
+- [x] Frontend: páginas de restablecimiento de contraseña (forgot + reset) y cambio de contraseña desde el perfil (F6, sept 2026).
 - [x] Frontend: pantalla de perfil: preferencias y exclusión de alérgenos (F2, sept 2026).
 
 **Definition of done:** permisos por rol y datos de preferencias persistidos; sesión expirada redirige al login.

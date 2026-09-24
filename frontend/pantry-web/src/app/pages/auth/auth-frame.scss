@@ -24,3 +24,14 @@
   margin-bottom: 16px;
   font: var(--mat-sys-body-medium);
 }
+
+// Mirrors the error banner with the primary token: used by the login page to
+// welcome the user back after a successful password reset.
+.auth-success {
+  color: var(--mat-sys-primary);
+  background: color-mix(in srgb, var(--mat-sys-primary) 8%, transparent);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font: var(--mat-sys-body-medium);
+}

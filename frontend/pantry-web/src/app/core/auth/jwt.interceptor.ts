@@ -7,9 +7,12 @@ import { SessionState } from './session.state';
 
 /**
  * Endpoints that never receive a Bearer header and never trigger the 401
- * refresh: the token exchange calls are public by design.
+ * refresh: the token exchange and the password-reset calls are public by
+ * design, so even a browser with a live in-memory session must not sign them
+ * (the reset endpoints are deliberately anonymous for anti-enumeration).
  */
-const AUTH_ENDPOINT_RE = /\/api\/auth\/(login|register|refresh)$/;
+const AUTH_ENDPOINT_RE =
+  /\/api\/auth\/(login|register|refresh|password-reset-token|password-reset)$/;
 
 /**
  * Attaches the access token to outgoing requests and recovers from 401s.

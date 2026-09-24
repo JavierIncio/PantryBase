@@ -27,13 +27,14 @@ import {
   MatCardTitle,
 } from '@angular/material/card';
 import { MatCheckbox } from '@angular/material/checkbox';
-import { MatError, MatFormField, MatLabel } from '@angular/material/form-field';
+import { MatError, MatFormField, MatHint, MatLabel } from '@angular/material/form-field';
 import { MatInput } from '@angular/material/input';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSelect } from '@angular/material/select';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { toErrorResponse, UserResponse } from '../../core/auth/auth.models';
+import { ChangePasswordRequest, toErrorResponse, UserResponse } from '../../core/auth/auth.models';
+import { AuthService } from '../../core/auth/auth.service';
 import { SessionState } from '../../core/auth/session.state';
 import {
   Allergen,
@@ -43,6 +44,10 @@ import {
   UserPreferences,
 } from '../../core/user/profile.models';
 import { ProfileService } from '../../core/user/profile.service';
+import {
+  createPasswordMatchValidator,
+  PasswordMismatchErrorStateMatcher,
+} from '../auth/password-match.validator';
 
 const FILTER_MODE_OPTIONS: ReadonlyArray<{ value: FilterMode; label: string }> = [
   { value: 'STRICT', label: 'Strict' },
@@ -94,6 +99,11 @@ class UsernameErrorStateMatcher implements ErrorStateMatcher {
  * FULL identity on save (empty names encode to `null` — clear upstream, see
  * {@link UpdateProfileRequest}); only the username can be left empty, which
  * the backend treats as "keep the current value".
+ *
+ * The Password card changes the current password (or establishes the first one
+ * for OAuth-created accounts): it sends `currentPassword` only to swap an
+ * existing password and surfaces 400/409 from the backend as an inline
+ * card-level error, keeping the edits so the user can correct and retry.
  */
 @Component({
   selector: 'app-profile-page',
@@ -107,6 +117,7 @@ class UsernameErrorStateMatcher implements ErrorStateMatcher {
     MatCheckbox,
     MatError,
     MatFormField,
+    MatHint,
     MatInput,
     MatLabel,
     MatOption,
@@ -123,6 +134,7 @@ class UsernameErrorStateMatcher implements ErrorStateMatcher {
 export class ProfilePage implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly profile = inject(ProfileService);
+  private readonly auth = inject(AuthService);
   private readonly session = inject(SessionState);
   private readonly snackBar = inject(MatSnackBar);
 
@@ -189,6 +201,70 @@ export class ProfilePage implements OnInit {
     ),
     { initialValue: false },
   );
+
+  // --- Password card -------------------------------------------------------
+
+  /**
+   * Reactive form of the password card.
+   *
+   * `currentPassword` is deliberately optional: password-less OAuth users
+   * establish their first password by leaving it empty (backend contract of
+   * {@link ChangePasswordRequest}); the backend answers 409 on empty when the
+   * account already has a password and 400 when it does not match.
+   */
+  readonly passwordForm = this.fb.group(
+    {
+      currentPassword: [''],
+      newPassword: ['', [Validators.required, Validators.minLength(8), Validators.maxLength(72)]],
+      confirmPassword: ['', [Validators.required]],
+    },
+    { validators: createPasswordMatchValidator('newPassword') },
+  );
+
+  protected readonly passwordSaving = signal(false);
+
+  /** Card-level error message received from the API, or null. */
+  readonly passwordSaveError = signal<string | null>(null);
+
+  /**
+   * Error-state matcher for the confirm field, same rationale as the register
+   * page: the group-level mismatch must surface on the field for Material 22
+   * to project the `mat-error`. See {@link PasswordMismatchErrorStateMatcher}.
+   */
+  readonly passwordMismatchErrorStateMatcher = new PasswordMismatchErrorStateMatcher();
+
+  /**
+   * Sends the new password; on success resets the card and notifies.
+   *
+   * `confirmPassword` is a client-only helper field and is deliberately NOT
+   * sent. A 400 (mismatch against the current password) or 409 (empty current
+   * password while one exists) keeps the edited values and surfaces the
+   * backend message inside the card, so the rest of the profile stays intact.
+   */
+  protected savePassword(): void {
+    if (this.passwordForm.invalid) {
+      this.passwordForm.markAllAsTouched();
+      return;
+    }
+
+    const { currentPassword, newPassword } = this.passwordForm.getRawValue();
+    this.passwordSaving.set(true);
+    this.passwordSaveError.set(null);
+
+    this.auth.changePassword(currentPassword, newPassword).subscribe({
+      next: () => {
+        this.passwordSaving.set(false);
+        this.passwordForm.reset();
+        this.snackBar.open('Contraseña actualizada', 'OK', { duration: 3000 });
+      },
+      error: (error: HttpErrorResponse) => {
+        this.passwordSaving.set(false);
+        this.passwordSaveError.set(
+          toErrorResponse(error).message || 'No se pudo actualizar la contraseña.',
+        );
+      },
+    });
+  }
 
   // --- Preferences card ----------------------------------------------------
 

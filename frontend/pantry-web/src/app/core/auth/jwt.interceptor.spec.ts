@@ -83,6 +83,28 @@ describe('jwtInterceptor', () => {
     await login;
   });
 
+  it('leaves the public password-reset endpoints anonymous even with a live session', async () => {
+    // A signed-in browser can visit the forgot/reset pages too; they must not
+    // carry the identity token (anti-enumeration beats convenience here).
+    session.setAccessToken('access-1');
+
+    const request = firstValueFrom(client.post('/api/auth/password-reset-token', {}));
+    const req = http.expectOne('/api/auth/password-reset-token');
+    expect(req.request.headers.has('Authorization')).toBe(false);
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await request;
+  });
+
+  it('attaches the Bearer header to the authenticated password change endpoint', async () => {
+    session.setAccessToken('access-1');
+
+    const result = firstValueFrom(client.put('/api/auth/password', {}));
+    const req = http.expectOne('/api/auth/password');
+    expect(req.request.headers.get('Authorization')).toBe('Bearer access-1');
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await result;
+  });
+
   it('refreshes the token on 401 and replays the original request exactly once', async () => {
     session.setAccessToken('stale');
 

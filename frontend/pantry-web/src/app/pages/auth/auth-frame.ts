@@ -32,4 +32,13 @@ export class AuthFrame {
 
   /** Form-level error message taken from the API `ErrorResponse`, or null. */
   readonly errorMessage = input<string | null>(null);
+
+  /**
+   * Success banner text, or null.
+   *
+   * Used by the login page when the user arrives right after a completed
+   * password reset: same placement as the error so the two states are
+   * visually interchangeable, but success-tinted and independent of the API.
+   */
+  readonly successMessage = input<string | null>(null);
 }

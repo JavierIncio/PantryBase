@@ -28,6 +28,19 @@ export const routes: Routes = [
       import('./pages/auth/oauth-redirect-page').then((m) => m.OAuthRedirectPage),
   },
   {
+    // Path fixed by the backend email link: `{base}/auth/reset-password?token=`.
+    path: 'auth/forgot-password',
+    title: 'Recuperar contraseña',
+    loadComponent: () =>
+      import('./pages/auth/forgot-password-page').then((m) => m.ForgotPasswordPage),
+  },
+  {
+    path: 'auth/reset-password',
+    title: 'Restablecer contraseña',
+    loadComponent: () =>
+      import('./pages/auth/reset-password-page').then((m) => m.ResetPasswordPage),
+  },
+  {
     path: '',
     canMatch: [authGuard],
     component: Shell,

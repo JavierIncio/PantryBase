@@ -56,6 +56,18 @@ export class LoginPage {
   /** Destination recorded by the auth guard, sanitized against open redirects. */
   private readonly returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
 
+  /**
+   * Welcome-back banner shown right after a completed password reset.
+   *
+   * The reset page navigates here with `{ state: { resetSuccess: true } }`;
+   * reading the router navigation state (instead of a query parameter or
+   * storage) keeps the URL clean and the notice ephemeral — it only lasts for
+   * the single navigation, so a hard refresh or re-login never repeats it.
+   */
+  readonly resetSuccessMessage = this.router.getCurrentNavigation()?.extras.state?.['resetSuccess']
+    ? 'Contraseña restablecida. Inicia sesión con tu nueva contraseña.'
+    : null;
+
   /** Sends the credentials and navigates away on success. */
   protected submit(): void {
     if (this.form.invalid) {

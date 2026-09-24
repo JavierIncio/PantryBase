@@ -5,6 +5,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { ProfilePage } from './profile-page';
 import { ProfileService } from '../../core/user/profile.service';
 import { Allergen, AllergyExclusions, UserPreferences } from '../../core/user/profile.models';
+import { AuthService } from '../../core/auth/auth.service';
 import { SessionState } from '../../core/auth/session.state';
 import { UserResponse } from '../../core/auth/auth.models';
 
@@ -85,6 +86,7 @@ const saveButton = (fixture: ComponentFixture<ProfilePage>, cls: string) =>
 
 describe('ProfilePage', () => {
   let service: ServiceStub;
+  let authStub: { changePassword: ReturnType<typeof vi.fn> };
   let snackBar: { open: ReturnType<typeof vi.fn> };
 
   /** Default backend answers used by every test unless overridden. */
@@ -97,6 +99,7 @@ describe('ProfilePage', () => {
       updateAllergyExclusions: vi.fn(),
       updateProfile: vi.fn(),
     };
+    authStub = { changePassword: vi.fn() };
     snackBar = { open: vi.fn() };
     service.getPreferences.mockReturnValue(of(PREFERENCES));
     service.getAllergenCatalog.mockReturnValue(of(CATALOG));
@@ -106,6 +109,7 @@ describe('ProfilePage', () => {
       imports: [ProfilePage],
       providers: [
         { provide: ProfileService, useValue: service },
+        { provide: AuthService, useValue: authStub },
         { provide: MatSnackBar, useValue: snackBar },
       ],
     });
@@ -153,6 +157,8 @@ describe('ProfilePage', () => {
     expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
     expect(saveButton(fixture, 'save-exclusions').disabled).toBe(true);
     expect(saveButton(fixture, 'save-identity').disabled).toBe(true);
+    // The password form starts empty: required fields keep Save disabled.
+    expect(saveButton(fixture, 'save-password').disabled).toBe(true);
   });
 
   it('prefills the identity form from the session profile', async () => {
@@ -505,5 +511,108 @@ describe('ProfilePage', () => {
     expect(component.prefsForm.pristine).toBe(true);
     expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
     expect(component.prefsForm.getRawValue().coverageThreshold).toBe(100);
+  });
+
+  it('changes the password and resets the card on success', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    authStub.changePassword.mockReturnValue(of(undefined));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.passwordForm.setValue({
+      currentPassword: 'oldpass',
+      newPassword: 'newpass42',
+      confirmPassword: 'newpass42',
+    });
+    fixture.detectChanges();
+    saveButton(fixture, 'save-password').click();
+
+    // confirmPassword is client-only: the request carries the two real fields.
+    expect(authStub.changePassword).toHaveBeenCalledWith('oldpass', 'newpass42');
+    expect(snackBar.open).toHaveBeenCalledWith('Contraseña actualizada', 'OK', { duration: 3000 });
+
+    fixture.detectChanges();
+    // Reset cleared the secrets and re-disabled Save via the required fields.
+    expect(component.passwordForm.getRawValue()).toEqual({
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: '',
+    });
+    expect(component.passwordForm.pristine).toBe(true);
+    expect(saveButton(fixture, 'save-password').disabled).toBe(true);
+    expect(component.passwordSaveError()).toBeNull();
+  });
+
+  it('sends an empty currentPassword as the first password for OAuth users', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    authStub.changePassword.mockReturnValue(of(undefined));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.passwordForm.setValue({
+      currentPassword: '',
+      newPassword: 'firstpass42',
+      confirmPassword: 'firstpass42',
+    });
+    fixture.detectChanges();
+    saveButton(fixture, 'save-password').click();
+
+    expect(authStub.changePassword).toHaveBeenCalledWith('', 'firstpass42');
+  });
+
+  it('shows a 400/409 password error inside the card and keeps the edits', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    authStub.changePassword.mockReturnValue(failedRequest('Current password does not match'));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+
+    component.passwordForm.setValue({
+      currentPassword: 'wrongpass',
+      newPassword: 'newpass42',
+      confirmPassword: 'newpass42',
+    });
+    fixture.detectChanges();
+    saveButton(fixture, 'save-password').click();
+    fixture.detectChanges();
+
+    expect(host.querySelector('.password-card .save-error')?.textContent).toContain(
+      'Current password does not match',
+    );
+    expect(snackBar.open).not.toHaveBeenCalled();
+    // The typed values survive the failed save so the user can fix and retry.
+    expect(component.passwordForm.controls.currentPassword.value).toBe('wrongpass');
+    expect(component.passwordForm.controls.newPassword.value).toBe('newpass42');
+    expect(saveButton(fixture, 'save-password').disabled).toBe(false);
+  });
+
+  it('keeps Save disabled while the passwords differ', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.passwordForm.setValue({
+      currentPassword: 'oldpass',
+      newPassword: 'newpass42',
+      confirmPassword: 'nope',
+    });
+    fixture.detectChanges();
+
+    // Group mismatch invalidates the whole form; the button never fires.
+    expect(saveButton(fixture, 'save-password').disabled).toBe(true);
+    saveButton(fixture, 'save-password').click();
+    expect(authStub.changePassword).not.toHaveBeenCalled();
   });
 });

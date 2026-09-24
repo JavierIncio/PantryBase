@@ -149,4 +149,48 @@ describe('LoginPage', () => {
     expect(link.getAttribute('href')).toBe('/oauth2/authorization/google');
     expect(link.textContent).toContain('Sign in with Google');
   });
+
+  it('links the forgot-password page for lost credentials', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('a.forgot-link') as HTMLAnchorElement;
+    expect(link).toBeTruthy();
+    expect(link.getAttribute('href')).toBe('/auth/forgot-password');
+  });
+
+  it('shows a welcome-back banner when arriving from a completed password reset', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const router = TestBed.inject(Router);
+    // The reset page navigates here with navigation state; a plain visit has
+    // no current navigation, which must render no banner (covered next).
+    vi.spyOn(router, 'getCurrentNavigation').mockReturnValue({
+      extras: { state: { resetSuccess: true } },
+    } as unknown as ReturnType<Router['getCurrentNavigation']>);
+
+    const fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const banner = host.querySelector('.auth-success');
+    expect(banner).toBeTruthy();
+    expect(banner?.textContent).toContain('Contraseña restablecida');
+    // The banner is additive: the sign-in form is still there.
+    expect(host.querySelector('form.auth-form')).toBeTruthy();
+  });
+
+  it('shows no banner on a regular visit', async () => {
+    await configure();
+    await TestBed.compileComponents();
+
+    const fixture = TestBed.createComponent(LoginPage);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.auth-success')).toBeNull();
+  });
 });

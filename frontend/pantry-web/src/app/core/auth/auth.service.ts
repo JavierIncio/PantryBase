@@ -1,7 +1,15 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { finalize, Observable, shareReplay, switchMap, tap } from 'rxjs';
-import { AuthResponse, LoginRequest, RegisterRequest, UserResponse } from './auth.models';
+import {
+  AuthResponse,
+  ChangePasswordRequest,
+  LoginRequest,
+  PasswordResetRequest,
+  PasswordResetTokenRequest,
+  RegisterRequest,
+  UserResponse,
+} from './auth.models';
 import { SessionState } from './session.state';
 
 /**
@@ -64,6 +72,43 @@ export class AuthService {
   /** Fetches the profile of the current user. */
   me(): Observable<UserResponse> {
     return this.http.get<UserResponse>('/api/users/me');
+  }
+
+  /**
+   * Requests a password-reset email for the given username or email.
+   *
+   * The endpoint answers 204 unconditionally (no account fingerprinting), so
+   * the caller must present the same generic outcome to the user on success
+   * and on failure alike — see {@link ForgotPasswordPage}.
+   */
+  requestPasswordReset(loginMethod: string): Observable<void> {
+    const body: PasswordResetTokenRequest = { loginMethod };
+    return this.http.post<void>('/api/auth/password-reset-token', body);
+  }
+
+  /**
+   * Consumes a password-reset token with the new password.
+   *
+   * A 400 means the token is invalid or expired — the caller surfaces that
+   * error message on the form. The token itself is a query parameter of the
+   * emailed link and must never be persisted or logged.
+   */
+  resetPassword(token: string, newPassword: string): Observable<void> {
+    const body: PasswordResetRequest = { token, newPassword };
+    return this.http.post<void>('/api/auth/password-reset', body);
+  }
+
+  /**
+   * Changes the current password (or establishes the first one).
+   *
+   * `currentPassword` may be empty only for OAuth-created accounts that never
+   * set a password; the backend answers 409 when one exists without a
+   * password (empty sent) and 400 on a mismatch, both surfaced as card-level
+   * errors by the profile page.
+   */
+  changePassword(currentPassword: string, newPassword: string): Observable<void> {
+    const body: ChangePasswordRequest = { currentPassword, newPassword };
+    return this.http.put<void>('/api/auth/password', body);
   }
 
   /**

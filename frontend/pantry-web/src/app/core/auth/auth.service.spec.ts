@@ -166,4 +166,46 @@ describe('AuthService', () => {
 
     await expect(result).rejects.toBeInstanceOf(HttpErrorResponse);
   });
+
+  it('requestPasswordReset posts the loginMethod and completes on 204', async () => {
+    const result = firstValueFrom(service.requestPasswordReset('ada'));
+
+    const req = http.expectOne('/api/auth/password-reset-token');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ loginMethod: 'ada' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it('resetPassword posts the token and new password, surfacing a 400 contract error', async () => {
+    const result = firstValueFrom(service.resetPassword('reset-token-1', 'newpass42'));
+
+    const req = http.expectOne('/api/auth/password-reset');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ token: 'reset-token-1', newPassword: 'newpass42' });
+    req.flush(
+      {
+        ...ERROR_BODY,
+        status: 400,
+        error: 'Bad Request',
+        message: 'Invalid or expired token',
+        path: '/api/auth/password-reset',
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+
+    await expect(result).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('changePassword PUTs the current and new password on the authenticated endpoint', async () => {
+    const result = firstValueFrom(service.changePassword('oldpass', 'newpass42'));
+
+    const req = http.expectOne('/api/auth/password');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ currentPassword: 'oldpass', newPassword: 'newpass42' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    await expect(result).resolves.toBeNull();
+  });
 });

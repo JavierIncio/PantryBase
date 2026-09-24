@@ -41,6 +41,41 @@ export interface AuthResponse {
   readonly expiresIn: number;
 }
 
+/**
+ * Body of `POST /api/auth/password-reset-token`.
+ *
+ * `loginMethod` accepts the username OR the email. The endpoint answers a
+ * uniform 204 whether or not the account exists (anti-enumeration), so this
+ * request is the only thing the forgot-password page ever sends.
+ */
+export interface PasswordResetTokenRequest {
+  readonly loginMethod: string;
+}
+
+/**
+ * Body of `POST /api/auth/password-reset`.
+ *
+ * The token comes from the emailed link (`{base}/auth/reset-password?token=`),
+ * never from user input or stored state. A 400 means the token is invalid or
+ * expired; the new password must be 8–72 characters.
+ */
+export interface PasswordResetRequest {
+  readonly token: string;
+  readonly newPassword: string;
+}
+
+/**
+ * Body of `PUT /api/auth/password` (authenticated).
+ *
+ * `currentPassword` may be empty for password-less OAuth users establishing
+ * their first password; sending a non-empty value when the account has no
+ * password yields a 409, and a wrong one a 400.
+ */
+export interface ChangePasswordRequest {
+  readonly currentPassword: string;
+  readonly newPassword: string;
+}
+
 /** Profile returned by `GET /api/users/me`. */
 export interface UserResponse {
   readonly id: number;
