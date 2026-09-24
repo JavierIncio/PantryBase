@@ -17,6 +17,15 @@ const USER: UserResponse = {
   roles: ['USER'],
 };
 
+const USER_NAMED: UserResponse = {
+  id: 1,
+  username: 'ada',
+  email: 'ada@example.com',
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  roles: ['USER'],
+};
+
 const PREFERENCES: UserPreferences = {
   filterMode: 'LAX',
   coverageThreshold: 65,
@@ -68,6 +77,7 @@ type ServiceStub = {
   getAllergenCatalog: ReturnType<typeof vi.fn>;
   getAllergyExclusions: ReturnType<typeof vi.fn>;
   updateAllergyExclusions: ReturnType<typeof vi.fn>;
+  updateProfile: ReturnType<typeof vi.fn>;
 };
 
 const saveButton = (fixture: ComponentFixture<ProfilePage>, cls: string) =>
@@ -85,6 +95,7 @@ describe('ProfilePage', () => {
       getAllergenCatalog: vi.fn(),
       getAllergyExclusions: vi.fn(),
       updateAllergyExclusions: vi.fn(),
+      updateProfile: vi.fn(),
     };
     snackBar = { open: vi.fn() };
     service.getPreferences.mockReturnValue(of(PREFERENCES));
@@ -131,15 +142,149 @@ describe('ProfilePage', () => {
     expect(component.exclusions.at(fishIndex).value).toBe(false);
   });
 
-  it('keeps both Save buttons disabled while nothing has changed', async () => {
+  it('keeps all Save buttons disabled while nothing has changed', async () => {
     await configure();
     await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER);
 
     const fixture = TestBed.createComponent(ProfilePage);
     fixture.detectChanges();
 
     expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
     expect(saveButton(fixture, 'save-exclusions').disabled).toBe(true);
+    expect(saveButton(fixture, 'save-identity').disabled).toBe(true);
+  });
+
+  it('prefills the identity form from the session profile', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER_NAMED);
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+
+    // Null names arrive as empty inputs; username comes from the session.
+    expect(component.identityForm.controls.username.value).toBe('ada');
+    expect(component.identityForm.controls.firstName.value).toBe('Ada');
+    expect(component.identityForm.controls.lastName.value).toBe('Lovelace');
+    expect(host.querySelector('.identity-card')).toBeTruthy();
+    expect(saveButton(fixture, 'save-identity').disabled).toBe(true);
+  });
+
+  it('sends the full identity payload inline and notifies when a name is cleared', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER_NAMED);
+    service.updateProfile.mockReturnValue(of(USER_NAMED));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    // Clearing a name must map to `null` (the backend clears it); a shortest
+    // valid new username is sent as its literal value.
+    component.identityForm.patchValue({ username: 'ada42', firstName: '', lastName: 'Lovelace' });
+    fixture.detectChanges();
+
+    const button = saveButton(fixture, 'save-identity');
+    expect(button.disabled).toBe(false);
+    button.click();
+
+    expect(service.updateProfile).toHaveBeenCalledWith({
+      username: 'ada42',
+      firstName: null,
+      lastName: 'Lovelace',
+    });
+    expect(snackBar.open).toHaveBeenCalledWith('Perfil actualizado', 'OK', { duration: 3000 });
+  });
+
+  it('encodes an emptied username as null (backend keeps the current one)', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER_NAMED);
+    service.updateProfile.mockReturnValue(of(USER_NAMED));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    // The username field has no `required` validator: emptying it is a valid
+    // "keep current" no-op per the backend contract.
+    component.identityForm.patchValue({ username: '', firstName: 'Ada' });
+    fixture.detectChanges();
+
+    expect(saveButton(fixture, 'save-identity').disabled).toBe(false);
+    saveButton(fixture, 'save-identity').click();
+
+    expect(service.updateProfile).toHaveBeenCalledWith({
+      username: null,
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+    });
+  });
+
+  it('restores the session profile on success so the whole app updates', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    const session = TestBed.inject(SessionState);
+    session.restore(USER_NAMED);
+    service.updateProfile.mockReturnValue(of({ ...USER_NAMED, firstName: 'A.' }));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.identityForm.patchValue({ firstName: 'A.' });
+    fixture.detectChanges();
+    saveButton(fixture, 'save-identity').click();
+    fixture.detectChanges();
+
+    expect(session.user()?.firstName).toBe('A.');
+    // Re-baselined form: Save disabled again and pristine.
+    expect(component.identityForm.pristine).toBe(true);
+    expect(saveButton(fixture, 'save-identity').disabled).toBe(true);
+  });
+
+  it('shows the backend message on the username field when a 400 reports it taken', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER_NAMED);
+    service.updateProfile.mockReturnValue(failedRequest('Username already exists'));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+
+    component.identityForm.patchValue({ username: 'ada42' });
+    fixture.detectChanges();
+    saveButton(fixture, 'save-identity').click();
+    fixture.detectChanges();
+
+    expect(component.identityForm.controls.username.hasError('taken')).toBe(true);
+    expect(host.querySelector('.identity-card mat-error')?.textContent).toContain(
+      'Username already exists',
+    );
+    // The edited values survive the failed save so the user can retry or revert.
+    expect(component.identityForm.controls.username.value).toBe('ada42');
+    expect(snackBar.open).not.toHaveBeenCalled();
+  });
+
+  it('disables Save while the username violates the length constraints', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER_NAMED);
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const username = component.identityForm.controls.username;
+
+    username.setValue('a'.repeat(21));
+    fixture.detectChanges();
+    expect(saveButton(fixture, 'save-identity').disabled).toBe(true);
   });
 
   it('saves the edited preferences with the full shape and disables Save again', async () => {

@@ -39,6 +39,24 @@
     </mat-form-field>
 
     <mat-form-field>
+      <mat-label>Confirm password</mat-label>
+      <input
+        matInput
+        formControlName="confirmPassword"
+        type="password"
+        autocomplete="new-password"
+        [errorStateMatcher]="passwordMismatchErrorStateMatcher"
+      />
+      @if (form.controls.confirmPassword.touched && form.hasError('passwordMismatch')) {
+        <mat-error>Las contraseñas no coinciden.</mat-error>
+      } @else if (
+        form.controls.confirmPassword.touched && form.controls.confirmPassword.hasError('required')
+      ) {
+        <mat-error>Confirm your password.</mat-error>
+      }
+    </mat-form-field>
+
+    <mat-form-field>
       <mat-label>First name (optional)</mat-label>
       <input matInput formControlName="firstName" autocomplete="given-name" />
       @if (form.controls.firstName.touched && form.controls.firstName.hasError('maxlength')) {
@@ -55,7 +73,7 @@
     </mat-form-field>
 
     <div class="auth-actions">
-      <button mat-flat-button type="submit" [disabled]="submitting()">
+      <button mat-flat-button type="submit" [disabled]="submitting() || form.invalid">
         @if (submitting()) {
           <mat-spinner diameter="20" />
         } @else {

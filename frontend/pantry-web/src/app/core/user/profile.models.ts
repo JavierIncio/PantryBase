@@ -33,3 +33,18 @@ export interface Allergen {
 export interface AllergyExclusions {
   readonly exclusions: Allergen[];
 }
+
+/**
+ * Body of `PUT /api/users/profile` — identity replacement semantics.
+ *
+ * `username` is IGNORED by the backend when null/absent (keeps the current
+ * value: renaming is optional on every save); `firstName` and `lastName` are
+ * ALWAYS applied, so a null name CLEARS it. The client mirrors this by
+ * encoding every empty input as `null` — the form always sends all three
+ * fields, never a partial patch.
+ */
+export interface UpdateProfileRequest {
+  readonly username: string | null;
+  readonly firstName: string | null;
+  readonly lastName: string | null;
+}

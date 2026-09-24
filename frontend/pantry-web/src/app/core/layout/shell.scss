@@ -17,6 +17,26 @@
     margin-left: 0.25rem;
   }
 
+  // Pushes the user area to the right edge of the toolbar.
+  &-toolbar-spacer {
+    flex: 1 1 auto;
+  }
+
+  // User area as an M3 pill so the button reads as a tappable control, not as
+  // bare text; hover/focus feedback comes from the mat-button state layer.
+  &-user-button {
+    color: inherit;
+    border-radius: var(--mat-sys-corner-full);
+  }
+
+  // Long usernames truncate instead of pushing the menu trigger off screen.
+  &-username {
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &-content {
     box-sizing: border-box;
     padding: 1rem;

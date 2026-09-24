@@ -2,8 +2,18 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
+import { UserResponse } from '../auth/auth.models';
 import { Allergen, AllergyExclusions, UserPreferences } from './profile.models';
 import { ProfileService } from './profile.service';
+
+const USER: UserResponse = {
+  id: 1,
+  username: 'ada',
+  email: 'ada@example.com',
+  firstName: null,
+  lastName: null,
+  roles: ['USER'],
+};
 
 const PREFERENCES: UserPreferences = {
   filterMode: 'STRICT',
@@ -87,6 +97,20 @@ describe('ProfileService', () => {
     req.flush({ exclusions: [] });
 
     await expect(result).resolves.toEqual({ exclusions: [] });
+  });
+
+  it('updateProfile PUTs the identity payload and returns the refreshed profile', async () => {
+    const refreshed = { ...USER, firstName: null, lastName: 'Lovelace' };
+    const result = firstValueFrom(
+      service.updateProfile({ username: 'ada', firstName: null, lastName: 'Lovelace' }),
+    );
+
+    const req = http.expectOne('/api/users/profile');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ username: 'ada', firstName: null, lastName: 'Lovelace' });
+    req.flush(refreshed);
+
+    await expect(result).resolves.toEqual(refreshed);
   });
 
   it('surfaces the ErrorResponse body when the backend rejects unknown codes', async () => {

@@ -36,4 +36,34 @@ body {
   margin: 0;
   height: 100%;
 }
+
+// The shell user menu is projected by the CDK overlay into <body>, outside the
+// shell component's view encapsulation, so its styles live globally — scoped
+// by the `panelClass` passed to the `mat-menu` trigger. Custom properties below
+// (the `--mat-menu-*` API and simple `--mat-sys-*` system tokens) follow the
+// app's M3 theme instead of Material's generic menu defaults.
+.shell-user-menu {
+  // The class lands on the same element as the library's own `.mat-mdc-menu-panel`,
+  // so a double-class selector outranks the default rule regardless of the
+  // stylesheet order.
+  &.mat-mdc-menu-panel {
+    min-width: 200px;
+    --mat-menu-container-color: var(--mat-sys-surface-container-high);
+    --mat-menu-container-shape: var(--mat-sys-corner-large);
+    --mat-menu-container-elevation-shadow: var(--mat-sys-elevation-level-2);
+    --mat-menu-item-with-icon-leading-spacing: 12px;
+    --mat-menu-item-trailing-spacing: 16px;
+  }
+
+  // Destructive action («Cerrar sesión»): error color on text and icon, with an
+  // error-tinted state layer on hover/focus, so it reads as irreversible next to
+  // the neutral «Perfil» item (Material's own convention for such actions).
+  .mat-mdc-menu-item.logout-item {
+    color: var(--mat-sys-error);
+    --mat-menu-item-icon-color: var(--mat-sys-error);
+    --mat-menu-item-label-text-color: var(--mat-sys-error);
+    --mat-menu-item-hover-state-layer-color: var(--mat-sys-error);
+    --mat-menu-item-focus-state-layer-color: var(--mat-sys-error);
+  }
+}
 /* You can add global styles to this file, and also import other style files */

@@ -4,6 +4,80 @@
 </header>
 
 <div class="profile-cards">
+  <mat-card class="profile-card identity-card">
+    <mat-card-header>
+      <mat-card-title>Identidad</mat-card-title>
+      <mat-card-subtitle>Nombre de usuario y nombre público</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <form [formGroup]="identityForm">
+        <mat-form-field>
+          <mat-label>Nombre de usuario</mat-label>
+          <input
+            matInput
+            formControlName="username"
+            autocomplete="username"
+            [errorStateMatcher]="usernameErrorStateMatcher"
+          />
+          @if (identityForm.controls.username.hasError('taken')) {
+            <mat-error>{{ identityForm.controls.username.getError('taken') }}</mat-error>
+          } @else if (
+            identityForm.controls.username.touched &&
+            identityForm.controls.username.hasError('minlength')
+          ) {
+            <mat-error>Usa al menos 3 caracteres.</mat-error>
+          } @else if (
+            identityForm.controls.username.touched &&
+            identityForm.controls.username.hasError('maxlength')
+          ) {
+            <mat-error>Usa como máximo 20 caracteres.</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Nombre</mat-label>
+          <input matInput formControlName="firstName" autocomplete="given-name" />
+          @if (
+            identityForm.controls.firstName.touched &&
+            identityForm.controls.firstName.hasError('maxlength')
+          ) {
+            <mat-error>Usa como máximo 50 caracteres.</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Apellidos</mat-label>
+          <input matInput formControlName="lastName" autocomplete="family-name" />
+          @if (
+            identityForm.controls.lastName.touched &&
+            identityForm.controls.lastName.hasError('maxlength')
+          ) {
+            <mat-error>Usa como máximo 50 caracteres.</mat-error>
+          }
+        </mat-form-field>
+
+        @if (identitySaveError()) {
+          <p class="save-error">{{ identitySaveError() }}</p>
+        }
+      </form>
+      <div class="card-actions">
+        <button
+          mat-flat-button
+          type="button"
+          class="save-identity"
+          [disabled]="!identityChanged() || identityForm.invalid || identitySaving()"
+          (click)="saveIdentity()"
+        >
+          @if (identitySaving()) {
+            <mat-spinner diameter="20" />
+          } @else {
+            Guardar
+          }
+        </button>
+      </div>
+    </mat-card-content>
+  </mat-card>
+
   <mat-card class="profile-card preferences-card">
     <mat-card-header>
       <mat-card-title>Preferences</mat-card-title>

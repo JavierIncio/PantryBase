@@ -6,15 +6,18 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
+  AbstractControl,
   FormArray,
   FormControl,
   NonNullableFormBuilder,
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { ErrorStateMatcher, MatOption } from '@angular/material/core';
+import { forkJoin, map, startWith } from 'rxjs';
 import { MatButton } from '@angular/material/button';
 import {
   MatCard,
@@ -24,15 +27,21 @@ import {
   MatCardTitle,
 } from '@angular/material/card';
 import { MatCheckbox } from '@angular/material/checkbox';
-import { MatOption } from '@angular/material/core';
-import { MatFormField, MatLabel } from '@angular/material/form-field';
+import { MatError, MatFormField, MatLabel } from '@angular/material/form-field';
+import { MatInput } from '@angular/material/input';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSelect } from '@angular/material/select';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { toErrorResponse } from '../../core/auth/auth.models';
+import { toErrorResponse, UserResponse } from '../../core/auth/auth.models';
 import { SessionState } from '../../core/auth/session.state';
-import { Allergen, Diet, FilterMode, UserPreferences } from '../../core/user/profile.models';
+import {
+  Allergen,
+  Diet,
+  FilterMode,
+  UpdateProfileRequest,
+  UserPreferences,
+} from '../../core/user/profile.models';
 import { ProfileService } from '../../core/user/profile.service';
 
 const FILTER_MODE_OPTIONS: ReadonlyArray<{ value: FilterMode; label: string }> = [
@@ -50,17 +59,41 @@ const DIET_OPTIONS: ReadonlyArray<{ value: Diet; label: string }> = [
 ];
 
 /**
- * Profile page: email header plus the Preferences and Allergy exclusions cards.
+ * ErrorStateMatcher for the username field, bound in the template.
  *
- * Both sections load their own data on init so a failing backend call never
- * blocks the other, and each card surfaces an inline error with a manual retry.
- * Saving is explicit (no auto-save): the Save buttons stay disabled until the
- * user edits something, and a successful PUT re-syncs the form with the server
- * values — which also clears the dirty flag without extra bookkeeping.
+ * Material 22 renders `mat-error` only when the form-field's own control
+ * reports an error state, and a server-side `taken` error (set with
+ * `setErrors` after a failed save) never flips the control to touched.
+ * Keeping the default "invalid + touched" rule for length validations while
+ * adding `hasError('taken')` surfaces the backend message even on an
+ * untouched field.
+ */
+class UsernameErrorStateMatcher implements ErrorStateMatcher {
+  /** True when the field is invalid after interaction or rejected by the server. */
+  isErrorState(control: AbstractControl | null): boolean {
+    return !!control && ((control.touched && control.invalid) || control.hasError('taken'));
+  }
+}
+
+/**
+ * Profile page: email header plus the Identity, Preferences and Allergy
+ * exclusions cards.
+ *
+ * Both settings sections load their own data on init so a failing backend call
+ * never blocks the other, and each card surfaces an inline error with a manual
+ * retry. Saving is explicit (no auto-save): the Save buttons stay disabled
+ * until the user edits something, and a successful PUT re-syncs the form with
+ * the server values — which also clears the dirty flag without extra
+ * bookkeeping.
  *
  * The Preferences card enforces the domain invariant `filterMode == 'STRICT'`
  * ⟺ `coverageThreshold == 100` (see `wireCoverageInvariant`): the fields can
  * never contradict each other, whatever direction the change comes from.
+ *
+ * The Identity card pre-fills from the session profile and always sends the
+ * FULL identity on save (empty names encode to `null` — clear upstream, see
+ * {@link UpdateProfileRequest}); only the username can be left empty, which
+ * the backend treats as "keep the current value".
  */
 @Component({
   selector: 'app-profile-page',
@@ -72,7 +105,9 @@ const DIET_OPTIONS: ReadonlyArray<{ value: Diet; label: string }> = [
     MatCardSubtitle,
     MatCardTitle,
     MatCheckbox,
+    MatError,
     MatFormField,
+    MatInput,
     MatLabel,
     MatOption,
     MatProgressSpinner,
@@ -97,6 +132,62 @@ export class ProfilePage implements OnInit {
   /** Identity shown in the header: email when present, else the username. */
   protected readonly email = computed(
     () => this.session.user()?.email ?? this.session.user()?.username ?? 'Profile',
+  );
+
+  // --- Identity card --------------------------------------------------------
+
+  /**
+   * Reactive form of the Identity card, prefilled from the session profile.
+   *
+   * The username is NOT required on purpose: the backend contract of
+   * {@link UpdateProfileRequest} ignores a null username ("keep current"), so
+   * clearing the field is a valid no-op, not an error. Min/max length still
+   * apply and disable Save while violated.
+   */
+  readonly identityForm = this.fb.group({
+    username: ['', [Validators.minLength(3), Validators.maxLength(20)]],
+    firstName: ['', Validators.maxLength(50)],
+    lastName: ['', Validators.maxLength(50)],
+  });
+
+  /**
+   * Error-state matcher for the username field (bound in the template).
+   *
+   * Required so Material 22 projects the `taken` server error even though
+   * the control never became touched during a failed save — see
+   * {@link UsernameErrorStateMatcher}.
+   */
+  readonly usernameErrorStateMatcher = new UsernameErrorStateMatcher();
+
+  /**
+   * The last server-confirmed identity, in payload shape.
+   *
+   * Compared against the live payload to know whether Save would change
+   * anything: the user can edit a field and revert it, which leaves the form
+   * dirty but the effective payload identical — Save must be disabled then too.
+   */
+  private readonly identityBaseline = signal<UpdateProfileRequest>({
+    username: null,
+    firstName: null,
+    lastName: null,
+  });
+
+  protected readonly identitySaving = signal(false);
+  protected readonly identitySaveError = signal<string | null>(null);
+
+  /**
+   * True while the effective identity payload differs from the saved one.
+   *
+   * Compares payloads, not form dirtiness or control values: empty inputs are
+   * encoded to `null` before comparison, so clearing an already-empty field is
+   * a change-free no-op while clearing a filled field enables Save.
+   */
+  readonly identityChanged = toSignal(
+    this.identityForm.valueChanges.pipe(
+      startWith(this.identityForm.getRawValue()),
+      map(() => JSON.stringify(this.identityPayload()) !== JSON.stringify(this.identityBaseline())),
+    ),
+    { initialValue: false },
   );
 
   // --- Preferences card ----------------------------------------------------
@@ -142,6 +233,88 @@ export class ProfilePage implements OnInit {
     this.wireCoverageInvariant();
     this.loadPreferences();
     this.loadExclusions();
+    this.syncIdentity(this.session.user());
+  }
+
+  /**
+   * Prefills the identity form from the session profile and re-baselines it.
+   *
+   * `reset()` keeps the form pristine, so Save stays disabled until the user
+   * actually types something. The baseline is committed BEFORE `reset()`
+   * because `reset` synchronously emits `valueChanges`, which re-evaluates
+   * `identityChanged` against the current baseline; after a successful save
+   * this method is called again with the server response to turn Save off.
+   */
+  private syncIdentity(user: UserResponse | null): void {
+    const empty = (value: string | null | undefined) => value ?? '';
+    this.identityBaseline.set(this.identityPayloadOf(user));
+    this.identityForm.reset({
+      username: empty(user?.username),
+      firstName: empty(user?.firstName),
+      lastName: empty(user?.lastName),
+    });
+  }
+
+  /** Encodes a user profile into request shape (names null when not set). */
+  private identityPayloadOf(user: UserResponse | null): UpdateProfileRequest {
+    return {
+      username: user?.username ?? null,
+      firstName: user?.firstName ?? null,
+      lastName: user?.lastName ?? null,
+    };
+  }
+
+  /**
+   * Encodes the current form values into the request body.
+   *
+   * Empty inputs become `null`: the backend clears names but ignores an empty
+   * username (keeps the current one). The form thus always sends all three
+   * fields explicitly — full replacement, never a partial patch.
+   */
+  protected identityPayload(): UpdateProfileRequest {
+    const { username, firstName, lastName } = this.identityForm.getRawValue();
+    const emptyToNull = (value: string) => (value === '' ? null : value);
+    return {
+      username: emptyToNull(username),
+      firstName: emptyToNull(firstName),
+      lastName: emptyToNull(lastName),
+    };
+  }
+
+  /**
+   * Sends the identity replacement and re-syncs session and form on success.
+   *
+   * On success the server response feeds {@link SessionState.restore} so the
+   * shell/navigation react immediately, and `syncIdentity` re-baselines the
+   * form (pristine again, Save disabled). A 400 is the backend's "username
+   * already taken" signal by contract: its message is shown as a field error
+   * on the username control — typing in it clears the error through the
+   * normal re-validation flow — while other failures surface as a card-level
+   * error and keep the edited values.
+   */
+  protected saveIdentity(): void {
+    if (this.identityForm.invalid || !this.identityChanged()) {
+      return;
+    }
+    this.identitySaving.set(true);
+    this.identitySaveError.set(null);
+    this.profile.updateProfile(this.identityPayload()).subscribe({
+      next: (updated) => {
+        this.session.restore(updated);
+        this.syncIdentity(updated);
+        this.identitySaving.set(false);
+        this.snackBar.open('Perfil actualizado', 'OK', { duration: 3000 });
+      },
+      error: (error: HttpErrorResponse) => {
+        this.identitySaving.set(false);
+        const message = toErrorResponse(error).message;
+        if (error.status === 400 && message) {
+          this.identityForm.controls.username.setErrors({ taken: message });
+        } else {
+          this.identitySaveError.set(message || 'No se pudo actualizar el perfil.');
+        }
+      },
+    });
   }
 
   /**

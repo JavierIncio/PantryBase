@@ -1,11 +1,18 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Allergen, AllergyExclusions, UserPreferences } from './profile.models';
+import { UserResponse } from '../auth/auth.models';
+import {
+  Allergen,
+  AllergyExclusions,
+  UpdateProfileRequest,
+  UserPreferences,
+} from './profile.models';
 
 /**
  * Reads and updates the per-user profile settings under `/api/users`:
- * filtering preferences and the allergy exclusion list.
+ * identity (username + names), filtering preferences and the allergen
+ * exclusion list.
  *
  * Lives outside the page so the component stays presentational and each
  * endpoint is typed in exactly one place. Authentication is handled by the
@@ -39,6 +46,18 @@ export class ProfileService {
    */
   updateAllergyExclusions(codes: string[]): Observable<AllergyExclusions> {
     return this.http.put<AllergyExclusions>('/api/users/allergy-exclusions', { codes });
+  }
+
+  /**
+   * Replaces the identity fields (username + names) of the signed-in user.
+   *
+   * Returns the refreshed profile (200) — never a 204 — so the caller can feed
+   * it back to {@link SessionState.restore} and every consumer sees the new
+   * values immediately. Null username is ignored upstream (keeps the current
+   * one); null names clear them; see {@link UpdateProfileRequest}.
+   */
+  updateProfile(request: UpdateProfileRequest): Observable<UserResponse> {
+    return this.http.put<UserResponse>('/api/users/profile', request);
   }
 
   /** Full allergen catalog (the 14 EU allergens, sorted by name). */
