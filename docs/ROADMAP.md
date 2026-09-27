@@ -55,6 +55,8 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 **Objetivo:** el modelo de medidas estandarizadas, corazón del dominio.
 
+**Estado H2 (sept 2026):** bloque H2-A en curso. Cerrado el motor de unidades: migración `V5__catalog_units.sql` (catálogo `units` con `code` como PK natural y flag `canonical`, tabla factor-estrella `measure_conversions`, densidades por categoría `ingredient_densities`, 11 unidades US customary seedeadas), entidades `Unit`/`MeasureConversion`/`IngredientDensity` con `UnitCategory`, y el puerto de dominio `UnitConverter` implementado por `UnitConversionService` (normalización al ancla `GRAM`/`ML`/`UNIT` mediante `canonical`, conversión intra-categoría por factor, cruce volumen↔peso por densidad y `UnsupportedConversionException` para parejas sin sentido como COUNT↔WEIGHT). **12 tests unitarios verdes y gate JaCoCo verificado (73 tests en total).** Pendiente dentro de H2-A: `GET /api/units` y `POST /api/units/convert` con DTOs en la frontera y `400` estandarizado (T3), test de integración contra Postgres real con Testcontainers (T4), y el bloque H2-B de integración con Edamam Food Database API. Deuda anotada: densidades de harina/azúcar/aceite pendientes de revalidar contra Edamam en H2-B.
+
 - [ ] Entidades `Ingredient`, `Unit`, `MeasureConversion` y tabla de densidades por categoría.
 - [ ] Conversor de unidades: medidas comunes (taza, cdta., cda., oz, lb, pinta…) → canónicas (`GRAM`/`ML`/`UNIT`) usando conversión base + densidad.
 - [ ] Integración Edamam **Food Database API**: búsqueda, autocompletado, parse. Cache en BBDD y Redis.
