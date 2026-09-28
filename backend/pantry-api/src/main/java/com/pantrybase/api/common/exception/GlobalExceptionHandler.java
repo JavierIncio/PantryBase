@@ -1,8 +1,15 @@
 package com.pantrybase.api.common.exception;
 
+import com.pantrybase.api.catalog.exception.IngredientCategoryRequiredException;
+import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
+import com.pantrybase.api.catalog.exception.MeasureConversionNotFoundException;
+import com.pantrybase.api.catalog.exception.UnknownUnitException;
+import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.common.dto.ErrorResponseFactory;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -20,6 +27,8 @@ import java.util.stream.Collectors;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
      * Handles bean validation failures by returning the field errors as a single message.
@@ -83,7 +92,31 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handleInvalidPasswordResetTokenException(InvalidPasswordResetTokenException ex,
-                                                                                 HttpServletRequest request) {
+                                                                                  HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleIngredientCategoryRequiredException(IngredientCategoryRequiredException ex,
+                                                                                   HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleUnknownUnitException(UnknownUnitException ex,
+                                                                    HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleUnsupportedConversionException(UnsupportedConversionException ex,
+                                                                              HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
@@ -98,6 +131,23 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleIngredientDensityNotFoundException(IngredientDensityNotFoundException ex,
+                                                                                  HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleMeasureConversionNotFoundException(MeasureConversionNotFoundException ex,
+                                                                                  HttpServletRequest request) {
+        log.error("Measure conversion not found: {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponseFactory.of(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), request));
+    }
+
+    @ExceptionHandler
     public ResponseEntity<ErrorResponse> handleUsernameAlreadyExistsException(UsernameAlreadyExistsException ex,
                                                                               HttpServletRequest request) {
         return ResponseEntity
@@ -107,7 +157,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handleEmailAlreadyExistsException(EmailAlreadyExistsException ex,
-                                                                            HttpServletRequest request) {
+                                                                           HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));
@@ -115,7 +165,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handlePasswordNotSetException(PasswordNotSetException ex,
-                                                                     HttpServletRequest request) {
+                                                                       HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));

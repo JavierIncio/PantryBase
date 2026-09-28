@@ -6,6 +6,7 @@ import com.pantrybase.api.catalog.domain.Unit;
 import com.pantrybase.api.catalog.domain.UnitCategory;
 import com.pantrybase.api.catalog.domain.UnitConverter;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
+import com.pantrybase.api.catalog.exception.IngredientCategoryRequiredException;
 import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
 import com.pantrybase.api.catalog.exception.MeasureConversionNotFoundException;
 import com.pantrybase.api.catalog.exception.UnknownUnitException;
@@ -14,11 +15,18 @@ import com.pantrybase.api.catalog.repository.IngredientDensityRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
 import com.pantrybase.api.catalog.repository.UnitRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
+/**
+ * Service class for handling unit conversions.
+ *
+ * <p>Transactional read-only operations to omit dirty-checking and improve performance.</p>
+ */
 @Service
+@Transactional(readOnly = true)
 public class UnitConversionService implements UnitConverter {
 
     private final UnitRepository unitRepo;
@@ -102,6 +110,9 @@ public class UnitConversionService implements UnitConverter {
         if (!weightToVolume && !volumeToWeight)
             throw new UnsupportedConversionException(
                     unitFrom.getCategory().name(), unitTo.getCategory().name());
+
+        if (ingredientCategory == null || ingredientCategory.isBlank())
+            throw new IngredientCategoryRequiredException(fromCode, toCode);
 
         IngredientDensity density = ingredientDensityRepo.findById(ingredientCategory)
                 .orElseThrow(() -> new IngredientDensityNotFoundException(ingredientCategory));

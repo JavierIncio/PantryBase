@@ -2,6 +2,7 @@ package com.pantrybase.api;
 
 import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.repository.RefreshTokenRepository;
+import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.user.repository.UserPreferencesRepository;
 import com.pantrybase.api.user.repository.UserRepository;
@@ -14,6 +15,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -50,6 +52,8 @@ public abstract class AbstractIntegrationTest {
     protected RefreshTokenRepository refreshTokenRepository;
     @Autowired
     protected UserPreferencesRepository preferencesRepository;
+    @Autowired
+    protected MeasureConversionRepository measureConversionRepository;
 
     @BeforeEach
     void setUp() {
@@ -131,4 +135,12 @@ public abstract class AbstractIntegrationTest {
                         (existing, replacement) -> existing));
     }
 
+    protected void assertUnauthorized(String endpoint, HttpMethod method) {
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                endpoint, method, HttpEntity.EMPTY,
+                ErrorResponse.class
+        );
+
+        assertError(response, HttpStatus.UNAUTHORIZED, endpoint);
+    }
 }

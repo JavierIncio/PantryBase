@@ -353,13 +353,4 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         assertUnauthorized(EXCLUSIONS, HttpMethod.PUT);
         assertUnauthorized(ALLERGENS, HttpMethod.GET);
     }
-
-    private void assertUnauthorized(String endpoint, HttpMethod method) {
-        ResponseEntity<ErrorResponse> response = rest.exchange(
-                endpoint, method, HttpEntity.EMPTY,
-                ErrorResponse.class
-        );
-
-        assertError(response, HttpStatus.UNAUTHORIZED, endpoint);
-    }
 }
