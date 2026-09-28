@@ -66,7 +66,7 @@
 | Servicio                | Versión                 | Notas                                                                                                                   |
 | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | PostgreSQL              | **18.6** (13 ago 2026)  | Imagen `postgres:18-alpine`                                                                                             |
-| Redis                   | serie **8.x** (OSS 8.6) | Imagen `redis:8-alpine`; caché de Edamam + rate limiting                                                                |
+| Redis                   | serie **8.x** (OSS 8.6) | Imagen `redis:8-alpine`; caché de respuestas de proveedores externos (USDA FDC, TheMealDB) + rate limiting              |
 | Prometheus              | **3.14.0**              | Imagen `prom/prometheus:v3.14.0`; 3.13 es la línea LTS actual                                                           |
 | Grafana                 | **13.0.9**              | Imagen `grafana/grafana:13.0.9`; provisioning de datasource Prometheus (`infra/grafana/provisioning/`, `apiVersion: 1`) |
 | Jenkins                 | LTS 2.x                 | Imagen `jenkins/jenkins:lts-jdk21`; despliegue del servidor CI pendiente (H0 local)                                     |
@@ -79,8 +79,8 @@
 
 | Recurso                    | Detalle                                                                                                                                                                     |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Edamam — Food Database API | Búsqueda/auto-completado de ingredientes, nutrientes y categorías. Credenciales app_id + app_key.                                                                           |
-| Edamam — Recipe Search API | Recetas completas: cantidades, nutrición por ración, dietas. Alérgenos se derivan con mapeo interno (sin campo directo garantizado).                                        |
+| USDA FDC — FoodData Central v1 | Ingredientes: búsqueda (`GET/POST /foods/search` con `dataType`), detalle `GET /food/{fdcId}`, lote `POST /foods` (≤ 20 ids). Nutrientes por `nutrientId` (por 100 g) y porciones domésticas con peso (→ densidades). Key api.data.gov como `api_key` (1.000 req/h/IP; `DEMO_KEY` 30/h para pruebas; 429 + bloqueo 1 h al exceder). |
+| TheMealDB v1                 | Recetas: búsqueda por nombre (`search.php?s=`) e ingrediente (`filter.php?i=`), detalle `lookup.php?i=`; pares `strIngredientN`/`strMeasureN` (N=1..20). Test key pública `1` en la URL; gratis para uso educativo y desarrollo; sin cuota publicada. Recetas materializadas en BBDD (`Recipe.source`) y nutrición calculada localmente desde USDA FDC. |
 | LLM gratuitos (rotación)   | Ollama (local, 100% gratis) → OpenRouter (`:free`) → Groq free tier → Gemini free tier. Orden configurable vía `LLM_PROVIDERS`. Ver revisar modelos `:free` vigentes en H6. |
 | Rate limiting              | Redis (resilience4j) por usuario + endpoint; cuotas externas vigiladas en Grafana.                                                                                          |
 

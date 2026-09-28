@@ -5,7 +5,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 ## Criterios de priorización
 
 1. **Núcleo de dominio antes que brillo:** el motor de unidades, inventario y descontado son el valor diferencial.
-2. **Integraciones antes que social:** Edamam y LLM proporcionan el contenido; SPAs de favoritos/historial vienen después.
+2. **Integraciones antes que social:** USDA FDC, TheMealDB y LLM proporcionan el contenido; SPAs de favoritos/historial vienen después.
 3. **Observabilidad desde el primer hito:** métricas y logs desde H0, no póstumo.
 4. **Cada hito desplegable en Docker** y con CI (Jenkins) verificado.
 
@@ -55,12 +55,12 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 **Objetivo:** el modelo de medidas estandarizadas, corazón del dominio.
 
-**Estado H2 (sept 2026):** **bloque H2-A cerrado.** Motor de unidades: migración `V5__catalog_units.sql` (catálogo `units` con `code` como PK natural y flag `canonical`, tabla factor-estrella `measure_conversions`, densidades por categoría `ingredient_densities`, 11 unidades US customary seedeadas), entidades `Unit`/`MeasureConversion`/`IngredientDensity` con `UnitCategory`, y el puerto de dominio `UnitConverter` implementado por `UnitConversionService` (normalización al ancla `GRAM`/`ML`/`UNIT` mediante `canonical`, conversión intra-categoría por factor, cruce volumen↔peso por densidad y `UnsupportedConversionException` para parejas sin sentido como COUNT↔WEIGHT). Frontera HTTP: `GET /api/units` (catálogo determinista por `code`) y `POST /api/units/convert`, con DTOs en la frontera, validación de forma en el record (`@PositiveOrZero` amount, `@NotBlank` unidades) y validación de significado en el dominio. Política de errores: `400` para todo fallo atribuible al cliente (unidad desconocida, categoría ausente, densidad no registrada, conversión no soportada) y `500` para un factor ausente en `measure_conversions`, que es un defecto de nuestros seeds; ese caso se blinda además con un test de integración que verifica que toda unidad no canónica tiene factor, de modo que un seed incompleto rompe el build y no la conversión. **23 tests de catálogo verdes (12 unitarios + 11 de integración con Testcontainers), 84 en total, gate JaCoCo verificado.** Pendiente: el bloque H2-B de integración con Edamam Food Database API. Deuda anotada: densidades de harina/azúcar/aceite pendientes de revalidar contra Edamam en H2-B.
+**Estado H2 (sept 2026):** **bloque H2-A cerrado.** Motor de unidades: migración `V5__catalog_units.sql` (catálogo `units` con `code` como PK natural y flag `canonical`, tabla factor-estrella `measure_conversions`, densidades por categoría `ingredient_densities`, 11 unidades US customary seedeadas), entidades `Unit`/`MeasureConversion`/`IngredientDensity` con `UnitCategory`, y el puerto de dominio `UnitConverter` implementado por `UnitConversionService` (normalización al ancla `GRAM`/`ML`/`UNIT` mediante `canonical`, conversión intra-categoría por factor, cruce volumen↔peso por densidad y `UnsupportedConversionException` para parejas sin sentido como COUNT↔WEIGHT). Frontera HTTP: `GET /api/units` (catálogo determinista por `code`) y `POST /api/units/convert`, con DTOs en la frontera, validación de forma en el record (`@PositiveOrZero` amount, `@NotBlank` unidades) y validación de significado en el dominio. Política de errores: `400` para todo fallo atribuible al cliente (unidad desconocida, categoría ausente, densidad no registrada, conversión no soportada) y `500` para un factor ausente en `measure_conversions`, que es un defecto de nuestros seeds; ese caso se blinda además con un test de integración que verifica que toda unidad no canónica tiene factor, de modo que un seed incompleto rompe el build y no la conversión. **23 tests de catálogo verdes (12 unitarios + 11 de integración con Testcontainers), 84 en total, gate JaCoCo verificado.** Pendiente: el bloque H2-B de integración con USDA FoodData Central API. Deuda anotada: densidades de harina/azúcar/aceite pendientes de revalidar contra las porciones domésticas de USDA FDC (`foodPortions`, peso en gramos) en H2-B.
 
 - [x] Entidades `Unit`, `MeasureConversion` y tabla de densidades por categoría.
-- [ ] Entidad `Ingredient` con nutrientes y categorías (llega con Edamam en H2-B).
+- [ ] Entidad `Ingredient` con nutrientes y categorías (llega con USDA FDC en H2-B).
 - [x] Conversor de unidades: medidas comunes (taza, cdta., cda., oz, lb, pinta…) → canónicas (`GRAM`/`ML`/`UNIT`) usando conversión base + densidad.
-- [ ] Integración Edamam **Food Database API**: búsqueda, autocompletado, parse. Cache en BBDD y Redis.
+- [ ] Integración **USDA FoodData Central** (v1): búsqueda (`/foods/search`), detalle por `fdcId` y lote (`POST /foods`); parseo de nutrientes por `nutrientId` y de porciones domésticas. Cache en BBDD y Redis.
 - [ ] Sincronización/refresh de datos de nutrientes y categorías.
 - [ ] API de administración (o seed) para ajustar densidades ambiguas.
 
@@ -84,8 +84,8 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 **Objetivo:** recomendación basada en la despensa (el diferencial del producto).
 
-- [ ] Integración **Edamam Recipe Search API**: búsqueda de recetas por ingredientes disponibles.
-- [ ] Persistencia de `Recipe` + `RecipeIngredient` (cantidades originales del proveedor y canónicas) + nutrientes por ración.
+- [ ] Integración **TheMealDB API** (v1): búsqueda de recetas por nombre e ingrediente (test key pública); recetas materializadas en BBDD con `Recipe.source = THE_MEAL_DB` y refresco por TTL.
+- [ ] Persistencia de `Recipe` + `RecipeIngredient` (cantidades originales del proveedor y canónicas) + nutrientes por ración calculados localmente desde el catálogo USDA (motor de unidades como puente) + marcador de origen `Recipe.source` (`THE_MEAL_DB` o `USER`).
 - [ ] Derivación de alérgenos por receta (mapeo interno sobre ingredientes) y filtrado por exclusiones del usuario.
 - [ ] Motor de cobertura: ratio = cantidad disponible / cantidad necesaria por ingrediente → **match score** de la receta.
 - [ ] Filtrado **estricto** (requiere 100% según umbral de cantidad) y **laxo** (porcentaje de cobertura configurable).
@@ -130,7 +130,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [ ] Favoritos (`Favorite`), guardadas (`SavedRecipe`), publicaciones (`PublishedRecipe`).
 - [ ] Historial de recetas realizadas (`RecipeHistory`) alimentado automáticamente al completar sesión.
 - [ ] Vista de perfil con estadísticas (nº recetas, ingredientes más usados).
-- [ ] Publicar receta propia: formulario de receta manual (ingresar/editar ingredientes y pasos) que alimenta el catálogo.
+- [ ] Publicar receta propia: formulario de receta manual (ingresar/editar ingredientes y pasos) que alimenta el catálogo reutilizando el modelo local de `Recipe` con `source = USER`.
 
 **Definition of done:** toda la interacción social requiere auth; historial 100% consistente con las sesiones completadas.
 
@@ -139,7 +139,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 ## H8 — Producción y endurecimiento
 
 - [ ] Hardening de seguridad: rate limiting por IP, auditoría de llamadas externas, secretos en Vault/CI.
-- [ ] Dashboards de Grafana finales: salud, cuotas Edamam/LLM, cobertura de despensa, rendimiento del recomendador.
+- [ ] Dashboards de Grafana finales: salud, cuotas de APIs externas (USDA FDC, TheMealDB, LLM), cobertura de despensa, rendimiento del recomendador.
 - [ ] Alertas (Prometheus Alertmanager) para: errores 5xx, circuito abierto, cuota de LLM agotada, sesiones colgadas.
 - [ ] Carga y escalado: caché Redis efectiva, índices de BBDD analizados con `EXPLAIN`, test de concurrencia sobre descontado.
 - [ ] Backups de PostgreSQL + estrategia de restauración.
@@ -160,7 +160,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ## Decisiones abiertas / deuda técnica a resolver en H0/H2
 
-- **Fuente de verdad para alérgenos:** Edamam no garantiza campo alergeno directo; validar mapeo propio vs. datos del proveedor antes de H4.
-- **Conversión de sólidos en tazas:** necesidad de tabla de densidades por ingrediente frente a peso provisto por Edamam; decidir prioridad (peso del proveedor > densidad propia).
-- **Cache de catálogo:** política de refresco (TTL vs. invalidación manual) y límites de cuota de Edamam.
+- **Fuente de verdad para alérgenos:** ni USDA FDC ni TheMealDB garantizan campo alérgeno directo; validar el mapeo propio sobre la descripción e ingredientes antes de H4.
+- **Conversión de sólidos en tazas:** necesidad de tabla de densidades por ingrediente frente al peso de la porción doméstica de USDA FDC; decidir prioridad (porción FDC > densidad propia).
+- **Cache de catálogo y recetas:** política de refresco (TTL vs. invalidación manual), cuota de USDA FDC (~1.000 req/h/IP; 429 + bloqueo 1 h) y respeto de la etiqueta de TheMealDB (cachear recetas, no servirlas en caliente).
 - **Modelo multi-proveedor LLM:** el prompt debe funcionar por igual en modelos sin tool-calling (fallback a JSON estricto).

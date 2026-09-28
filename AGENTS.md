@@ -54,7 +54,7 @@ Este fichero es el acuerdo de trabajo para **cualquier agente** que opere en est
 
 ## 8. Seguridad
 
-- No registrar secretos en el repositorio (API keys de Edamam, tokens de LLM, passwords). Usar variables de entorno y `.env` ignorado por git.
+- No registrar secretos en el repositorio (API keys de proveedores externos —p. ej. `USDA_FDC_API_KEY`—, tokens de LLM, passwords). Usar variables de entorno y `.env` ignorado por git.
 - Solo se documentan nombres de variables, nunca valores.
 
 ## 9. Proyecto de aprendizaje

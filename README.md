@@ -8,14 +8,14 @@ Recetario inteligente que recomienda recetas en función de lo que el usuario ti
 
 ## Visión general
 
-El usuario registra su inventario de ingredientes con cantidades en medidas estandarizadas. PantryBase consulta catálogos externos de alimentos y recetas (Edamam), las filtra según la disponibilidad real de la despensa (modo estricto o laxo) y le ayuda a cocinar paso a paso: al marcar la receta como finalizada se descuentan automáticamente las cantidades consumidas. Un asistente basado en LLM (gratuito, multi-proveedor con rotación y fallback) complementa la recomendación.
+El usuario registra su inventario de ingredientes con cantidades en medidas estandarizadas. PantryBase consulta catálogos externos de alimentos y recetas —**USDA FoodData Central** para el catálogo de ingredientes y **TheMealDB** para las recetas—, las filtra según la disponibilidad real de la despensa (modo estricto o laxo) y le ayuda a cocinar paso a paso: al marcar la receta como finalizada se descuentan automáticamente las cantidades consumidas. Un asistente basado en LLM (gratuito, multi-proveedor con rotación y fallback) complementa la recomendación.
 
 ### Funcionalidades principales
 
 - **Inventario (despensa):** CRUD de ingredientes con cantidades en unidades estandarizadas.
 - **Autenticación:** registro y login con JWT (access token por header, refresh token en cookie `httpOnly` con rotación) y login social OAuth2 (Google) con link-or-create.
-- **Catálogo de ingredientes:** datos, nutrición y alérgenos vía API de Edamam (Food Database), cacheado en base de datos.
-- **Recetas:** búsqueda y detalle desde Edamam (Recipe Search API): ingredientes con cantidades, nutrición y alérgenos.
+- **Catálogo de ingredientes:** datos y nutrición vía **USDA FoodData Central** (ficha por 100 g y porciones domésticas con peso), cacheado en base de datos; alérgenos derivados por mapeo interno.
+- **Recetas:** búsqueda y detalle desde **TheMealDB**, materializadas en BBDD como entidades propias (`Recipe.source` = `THE_MEAL_DB` o `USER`) con nutrición por ración calculada localmente desde el catálogo USDA.
 - **Filtrado por disponibilidad:**
   - _Estricto:_ solo recetas que el usuario puede hacer con lo que tiene (todas las cantidades cubiertas).
   - _Laxo:_ recetas parcialmente cubiertas, con porcentaje de cobertura configurable (slider 0-100%).
@@ -37,8 +37,8 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 | BBDD           | PostgreSQL 18 (+)                       | Datos persistentes (inventario, usuarios, catálogo cacheado) |
 | BBDD           | Flyway (+)                              | Migraciones versionadas del esquema                          |
 | Backend        | Spring Data JPA                         | Acceso a datos                                               |
-| Cache / RL     | Redis                                   | Rate limiting y caché de respuestas de Edamam                |
-| Resiliencia    | Resilience4j (+)                        | Circuit breaker, retry y rate limiter para Edamam y LLMs     |
+| Cache / RL     | Redis                                   | Rate limiting y caché de respuestas de proveedores externos (USDA FDC, TheMealDB) |
+| Resiliencia    | Resilience4j (+)                        | Circuit breaker, retry y rate limiter para proveedores externos (USDA FDC, TheMealDB) y LLMs |
 | LLM            | Spring AI (+)                           | Capa multi-proveedor con rotación de modelos gratuitos       |
 | Docs API       | springdoc-openapi (+)                   | Contrato OpenAPI                                             |
 | Frontend       | Angular 22.1 (activa) + Angular Material | SPA                                                          |
@@ -52,7 +52,7 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 ### Justificación de adiciones
 
 - **PostgreSQL + Flyway:** base relacional robusta para el dominio (inventario, conversiones, sesiones) con esquema versionado. Mejor que MySQL/H2 para consultas con joins y filtros complejos.
-- **Resilience4j:** Edamam y los proveedores de LLM son servicios externos; el circuit breaker evita cascadas y habilita la rotación de fallos de forma controlada.
+- **Resilience4j:** USDA FDC, TheMealDB y los proveedores de LLM son servicios externos; el circuit breaker evita cascadas y habilita la rotación de fallos de forma controlada.
 - **Spring AI:** abstrae el acceso a múltiples LLMs (Ollama, OpenRouter, Groq, Gemini…) y facilita el fallback entre modelos.
 - **Testcontainers:** tests de integración repetibles contra PostgreSQL/Redis reales, sin acoplar a un entorno local.
 - **springdoc-openapi:** documentación viva de la API y cliente generable para Angular.
@@ -69,7 +69,7 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 
 ```
                        ┌──────────────────────── externos ──────────────────────────┐
-                       │  Edamam (Food DB / Recipe API)    LLMs gratuitos (rotación)│
+                       │  USDA FDC · TheMealDB             LLMs gratuitos (rotación)│
                        └───────────────┬──────────────────────┬─────────────────────┘
                                        │ REST (Retry/Circuit) │ Spring AI (fallback)
                                        ▼                      ▼
@@ -94,10 +94,10 @@ Jenkins: build → test (JaCoCo) → quality gate → build Docker → deploy (d
 ## Modelo de dominio (esquema objetivo)
 
 - **User** — identidad y credenciales.
-- **Ingredient** — catálogo de alimentos (nombre normalizado, categoría, nutrientes, alérgenos) cacheado desde Edamam.
+- **Ingredient** — catálogo de alimentos (nombre normalizado, categoría, nutrientes por 100 g, porciones domésticas con peso) cacheado desde USDA FDC; alérgenos derivados por mapeo interno.
 - **Unit** — unidad canónica (`GRAM`, `ML`, `UNIT`) con tabla de conversión de medidas comunes (taza, cucharada, cucharadita, onza, libra…) a la canónica según categoría/densidad del ingrediente.
 - **PantryItem** — `Ingredient` + `User` + cantidad en unidad canónica + `location/nota`.
-- **Recipe** — cabecera de receta (fuente Edamam, dietas, nutrientes por ración, imagen) con sus **RecipeIngredient\*** line items (ingrediente, cantidad, unidad, peso/shorthand del proveedor).
+- **Recipe** — cabecera de receta (`source`: `THE_MEAL_DB` o `USER`; dietas, nutrientes por ración calculados desde el catálogo USDA, imagen) con sus **RecipeIngredient\*** line items (ingrediente, cantidad original y canónica, unidad).
 - **Allergen / UserAllergyExclusion** — ontología de alérgenos y exclusiones por usuario.
 - **UserPreferences** — modo de filtrado (laxo/estricto), umbral de cobertura por defecto, dieta.
 - **CookingSession** — sesión activa de una receta con estados de progreso (`EN_CURSO`, `COMPLETADA`, `ABANDONADA`, `EN_PAUSA`).
@@ -119,17 +119,18 @@ Tres unidades canónicas:
 | Líquidos  | mililitros (ml) |
 | Contables | unidades (u)    |
 
-- Las medidas de receta del proveedor (p. ej. “1 taza de harina”) se convierten a canónicas con una **tabla de conversión** base (taza=240 ml; cucharada=15 ml; cucharadita=5 ml; etc.) corregida por **densidad por ingrediente/categoría** para los sólidos (Edamam devuelve gramos por medida en la mayoría de casos — se aprovecha ese peso cuando exista).
+- Las medidas de receta del proveedor (p. ej. “1 taza de harina”) se convierten a canónicas con una **tabla de conversión** base (taza=240 ml; cucharada=15 ml; cucharadita=5 ml; etc.) corregida por **densidad por ingrediente/categoría** para los sólidos (USDA FDC publica porciones domésticas con peso en gramos — p. ej. “1 cup” = 120 g — y ese peso se aprovecha cuando existe; si no, se aplica la densidad de la categoría).
 - El inventario registra siempre en unidad canónica; la UI usa selectores de unidades con conversión automática.
 - Decisiones sobre ingredientes con densidad ambigua quedan registradas en una tabla `measure_conversion` editable (sobrescribible manualmente).
 
 ---
 
-## Contexto del uso de las APIs de Edamam
+## Contexto del uso de las APIs externas
 
-- **Food Database API:** búsqueda/autocompletado de ingredientes, datos de nutrientes y categorías → cacheado como `Ingredient`.
-- **Recipe Search API:** búsqueda de recetas por ingredientes disponibles; proporciona cantidades, nutrición por ración y etiquetas de dieta (los **alérgenos** se derivan del análisis de ingredientes y de un mapeo mantenido internamente, ya que no hay un campo alérgeno directo garantizado).
-- Las respuestas se cachean en Redis/local para controlar cuotas y latencia. Toda llamada externa pasa por Resilience4j (retry + circuit breaker) y rate limiting.
+- **USDA FoodData Central (catálogo de ingredientes):** búsqueda (`GET/POST /foods/search` con filtro de `dataType`), detalle (`GET /food/{fdcId}`) y lote (`POST /foods`, hasta 20 ids). Los resultados analíticos (`Foundation`, `SR Legacy`) se cachean como `Ingredient` con nutrientes por `nutrientId` (1003 proteína, 1004 grasa, 1005 carbohidratos, 1008 energía) por 100 g y **porciones domésticas con peso en gramos** (`foodPortions`), que alimentan la tabla de densidades. `Branded` queda para el escaneo por código de barras (`gtinUpc`). Cuota ~1.000 req/h por IP (key de api.data.gov); excederla devuelve 429 y bloquea la key 1 hora.
+- **TheMealDB (recetas):** búsqueda por nombre (`search.php?s=`) e ingrediente (`filter.php?i=`), y detalle completo (`lookup.php?i=`). Las recetas se **materializan en BBDD** como entidades propias (`Recipe.source = THE_MEAL_DB`) con refresco por TTL: así los ids son estables para favoritos, sesiones e historial, la nutrición por ración se calcula una sola vez y el dominio no depende del proveedor en caliente. El usuario puede aportar recetas propias en el mismo modelo (`source = USER`).
+- **Nutrición y alérgenos:** TheMealDB no ofrece nutrientes por ración, dietas ni alérgenos; USDA FDC tampoco garantiza campo de alérgenos. La nutrición se calcula localmente en la hidratación (medidas del proveedor → `UnitConverter` → gramos canónicos → nutrientes del catálogo USDA por ración); dietas y alérgenos se derivan con un mapeo interno mantenido por nosotros.
+- Las respuestas de ambas APIs se cachean en BBDD/Redis para controlar cuotas y latencia. Toda llamada externa pasa por Resilience4j (retry + circuit breaker) y rate limiting.
 
 ---
 
@@ -137,7 +138,7 @@ Tres unidades canónicas:
 
 - **Spring AI** con una cadena de proveedores gratuitos configurable: Ollama (local, 100 % gratis) primero en desarrollo, y en producción OpenRouter (modelos free: `qwen`, `llama`, …), Groq free tier o Gemini free tier.
 - **Rotación y fallback automático:** si un proveedor responde error, quota agotada o time-out, se rota al siguiente de la cola; un circuit breaker aísla al proveedor degradado y se reintenta tras un cooldown.
-- El LLM **no inventa recetas**: opera sobre el catálogo real (resultados de Edamam ++ inventario del usuario) mediante tool-calling/prompt estructurado que devuelve JSON con ids de recetas y justificación de cobertura.
+- El LLM **no inventa recetas**: opera sobre el catálogo real (recetas persistidas de TheMealDB y del usuario ++ inventario) mediante tool-calling/prompt estructurado que devuelve JSON con ids de recetas y justificación de cobertura.
 
 ---
 
@@ -155,7 +156,7 @@ PantryBase/
 │           ├── user/          # auth, preferencias
 │           ├── catalog/       # ingredientes, medidas, conversiones, alergenos
 │           ├── pantry/        # inventario
-│           ├── recipes/       # recetas Edamam, filtrado
+│           ├── recipes/       # recetas (TheMealDB y propias), filtrado
 │           ├── cooking/       # sesiones, estados, descontado
 │           ├── social/        # favoritas, guardadas, publicadas, historial
 │           ├── ai/            # recomendador LLM (rotación/fallback)
@@ -179,7 +180,7 @@ docker compose -f infra/docker-compose.yml up -d
 
 # 2. Backend
 cd backend/pantry-api
-./mvnw spring-boot:run          # conf.vía env: DB, Redis, EDAЯAM_API_*, LLM providers
+./mvnw spring-boot:run          # conf.vía env: DB, Redis, USDA_FDC_API_KEY, LLM providers
 
 # 3. Frontend
 cd frontend/pantry-web
@@ -188,13 +189,13 @@ npm install && npm start        # dev server con proxy a la API
 # API docs en http://localhost:8080/swagger-ui.html
 ```
 
-Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EDAMAM_APP_ID`, `EDAMAM_APP_KEY`, `LLM_PROVIDERS` (lista ordenada de proveedores con fallback). Secretos solo en `infra/.env` (ignorado por git).
+Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `LLM_PROVIDERS` (lista ordenada de proveedores con fallback). TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
 
 ---
 
 ## Observabilidad
 
-- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a Edamam y a cada proveedor LLM, tasa de fallback entre modelos, tamaño del inventario, sesiones de cocina completadas.
+- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a USDA FDC y TheMealDB y a cada proveedor LLM, tasa de fallback entre modelos, tamaño del inventario, sesiones de cocina completadas.
 - **Dashboards en Grafana** para: salud de servicios, cuotas de APIs externas, uso de la despensa y rendimiento del recomendador.
 - **Rate limiting** implementado en Redis (por usuario y por endpoint) y expuesto en métricas para detectar abusos.
 
