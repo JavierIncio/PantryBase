@@ -69,3 +69,13 @@ app:
   mail:
     from: ${MAIL_FROM:notifications@pantrybase.com}
   frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:4200}
+  catalog:
+    fdc:
+      api-key: ${USDA_FDC_API_KEY:DEMO_KEY}
+      base-url: https://api.nal.usda.gov/fdc/v1
+      data-types:
+        - Foundation
+        - SR Legacy
+      page-size: 20
+      connect-timeout: 2s
+      read-timeout: 5s

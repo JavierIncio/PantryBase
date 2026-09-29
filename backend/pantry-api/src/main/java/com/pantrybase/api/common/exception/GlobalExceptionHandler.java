@@ -1,7 +1,9 @@
 package com.pantrybase.api.common.exception;
 
+import com.pantrybase.api.catalog.exception.FdcProviderException;
 import com.pantrybase.api.catalog.exception.IngredientCategoryRequiredException;
 import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
+import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
 import com.pantrybase.api.catalog.exception.MeasureConversionNotFoundException;
 import com.pantrybase.api.catalog.exception.UnknownUnitException;
 import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
@@ -177,5 +179,33 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponseFactory.of(HttpStatus.INTERNAL_SERVER_ERROR,
                         "Failed to send password reset email", request));
+    }
+
+    /** Maps an unknown catalog ingredient (absent in the provider) to 404. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleIngredientNotFoundException(IngredientNotFoundException ex,
+                                                                           HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
+    }
+
+    /** Maps provider failures (FDC down, rate limited) to 502 Bad Gateway. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleFdcProviderException(FdcProviderException ex,
+                                                                           HttpServletRequest request) {
+        log.error("External catalog provider failed: {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.BAD_GATEWAY)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_GATEWAY, ex.getMessage(), request));
+    }
+
+    /** Maps invalid input arguments (e.g. blank search query) to 400. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex,
+                                                               HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
     }
 }

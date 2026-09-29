@@ -72,3 +72,16 @@ app:
   mail:
     from: notifications@pantrybase.com
   frontend-base-url: http://localhost:4200
+  # Placeholder values: the real FoodCatalogPort is never invoked in tests
+  # (StubFoodCatalogPortConfig wins via @Primary); they only let the eager
+  # singleton bean in FdcClientConfig bootstrap during context load.
+  catalog:
+    fdc:
+      api-key: test-dummy-key
+      base-url: https://api.nal.usda.gov/fdc/v1
+      data-types:
+        - Foundation
+        - SR Legacy
+      page-size: 20
+      connect-timeout: 2s
+      read-timeout: 5s
