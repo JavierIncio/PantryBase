@@ -39,6 +39,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [x] Catálogo de alérgenos consultable (`GET /api/users/allergens`).
 - [x] Perfil: identidad editable (username + nombres; handle respetado en el enlace social) (sept 2026).
 - [x] Rate limiting en Redis por usuario + endpoint (token bucket).
+- [x] Tests del token bucket deterministas: el `refill-interval-millis` de los tests queda desactivado a efectos prácticos (`3600000`) porque los tests de agotamiento afirman el `remaining` exacto mientras queman toda la capacidad, y una reposición a mitad de bucle los volvía flaky; la reposición se cubre aparte en `TokenBucketRefillIntegrationTest`, que ejecuta el script Lua con un reloj controlado (el script recibe `now` como argumento) en vez de dormir, lo que además cubre las ramas de saturación y de reloj medido desde la última reposición.
 - [x] Cambio/establecimiento de contraseña (`PUT /api/auth/password`) (sept 2026).
 - [x] Restablecimiento de contraseña (token por mail) (sept 2026).
 - [x] Frontend: pantalla de login, guardas de rutas, interceptores de JWT.

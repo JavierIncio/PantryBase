@@ -62,7 +62,11 @@ app:
       redirect-uri: http://localhost:4200/oauth2/callback
   rate-limit:
     capacity: 10
-    refill-interval-millis: 1000
+    # Effectively disabled on purpose: the bucket tests assert an exact remaining count
+    # while burning through the whole capacity, and a refill landing mid-loop would make
+    # them flaky. Refill behaviour is covered in TokenBucketRefillIntegrationTest, which
+    # overrides this interval to a few hundred milliseconds.
+    refill-interval-millis: 3600000
     excluded-paths:
       - /actuator/**
       - /swagger-ui/**
