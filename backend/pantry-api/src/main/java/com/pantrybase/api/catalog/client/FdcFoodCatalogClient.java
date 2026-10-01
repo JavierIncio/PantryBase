@@ -9,6 +9,7 @@ import com.pantrybase.api.catalog.exception.FdcProviderException;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -79,7 +80,7 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                         .build())
                 .retrieve()
                 .onStatus(s -> !s.is2xxSuccessful(), ((req, res) -> {
-                    throw new FdcProviderException("FDC search failed: " + req.getURI());
+                    throw new FdcProviderException("FDC search failed: " + safeUri(req.getURI()));
                 }))
                 .body(SearchResponse.class);
 
@@ -122,13 +123,32 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                 .body(new BatchRequest(new ArrayList<>(fdcIds)))
                 .retrieve()
                 .onStatus(s -> !s.is2xxSuccessful(), (req, res) -> {
-                    throw new FdcProviderException("FDC batch lookup failed: " + req.getURI());
+                    throw new FdcProviderException("FDC batch lookup failed: " + safeUri(req.getURI()));
                 })
                 .body(BatchResponse.class);
 
         return response.foods().stream()
                 .map(this::mapDetail)
                 .collect(Collectors.toMap(FoodProfile::fdcId, Function.identity(), (a, b) -> a));
+    }
+
+    /**
+     * Renders a request URI for an error message with the API key redacted.
+     *
+     * <p>The key must travel as a query parameter because the FDC API accepts no other
+     * form, and these URIs end up inside {@link FdcProviderException}, which the global
+     * handler logs. Printing the raw URI would therefore write the key to the logs on the
+     * first provider error, and logs outlive the fix that revoked the leaked key. The value
+     * is replaced rather than the whole parameter, so the message still shows which call
+     * failed and with what arguments.</p>
+     */
+    private String safeUri(URI uri) {
+        if (uri == null) return null;
+        String rendered = uri.toString();
+        String key = props.apiKey();
+        if (key == null || key.isBlank()) return rendered;
+
+        return rendered.replaceAll("(?i)([?&]api_key=)[^&]*", "$1***");
     }
 
     private FoodProfile mapDetail(FoodDetail d) {

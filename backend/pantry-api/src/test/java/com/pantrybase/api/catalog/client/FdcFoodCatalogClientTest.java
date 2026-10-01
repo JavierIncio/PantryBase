@@ -187,6 +187,33 @@ class FdcFoodCatalogClientTest {
     }
 
     @Test
+    void search_providerError_messageDoesNotLeakTheApiKey() {
+        server.expect(requestTo(containsString(SEARCH_PATH)))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+        assertThatThrownBy(() -> adapter.search("milk", 10))
+                .isInstanceOf(FdcProviderException.class)
+                // The URI travels inside the exception, which the handler logs, so the
+                // key must be redacted while the rest of the call stays diagnosable.
+                .hasMessageNotContaining("TEST_KEY")
+                .hasMessageContaining("api_key=***")
+                .hasMessageContaining("query=milk");
+        server.verify();
+    }
+
+    @Test
+    void getByIds_providerError_messageDoesNotLeakTheApiKey() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+        assertThatThrownBy(() -> adapter.getByIds(List.of(171265L)))
+                .isInstanceOf(FdcProviderException.class)
+                .hasMessageNotContaining("TEST_KEY")
+                .hasMessageContaining("api_key=***");
+        server.verify();
+    }
+
+    @Test
     void getByIds_sendsSerializedBody_withRequestedFdcIds() {
         server.expect(requestTo(containsString(BATCH_PATH)))
                 .andExpect(content().json("{\"fdcIds\":[171265,169757]}"))
