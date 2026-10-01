@@ -150,7 +150,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ## H8 — Producción y endurecimiento
 
-- [ ] Hardening de seguridad: rate limiting por IP, auditoría de llamadas externas, secretos en Vault/CI.
+- [ ] Hardening de seguridad: rate limiting por IP, auditoría de llamadas externas, secretos en Vault/CI. Hecho en H2-B-5: la key de USDA FDC viaja en la query string (la API no admite otra forma) y ya no se escribe en los logs, porque las URLs de error se sanean antes de entrar en `FdcProviderException`; además `FdcProperties` está validada al arrancar, de modo que una key ausente, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos rompen el arranque en lugar de degradarse en silencio, y la caída a `DEMO_KEY` (30 req/h) emite un warning. Pendiente: Vault/CI.
 - [ ] Dashboards de Grafana finales: salud, cuotas de APIs externas (USDA FDC, TheMealDB, LLM), cobertura de despensa, rendimiento del recomendador.
 - [ ] Alertas (Prometheus Alertmanager) para: errores 5xx, circuito abierto, cuota de LLM agotada, sesiones colgadas.
 - [ ] Carga y escalado: caché Redis efectiva, índices de BBDD analizados con `EXPLAIN`, test de concurrencia sobre descontado.
