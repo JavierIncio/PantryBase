@@ -147,8 +147,12 @@ Tres unidades canónicas:
 ```
 PantryBase/
 ├── README.md
+├── AGENTS.md                    # reglas de trabajo de los agentes
+├── MEMORY.md                    # estado actual del proyecto (leer al empezar cada sesión)
 ├── docs/
-│   └── ROADMAP.md
+│   ├── FEATURE_GUIDE.md         # qué hace cada funcionalidad y qué archivos la implementan
+│   ├── ROADMAP.md
+│   └── VERSIONS.md
 ├── backend/
 │   └── pantry-api/            # Spring Boot
 │       └── src/main/java/com/pantrybase/api/

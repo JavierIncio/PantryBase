@@ -2,6 +2,13 @@
 
 Este fichero es el acuerdo de trabajo para **cualquier agente** que opere en este repositorio (agente principal `pantry`, subagente `frontend`, o agentes generales). Es documentación; por tanto se redacta en **español**, pero las reglas que afectan al código son de obligado cumplimiento.
 
+## 0. MEMORY.md (lectura y actualización obligatorias)
+
+- **Al comenzar cualquier sesión hay que leer `MEMORY.md`** (raíz del repositorio) antes de tocar nada: contiene el estado real del proyecto, los próximos pasos acordados y los cuellos de botella conocidos. Se confía en él más que en la conversación anterior, que puede estar desfasada.
+- **Al terminar cada sesión hay que actualizar `MEMORY.md`** para que refleje el estado real: qué se ha implementado, qué queda pendiente, qué ha resultado ser un problema, y la fecha de la última actualización. Si no se actualiza, la siguiente sesión arranca con información equivocada.
+- **Formato:** máximo **100 líneas**. Es un resumen operativo, no un diario: si no cabe en 100 líneas, sobra detalle, no el estado. Se reescribe de forma directa, no se acumulan bloques.
+- No se versionan secretos en este fichero: solo nombres de variables de entorno.
+
 ## 1. Idioma
 
 - **Código, identificadores y comentarios de código: en inglés.**
@@ -10,6 +17,7 @@ Este fichero es el acuerdo de trabajo para **cualquier agente** que opere en est
   - **Nunca:** constructores triviales (inicializan parámetros evidentes), getters/setters, métodos autodescriptivos (delegación pura) y métodos de test (los nombres son la documentación).
   - **Prueba de fuego:** si un llamador podría usar mal el método sin el doc, documéntalo; si el doc solo resta la firma, elimínalo.
 - **Documentación (`README.md`, `docs/`): en español.**
+- `docs/FEATURE_GUIDE.md` explica qué hace cada funcionalidad y qué clases, migraciones y bloques de configuración la implementan. Cuando se añada o cambie una funcionalidad, ese documento se actualiza en el mismo commit.
 
 ## 2. Diseño y calidad de código
 
