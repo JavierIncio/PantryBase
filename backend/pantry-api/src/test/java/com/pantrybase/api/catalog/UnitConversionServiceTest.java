@@ -1,17 +1,18 @@
 package com.pantrybase.api.catalog;
 
 import com.pantrybase.api.catalog.domain.Ingredient;
-import com.pantrybase.api.catalog.domain.IngredientDensity;
+import com.pantrybase.api.catalog.domain.DensityClass;
 import com.pantrybase.api.catalog.domain.IngredientMeasure;
 import com.pantrybase.api.catalog.domain.MeasureConversion;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
 import com.pantrybase.api.catalog.domain.Unit;
 import com.pantrybase.api.catalog.domain.UnitCategory;
-import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
+import com.pantrybase.api.catalog.exception.DensityClassNotFoundException;
+import com.pantrybase.api.catalog.exception.DensityClassRequiredException;
 import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
 import com.pantrybase.api.catalog.exception.UnknownUnitException;
 import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
-import com.pantrybase.api.catalog.repository.IngredientDensityRepository;
+import com.pantrybase.api.catalog.repository.DensityClassRepository;
 import com.pantrybase.api.catalog.repository.IngredientMeasureRepository;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
@@ -37,7 +38,7 @@ import static org.mockito.Mockito.when;
 public class UnitConversionServiceTest {
     @Mock UnitRepository unitRepo;
     @Mock MeasureConversionRepository conversionRepo;
-    @Mock IngredientDensityRepository densityRepo;
+    @Mock DensityClassRepository densityRepo;
     @Mock IngredientMeasureRepository measureRepo;
     @Mock IngredientRepository ingredientRepo;
 
@@ -137,7 +138,7 @@ public class UnitConversionServiceTest {
 
         assertThatThrownBy(() -> unitConversionService.convert(
                 new BigDecimal("1"), "CUP", "GRAM", null, "BUTTER"))
-                .isInstanceOf(IngredientDensityNotFoundException.class);
+                .isInstanceOf(DensityClassNotFoundException.class);
     }
 
     @Test
@@ -259,11 +260,11 @@ public class UnitConversionServiceTest {
     }
 
     @Test
-    void convert_ingredientWithoutAnyMeasure_fallsBackToItsCategory() {
+    void convert_ingredientWithoutAnyMeasure_fallsBackToItsDensityClass() {
         stubUnit("CUP", UnitCategory.VOLUME, false);
         stubUnit("GRAM", UnitCategory.WEIGHT, true);
         stubFactor("CUP", "ML", "236.588");
-        stubIngredient(1L, "FLOUR");
+        stubIngredient(1L, "Dairy and Egg Products", "FLOUR");
         when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
         stubDensity("FLOUR", "0.53");
 
@@ -271,6 +272,38 @@ public class UnitConversionServiceTest {
                 new BigDecimal("2"), "CUP", "GRAM", 1L, null);
 
         assertThat(q.unitCode()).isEqualTo("GRAM");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("250.78328"));
+    }
+
+    @Test
+    void convert_doesNotUseTheProviderCategoryAsDensity() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubFactor("CUP", "ML", "236.588");
+        // A provider category that happens to collide with a class code must not be
+        // resolved as one: FDC categories mix densities that differ by more than 2x.
+        stubIngredient(1L, "FLOUR", null);
+        when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> unitConversionService.convert(
+                new BigDecimal("2"), "CUP", "GRAM", 1L, null))
+                .isInstanceOf(DensityClassRequiredException.class);
+    }
+
+    @Test
+    void convert_ingredientClassWinsOverTheOnePassed() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubFactor("CUP", "ML", "236.588");
+        stubIngredient(1L, "Dairy and Egg Products", "FLOUR");
+        when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
+        stubDensity("FLOUR", "0.53");
+
+        QuantityInfo q = unitConversionService.convert(
+                new BigDecimal("2"), "CUP", "GRAM", 1L, "OIL");
+
+        // The curated class is more specific to the ingredient than the hint, and 0.92
+        // g/ml would have doubled the result.
         assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("250.78328"));
     }
 
@@ -303,11 +336,11 @@ public class UnitConversionServiceTest {
         when(conversionRepo.findByUnitCode(from)).thenReturn(Optional.of(mc));
     }
 
-    private void stubDensity(String category, String gPerMl) {
-        IngredientDensity d = new IngredientDensity();
-        d.setIngredientCategory(category);
+    private void stubDensity(String code, String gPerMl) {
+        DensityClass d = new DensityClass();
+        d.setCode(code);
         d.setDensityGPerMl(new BigDecimal(gPerMl));
-        when(densityRepo.findById(category)).thenReturn(Optional.of(d));
+        when(densityRepo.findById(code)).thenReturn(Optional.of(d));
     }
 
     private void stubMeasure(Long ingredientId, String unitCode, String gramPerUnit) {
@@ -322,10 +355,15 @@ public class UnitConversionServiceTest {
         return m;
     }
 
-    private void stubIngredient(Long id, String category) {
+    private void stubIngredient(Long id, String providerCategory) {
+        stubIngredient(id, providerCategory, null);
+    }
+
+    private void stubIngredient(Long id, String providerCategory, String densityClass) {
         Ingredient ingredient = new Ingredient();
         ingredient.setId(id);
-        ingredient.setCategory(category);
+        ingredient.setCategory(providerCategory);
+        ingredient.setDensityClass(densityClass);
         when(ingredientRepo.findById(id)).thenReturn(Optional.of(ingredient));
     }
 }

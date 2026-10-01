@@ -119,9 +119,9 @@ Tres unidades canónicas:
 | Líquidos  | mililitros (ml) |
 | Contables | unidades (u)    |
 
-- Las medidas de receta del proveedor (p. ej. “1 taza de harina”) se convierten a canónicas con una **tabla de conversión** base (taza=240 ml; cucharada=15 ml; cucharadita=5 ml; etc.) corregida por **densidad por ingrediente/categoría** para los sólidos (USDA FDC publica porciones domésticas con peso en gramos — p. ej. “1 cup” = 120 g — y ese peso se aprovecha cuando existe; si no, se aplica la densidad de la categoría).
+- Las medidas de receta del proveedor (p. ej. “1 taza de harina”) se convierten a canónicas con una **tabla de conversión** base (taza=240 ml; cucharada=15 ml; cucharadita=5 ml; etc.) corregida por **densidad** para los sólidos. La precedencia es: (1) la porción doméstica que publica USDA FDC con su peso en gramos — p. ej. “1 cup” = 244 g —, (2) cualquier otra porción capturada del mismo ingrediente, y (3) una **clase de densidad curada** (`density_classes`, asignada al ingrediente en `ingredients.density_class`). La categoría del proveedor **no** se usa como densidad: las categorías FDC son de primer nivel y agrupan alimentos cuyas densidades difieren más del doble (leche ≈1,03 g/ml y cheddar ≈0,40 g/ml comparten `0100 Dairy and Egg Products`), de modo que un ingrediente sin porción y sin clase curada devuelve 400 en lugar de un peso plausible pero equivocado.
 - El inventario registra siempre en unidad canónica; la UI usa selectores de unidades con conversión automática.
-- Decisiones sobre ingredientes con densidad ambigua quedan registradas en una tabla `measure_conversion` editable (sobrescribible manualmente).
+- Las decisiones sobre densidad de un ingrediente quedan en `ingredients.density_class`, una asignación curada y sobrescribible; las densidades de referencia viven en `density_classes`.
 
 ---
 

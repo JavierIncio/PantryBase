@@ -1,8 +1,8 @@
 package com.pantrybase.api.common.exception;
 
 import com.pantrybase.api.catalog.exception.FdcProviderException;
-import com.pantrybase.api.catalog.exception.IngredientCategoryRequiredException;
-import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
+import com.pantrybase.api.catalog.exception.DensityClassNotFoundException;
+import com.pantrybase.api.catalog.exception.DensityClassRequiredException;
 import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
 import com.pantrybase.api.catalog.exception.MeasureConversionNotFoundException;
 import com.pantrybase.api.catalog.exception.UnknownUnitException;
@@ -101,7 +101,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleIngredientCategoryRequiredException(IngredientCategoryRequiredException ex,
+    public ResponseEntity<ErrorResponse> handleDensityClassRequiredException(DensityClassRequiredException ex,
                                                                                    HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
@@ -133,7 +133,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleIngredientDensityNotFoundException(IngredientDensityNotFoundException ex,
+    public ResponseEntity<ErrorResponse> handleDensityClassNotFoundException(DensityClassNotFoundException ex,
                                                                                   HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)

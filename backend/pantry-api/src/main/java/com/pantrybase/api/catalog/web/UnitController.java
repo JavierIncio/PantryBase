@@ -42,7 +42,7 @@ public class UnitController {
     public UnitConversionResponse convert(@Valid @RequestBody ConvertUnitsRequest request) {
         QuantityInfo result = conversionService.convert(
                 request.amount(), request.from(), request.to(),
-                request.ingredientId(), request.ingredientCategory());
+                request.ingredientId(), request.densityClass());
         return new UnitConversionResponse(result.amount(), result.unitCode());
     }
 }

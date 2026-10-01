@@ -12,9 +12,12 @@ import java.math.BigDecimal;
  * <ul>
  *   <li>The amount must be a positive or zero value (≥ 0).</li>
  *   <li>ingredientId is optional; when given, the conversion prefers the ingredient's
- *       own household measures over the category density.</li>
- *   <li>ingredientCategory is optional and used as fallback density for weight-volume
- *       conversions when the ingredient has no measure for the volume unit.</li>
+ *       own household measures, then the density class curated for it.</li>
+ *   <li>densityClass is optional and used as fallback for weight-volume conversions when
+ *       the ingredient has no measure and no class of its own. It is one of our own class
+ *       codes (for instance {@code FLOUR}), not the provider's category: USDA FDC
+ *       categories are top level and mix densities that differ by more than 2x, so
+ *       resolving a density from them would return a plausible but wrong weight.</li>
  * </ul>
  */
 public record ConvertUnitsRequest(
@@ -22,5 +25,5 @@ public record ConvertUnitsRequest(
         @NotBlank String from,
         @NotBlank String to,
         Long ingredientId,
-        String ingredientCategory
+        String densityClass
 ) {}

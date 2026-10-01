@@ -279,6 +279,13 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
         assertThat(measure.getGramPerUnit()).isEqualByComparingTo(new BigDecimal("244"));
     }
 
+    /** Curated density classes are seeded by migration, so assigning one only needs the ingredient. */
+    private void assignDensityClass(Long ingredientId, String densityClass) {
+        Ingredient ingredient = ingredientRepository.findById(ingredientId).orElseThrow();
+        ingredient.setDensityClass(densityClass);
+        ingredientRepository.saveAndFlush(ingredient);
+    }
+
     @Test
     void convert_withIngredientId_usesTheCapturedMeasure() {
         stubPort.returns(Optional.of(profile()));
@@ -298,7 +305,7 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void convert_ingredientWithoutMeasure_fallsBackToGivenCategory() {
+    void convert_ingredientWithoutMeasure_fallsBackToGivenClass() {
         stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
         Long ingredientId = ingredientService.getById(FDC_ID).id();
         ConvertUnitsRequest body =
@@ -314,9 +321,73 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void convert_ingredientWithoutMeasureNorCategory_returns400() {
+    void convert_ingredientWithACuratedClass_needsNoHint() {
         stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
         Long ingredientId = ingredientService.getById(FDC_ID).id();
+        assignDensityClass(ingredientId, "FLOUR");
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, null);
+
+        ResponseEntity<UnitConversionResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                UnitConversionResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().amount())
+                .isEqualByComparingTo(new BigDecimal("250.78328"));
+    }
+
+    @Test
+    void curatedClass_survivesAProviderLookup() {
+        stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        assignDensityClass(ingredientId, "FLOUR");
+
+        // Materialization must not touch curated data: it only ever inserts.
+        ingredientService.getById(FDC_ID);
+        stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
+                "SR Legacy", "Dairy and Egg Products",
+                new NutrientProfile(61.0, 3.15, 3.25, 4.8),
+                List.of(new Portion("CUP", 240.0)))));
+        ingredientService.getById(FDC_ID);
+
+        assertThat(ingredientRepository.findById(ingredientId).orElseThrow().getDensityClass())
+                .isEqualTo("FLOUR");
+        // The newly captured measure is now the preferred path, and it agrees closely
+        // with the curated class: 240 g per cup against 0.53 g/ml.
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, null);
+        ResponseEntity<UnitConversionResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                UnitConversionResponse.class);
+
+        assertThat(response.getBody().amount()).isEqualByComparingTo(new BigDecimal("480"));
+    }
+
+    @Test
+    void convert_ingredientWithoutMeasureNorClass_returns400() {
+        stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, null);
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_REQUEST, UNITS_CONVERT);
+    }
+
+    @Test
+    void convert_providerCategoryAloneIsNotADensity() {
+        // "Dairy and Egg Products" is a real FDC category, and the ingredient carries it,
+        // yet the conversion must still fail: the category mixes milk at ~1.03 g/ml with
+        // cheddar at ~0.40 g/ml, so no density can be derived from it.
+        stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        assertThat(ingredientRepository.findById(ingredientId).orElseThrow().getCategory())
+                .isEqualTo("Dairy and Egg Products");
+
         ConvertUnitsRequest body =
                 new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, null);
 

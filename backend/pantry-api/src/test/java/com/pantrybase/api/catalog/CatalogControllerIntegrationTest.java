@@ -107,11 +107,11 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void convert_categoryWithoutDensity_shouldReturn400() {
+    void convert_densityClassWithoutDensity_shouldReturn400() {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("2"), "CUP", "GRAM", null, "UNKNOWN_CATEGORY");
+                new BigDecimal("2"), "CUP", "GRAM", null, "UNKNOWN_CLASS");
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);

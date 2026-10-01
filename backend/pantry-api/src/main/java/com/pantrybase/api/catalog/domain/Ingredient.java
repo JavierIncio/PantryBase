@@ -32,6 +32,17 @@ public class Ingredient {
     @Column(name = "category")
     private String category;
 
+    /**
+     * Density class this ingredient belongs to, or {@code null} when none has been curated.
+     *
+     * <p>Curated by us and never written by materialization, so it survives provider
+     * lookups. It is what lets an ingredient with no usable measure still convert: the
+     * provider's {@link #category} cannot serve that purpose because it is too coarse
+     * to carry a density.</p>
+     */
+    @Column(name = "density_class")
+    private String densityClass;
+
     @Column(name = "energy_kcal")
     private Double energyKcal;
 
@@ -81,6 +92,14 @@ public class Ingredient {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public String getDensityClass() {
+        return densityClass;
+    }
+
+    public void setDensityClass(String densityClass) {
+        this.densityClass = densityClass;
     }
 
     public Double getEnergyKcal() {

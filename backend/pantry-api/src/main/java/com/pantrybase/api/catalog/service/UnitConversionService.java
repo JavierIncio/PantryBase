@@ -1,20 +1,20 @@
 package com.pantrybase.api.catalog.service;
 
+import com.pantrybase.api.catalog.domain.DensityClass;
 import com.pantrybase.api.catalog.domain.Ingredient;
-import com.pantrybase.api.catalog.domain.IngredientDensity;
 import com.pantrybase.api.catalog.domain.IngredientMeasure;
 import com.pantrybase.api.catalog.domain.MeasureConversion;
 import com.pantrybase.api.catalog.domain.Unit;
 import com.pantrybase.api.catalog.domain.UnitCategory;
 import com.pantrybase.api.catalog.domain.UnitConverter;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
-import com.pantrybase.api.catalog.exception.IngredientCategoryRequiredException;
-import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
+import com.pantrybase.api.catalog.exception.DensityClassNotFoundException;
+import com.pantrybase.api.catalog.exception.DensityClassRequiredException;
 import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
 import com.pantrybase.api.catalog.exception.MeasureConversionNotFoundException;
 import com.pantrybase.api.catalog.exception.UnknownUnitException;
 import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
-import com.pantrybase.api.catalog.repository.IngredientDensityRepository;
+import com.pantrybase.api.catalog.repository.DensityClassRepository;
 import com.pantrybase.api.catalog.repository.IngredientMeasureRepository;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
@@ -40,18 +40,18 @@ public class UnitConversionService implements UnitConverter {
 
     private final UnitRepository unitRepo;
     private final MeasureConversionRepository measureConversionRepo;
-    private final IngredientDensityRepository ingredientDensityRepo;
+    private final DensityClassRepository densityClassRepo;
     private final IngredientMeasureRepository ingredientMeasureRepo;
     private final IngredientRepository ingredientRepo;
 
     public UnitConversionService(UnitRepository unitRepo,
                                  MeasureConversionRepository measureConversionRepo,
-                                 IngredientDensityRepository ingredientDensityRepo,
+                                 DensityClassRepository densityClassRepo,
                                  IngredientMeasureRepository ingredientMeasureRepo,
                                  IngredientRepository ingredientRepo) {
         this.unitRepo = unitRepo;
         this.measureConversionRepo = measureConversionRepo;
-        this.ingredientDensityRepo = ingredientDensityRepo;
+        this.densityClassRepo = densityClassRepo;
         this.ingredientMeasureRepo = ingredientMeasureRepo;
         this.ingredientRepo = ingredientRepo;
     }
@@ -83,7 +83,8 @@ public class UnitConversionService implements UnitConverter {
     }
 
     /**
-     * Converts the given amount from one unit to another, considering the ingredient category for density-based conversions.
+     * Converts the given amount from one unit to another, resolving a density when the two
+     * units belong to different categories.
      *
      * <ul>
      *   <li>If both units belong to the same category, it performs a direct conversion.</li>
@@ -91,33 +92,33 @@ public class UnitConversionService implements UnitConverter {
      *   <ul>
      *        <li>If the ingredient has a captured measure for the volume unit involved
      *            (a household measure such as one cup), that measure wins; it is the
-     *            ingredient's own weight rather than an average of the category.</li>
+     *            ingredient's own weight rather than an average of the class.</li>
      *        <li>Otherwise any other captured measure of that ingredient defines the
      *            density, so a tablespoon still converts cups without leaving the
      *            ingredient's own data.</li>
-     *        <li>Only when the ingredient has no measure at all does it fall back to the
-     *            density of the category, the one of the given ingredient when present,
+     *        <li>Only when the ingredient has no measure at all does it fall back to a
+     *            density class, the one curated for the given ingredient when present,
      *            else the one passed.</li>
      *        <li>If converting from weight to volume, it divides the weight by the density.</li>
      *        <li>If converting from volume to weight, it multiplies the volume by the density.</li>
      *   </ul>
      * </ul>
      *
-     * @param amount             The amount to convert.
-     * @param fromCode           The unit code of the original amount.
-     * @param toCode             The unit code to convert to.
-     * @param ingredientId       Optional ingredient whose own measures take precedence over the category.
-     * @param ingredientCategory The category of the ingredient for density-based conversions.
+     * @param amount       The amount to convert.
+     * @param fromCode     The unit code of the original amount.
+     * @param toCode       The unit code to convert to.
+     * @param ingredientId Optional ingredient whose own measures and class take precedence.
+     * @param densityClass Fallback density class for ingredients with no measure and no class.
      * @return A QuantityInfo object containing the converted amount and target unit code.
      * @throws UnknownUnitException if either unit code is not found in the repository.
      * @throws IngredientNotFoundException if the given ingredientId is not found in the repository.
-     * @throws IngredientCategoryRequiredException if a density is needed and no ingredient nor category is given.
-     * @throws IngredientDensityNotFoundException if the ingredient has no measure and the category has no density.
+     * @throws DensityClassRequiredException if a density is needed and no ingredient nor class is given.
+     * @throws DensityClassNotFoundException if the resolved class has no established density.
      * @throws UnsupportedConversionException      if conversion between the two unit categories is not supported.
      */
     @Override
     public QuantityInfo convert(BigDecimal amount, String fromCode, String toCode,
-                                Long ingredientId, String ingredientCategory) {
+                                Long ingredientId, String densityClass) {
 
         Unit unitFrom = unitRepo.findById(fromCode)
                 .orElseThrow(() -> new UnknownUnitException(fromCode));
@@ -148,7 +149,7 @@ public class UnitConversionService implements UnitConverter {
         BigDecimal converted = resolveSourceMeasure(ingredientId, volumeCode)
                 .map(m -> convertByMeasure(canonicalAmount, m, weightToVolume))
                 .orElseGet(() -> convertByDensity(canonicalAmount, ingredient,
-                        ingredientCategory, fromCode, toCode, weightToVolume));
+                        densityClass, fromCode, toCode, weightToVolume));
 
         return scaleTo(converted, toCode);
     }
@@ -195,11 +196,11 @@ public class UnitConversionService implements UnitConverter {
                         .multiply(gramPerUnit);
     }
 
-    /** Converts through the density of the category, the fallback when the ingredient has no measure. */
+    /** Converts through the density of the class, the fallback when the ingredient has no measure. */
     private BigDecimal convertByDensity(BigDecimal canonicalAmount,
-                                        Ingredient ingredient, String ingredientCategory,
+                                        Ingredient ingredient, String densityClass,
                                         String fromCode, String toCode, boolean weightToVolume) {
-        BigDecimal density = resolveDensity(ingredient, ingredientCategory, fromCode, toCode);
+        BigDecimal density = resolveDensity(ingredient, densityClass, fromCode, toCode);
 
         return weightToVolume
                 ? canonicalAmount.divide(density, DENSITY_SCALE, RoundingMode.HALF_UP)
@@ -219,21 +220,28 @@ public class UnitConversionService implements UnitConverter {
     }
 
     /**
-     * Resolves the density in grams per milliliter of the category, preferring the
-     * category of the given ingredient over the one passed as a fallback.
+     * Resolves the density in grams per milliliter of the density class, preferring the
+     * class curated for the given ingredient over the one the client passes, since the
+     * stored one is more specific to the ingredient than a hint.
+     *
+     * <p>There is no fallback on the provider's category: it is top level only and mixes
+     * foods whose densities differ by more than a factor of two, so guessing from it would
+     * return a plausible but wrong weight.</p>
      */
-    private BigDecimal resolveDensity(Ingredient ingredient, String ingredientCategory,
+    private BigDecimal resolveDensity(Ingredient ingredient, String densityClass,
                                       String fromCode, String toCode) {
-        String category = ingredientCategory;
-        if ((category == null || category.isBlank()) && ingredient != null) {
-            category = ingredient.getCategory();
+        String resolved = densityClass;
+        if (ingredient != null && ingredient.getDensityClass() != null
+                && !ingredient.getDensityClass().isBlank()) {
+            resolved = ingredient.getDensityClass();
         }
-        if (category == null || category.isBlank())
-            throw new IngredientCategoryRequiredException(fromCode, toCode);
 
-        final String resolvedCategory = category;
-        return ingredientDensityRepo.findById(resolvedCategory)
-                .orElseThrow(() -> new IngredientDensityNotFoundException(resolvedCategory))
+        if (resolved == null || resolved.isBlank())
+            throw new DensityClassRequiredException(fromCode, toCode);
+
+        final String resolvedCode = resolved;
+        return densityClassRepo.findById(resolvedCode)
+                .orElseThrow(() -> new DensityClassNotFoundException(resolvedCode))
                 .getDensityGPerMl();
     }
 
