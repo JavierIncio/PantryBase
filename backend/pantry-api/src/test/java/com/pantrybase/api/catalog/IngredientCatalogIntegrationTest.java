@@ -3,10 +3,16 @@ package com.pantrybase.api.catalog;
 import com.pantrybase.api.AbstractIntegrationTest;
 import com.pantrybase.api.catalog.domain.FoodProfile;
 import com.pantrybase.api.catalog.domain.FoodSearchHit;
+import com.pantrybase.api.catalog.domain.Ingredient;
+import com.pantrybase.api.catalog.domain.IngredientMeasure;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
+import com.pantrybase.api.catalog.domain.Portion;
+import com.pantrybase.api.catalog.dto.ConvertUnitsRequest;
 import com.pantrybase.api.catalog.dto.IngredientDetailResponse;
 import com.pantrybase.api.catalog.dto.IngredientSearchResponse;
+import com.pantrybase.api.catalog.dto.UnitConversionResponse;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
+import com.pantrybase.api.catalog.repository.IngredientMeasureRepository;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.catalog.service.IngredientCatalogService;
 import com.pantrybase.api.common.dto.ErrorResponse;
@@ -20,6 +26,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,10 +47,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
 
     public static final String INGREDIENTS = "/api/catalog/ingredients";
+    private static final String UNITS_CONVERT = "/api/units/convert";
     private static final long FDC_ID = 171265;
 
     @Autowired
     IngredientRepository ingredientRepository;
+    @Autowired
+    IngredientMeasureRepository measureRepository;
     @Autowired
     IngredientCatalogService ingredientService;
     @Autowired
@@ -51,6 +61,7 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void cleanIngredients() {
+        measureRepository.deleteAll();
         ingredientRepository.deleteAll();
         stubPort.fails();
     }
@@ -61,7 +72,14 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
 
     private static FoodProfile profile(long fdcId) {
         return new FoodProfile(fdcId, "Milk, whole, 3.25% milkfat", "SR Legacy",
-                "Dairy and Egg Products", new NutrientProfile(61.0, 3.15, 3.25, 4.8));
+                "Dairy and Egg Products", new NutrientProfile(61.0, 3.15, 3.25, 4.8),
+                List.of(new Portion("CUP", 244.0)));
+    }
+
+    private static FoodProfile profileWithoutPortions(long fdcId) {
+        return new FoodProfile(fdcId, "Milk, whole, 3.25% milkfat", "SR Legacy",
+                "Dairy and Egg Products", new NutrientProfile(61.0, 3.15, 3.25, 4.8),
+                List.of());
     }
 
     @Test
@@ -229,5 +247,95 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
         assertThatThrownBy(() -> ingredientService.getByIds(List.of(171265L)))
                 .isInstanceOf(FdcProviderException.class);
         assertThat(ingredientRepository.count()).isZero();
+    }
+
+    @Test
+    void detail_persistsPortionMeasures() {
+        stubPort.returns(Optional.of(profile()));
+
+        ingredientService.getById(FDC_ID);
+
+        Long ingredientId = ingredientRepository.findByFdcId(FDC_ID).orElseThrow().getId();
+        IngredientMeasure measure = measureRepository
+                .findByIngredientIdAndUnitCode(ingredientId, "CUP").orElseThrow();
+        assertThat(measure.getGramPerUnit()).isEqualByComparingTo(new BigDecimal("244"));
+    }
+
+    @Test
+    void detail_repeatedLookups_keepTheFirstMeasure() {
+        stubPort.returns(Optional.of(profile()));
+
+        ingredientService.getById(FDC_ID);
+        stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
+                "SR Legacy", "Dairy and Egg Products",
+                new NutrientProfile(61.0, 3.15, 3.25, 4.8),
+                List.of(new Portion("CUP", 200.0)))));
+        ingredientService.getById(FDC_ID);
+
+        Long ingredientId = ingredientRepository.findByFdcId(FDC_ID).orElseThrow().getId();
+        assertThat(measureRepository.findByIngredientId(ingredientId)).hasSize(1);
+        IngredientMeasure measure = measureRepository
+                .findByIngredientIdAndUnitCode(ingredientId, "CUP").orElseThrow();
+        assertThat(measure.getGramPerUnit()).isEqualByComparingTo(new BigDecimal("244"));
+    }
+
+    @Test
+    void convert_withIngredientId_usesTheCapturedMeasure() {
+        stubPort.returns(Optional.of(profile()));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, "FLOUR");
+
+        ResponseEntity<UnitConversionResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                UnitConversionResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).satisfies(r -> {
+            assertThat(r.unitCode()).isEqualTo("GRAM");
+            assertThat(r.amount()).isEqualByComparingTo(new BigDecimal("488"));
+        });
+    }
+
+    @Test
+    void convert_ingredientWithoutMeasure_fallsBackToGivenCategory() {
+        stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, "FLOUR");
+
+        ResponseEntity<UnitConversionResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                UnitConversionResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().amount())
+                .isEqualByComparingTo(new BigDecimal("250.78328"));
+    }
+
+    @Test
+    void convert_ingredientWithoutMeasureNorCategory_returns400() {
+        stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, null);
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_REQUEST, UNITS_CONVERT);
+    }
+
+    @Test
+    void convert_unknownIngredientId_returns404() {
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", 999_999L, "FLOUR");
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                ErrorResponse.class);
+
+        assertError(response, HttpStatus.NOT_FOUND, UNITS_CONVERT);
     }
 }

@@ -1,14 +1,19 @@
 package com.pantrybase.api.catalog;
 
+import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.catalog.domain.IngredientDensity;
+import com.pantrybase.api.catalog.domain.IngredientMeasure;
 import com.pantrybase.api.catalog.domain.MeasureConversion;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
 import com.pantrybase.api.catalog.domain.Unit;
 import com.pantrybase.api.catalog.domain.UnitCategory;
 import com.pantrybase.api.catalog.exception.IngredientDensityNotFoundException;
+import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
 import com.pantrybase.api.catalog.exception.UnknownUnitException;
 import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
 import com.pantrybase.api.catalog.repository.IngredientDensityRepository;
+import com.pantrybase.api.catalog.repository.IngredientMeasureRepository;
+import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
 import com.pantrybase.api.catalog.repository.UnitRepository;
 import com.pantrybase.api.catalog.service.UnitConversionService;
@@ -24,6 +29,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,6 +37,8 @@ public class UnitConversionServiceTest {
     @Mock UnitRepository unitRepo;
     @Mock MeasureConversionRepository conversionRepo;
     @Mock IngredientDensityRepository densityRepo;
+    @Mock IngredientMeasureRepository measureRepo;
+    @Mock IngredientRepository ingredientRepo;
 
     @InjectMocks
     UnitConversionService unitConversionService;
@@ -74,7 +82,7 @@ public class UnitConversionServiceTest {
         stubFactor("TBSP", "ML", "14.7868");
 
         QuantityInfo q = unitConversionService.convert(
-                new BigDecimal("2"), "CUP", "TBSP", null);
+                new BigDecimal("2"), "CUP", "TBSP", null, null);
 
         assertThat(q.unitCode()).isEqualTo("TBSP");
         assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("31.999892"));
@@ -87,7 +95,7 @@ public class UnitConversionServiceTest {
         stubFactor("L", "ML", "1000");
 
         QuantityInfo q = unitConversionService.convert(
-                new BigDecimal("4"), "L", "ML", null);
+                new BigDecimal("4"), "L", "ML", null, null);
 
         assertThat(q.unitCode()).isEqualTo("ML");
         assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("4000"));
@@ -101,7 +109,7 @@ public class UnitConversionServiceTest {
         stubDensity("FLOUR", "0.53");
 
         QuantityInfo q = unitConversionService.convert(
-                new BigDecimal("2"), "CUP", "GRAM", "FLOUR");
+                new BigDecimal("2"), "CUP", "GRAM", null, "FLOUR");
 
         assertThat(q.unitCode()).isEqualTo("GRAM");
         assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("250.78328"));
@@ -114,7 +122,7 @@ public class UnitConversionServiceTest {
         stubDensity("FLOUR", "0.53");
 
         QuantityInfo q = unitConversionService.convert(
-                new BigDecimal("250.78328"), "GRAM", "ML", "FLOUR");
+                new BigDecimal("250.78328"), "GRAM", "ML", null, "FLOUR");
 
         assertThat(q.unitCode()).isEqualTo("ML");
         assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("473.176"));
@@ -124,16 +132,17 @@ public class UnitConversionServiceTest {
     void convert_unknownDensity() {
         stubUnit("CUP", UnitCategory.VOLUME, false);
         stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubFactor("CUP", "ML", "236.588");
 
         assertThatThrownBy(() -> unitConversionService.convert(
-                new BigDecimal("1"), "CUP", "GRAM", "BUTTER"))
+                new BigDecimal("1"), "CUP", "GRAM", null, "BUTTER"))
                 .isInstanceOf(IngredientDensityNotFoundException.class);
     }
 
     @Test
     void convert_unknownUnit_from() {
         assertThatThrownBy(() -> unitConversionService.convert(
-                new BigDecimal("1"), "XXX", "GRAM", null))
+                new BigDecimal("1"), "XXX", "GRAM", null, null))
                 .isInstanceOf(UnknownUnitException.class);
     }
 
@@ -143,7 +152,7 @@ public class UnitConversionServiceTest {
         stubUnit("GRAM", UnitCategory.WEIGHT, true);
 
         assertThatThrownBy(() -> unitConversionService.convert(
-                new BigDecimal("1"), "UNIT", "GRAM", null))
+                new BigDecimal("1"), "UNIT", "GRAM", null, null))
                 .isInstanceOf(UnsupportedConversionException.class);
     }
 
@@ -154,7 +163,7 @@ public class UnitConversionServiceTest {
         stubFactor("CUP", "ML", "236.588");
 
         QuantityInfo q = unitConversionService.convert(
-                new BigDecimal("0"), "CUP", "ML", null);
+                new BigDecimal("0"), "CUP", "ML", null, null);
 
         assertThat(q.unitCode()).isEqualTo("ML");
         assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("0"));
@@ -167,9 +176,68 @@ public class UnitConversionServiceTest {
         stubFactor("CUP", "ML", "236.588");
 
         var q = unitConversionService.convert(
-                new BigDecimal("-1"), "CUP", "ML", null);
+                new BigDecimal("-1"), "CUP", "ML", null, null);
 
         assertThat(q.amount()).isEqualByComparingTo("-236.588");
+    }
+
+    @Test
+    void convert_volumeToWeight_usesIngredientMeasure() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubIngredient(1L, "FLOUR");
+        stubFactor("CUP", "ML", "236.588");
+        stubMeasure(1L, "CUP", "244.000000");
+
+        QuantityInfo q = unitConversionService.convert(
+                new BigDecimal("2"), "CUP", "GRAM", 1L, "FLOUR");
+
+        assertThat(q.unitCode()).isEqualTo("GRAM");
+        assertThat(q.amount()).isCloseTo(new BigDecimal("488"),
+                within(new BigDecimal("0.001")));
+    }
+
+    @Test
+    void convert_weightToVolume_usesIngredientMeasure() {
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubIngredient(1L, "FLOUR");
+        stubFactor("CUP", "ML", "236.588");
+        stubMeasure(1L, "CUP", "244.000000");
+
+        QuantityInfo q = unitConversionService.convert(
+                new BigDecimal("488"), "GRAM", "CUP", 1L, "FLOUR");
+
+        assertThat(q.unitCode()).isEqualTo("CUP");
+        assertThat(q.amount()).isCloseTo(new BigDecimal("2"),
+                within(new BigDecimal("0.00001")));
+    }
+
+    @Test
+    void convert_ingredientWithoutMeasure_fallsBackToItsCategory() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubFactor("CUP", "ML", "236.588");
+        stubIngredient(1L, "FLOUR");
+        when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
+        stubDensity("FLOUR", "0.53");
+
+        QuantityInfo q = unitConversionService.convert(
+                new BigDecimal("2"), "CUP", "GRAM", 1L, null);
+
+        assertThat(q.unitCode()).isEqualTo("GRAM");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("250.78328"));
+    }
+
+    @Test
+    void convert_unknownIngredientId_throwsNotFound() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        when(ingredientRepo.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> unitConversionService.convert(
+                new BigDecimal("2"), "CUP", "GRAM", 99L, "FLOUR"))
+                .isInstanceOf(IngredientNotFoundException.class);
     }
 
     private void stubUnit(String code, UnitCategory cat, boolean canonical) {
@@ -195,5 +263,20 @@ public class UnitConversionServiceTest {
         d.setIngredientCategory(category);
         d.setDensityGPerMl(new BigDecimal(gPerMl));
         when(densityRepo.findById(category)).thenReturn(Optional.of(d));
+    }
+
+    private void stubMeasure(Long ingredientId, String unitCode, String gramPerUnit) {
+        IngredientMeasure m = new IngredientMeasure();
+        m.setUnitCode(unitCode);
+        m.setGramPerUnit(new BigDecimal(gramPerUnit));
+        when(measureRepo.findByIngredientIdAndUnitCode(ingredientId, unitCode))
+                .thenReturn(Optional.of(m));
+    }
+
+    private void stubIngredient(Long id, String category) {
+        Ingredient ingredient = new Ingredient();
+        ingredient.setId(id);
+        ingredient.setCategory(category);
+        when(ingredientRepo.findById(id)).thenReturn(Optional.of(ingredient));
     }
 }

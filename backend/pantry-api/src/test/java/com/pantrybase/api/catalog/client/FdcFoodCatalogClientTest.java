@@ -198,4 +198,108 @@ class FdcFoodCatalogClientTest {
 
         server.verify();
     }
+
+    @Test
+    void getById_mapsHouseholdPortionsToDomain() {
+        server.expect(requestTo(containsString(DETAIL_PATH)))
+                .andRespond(withSuccess("""
+                        {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
+                         "foodPortions": [
+                            {"amount": 1, "gramWeight": 244.0,
+                             "measureUnit": {"name": "cup, nf"}},
+                            {"amount": 1, "gramWeight": 15.0,
+                             "measureUnit": {"name": "tbsp"}}
+                         ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var profile = adapter.getById(171265);
+
+        assertThat(profile).isPresent();
+        assertThat(profile.get().portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 244.0), tuple("TBSP", 15.0));
+        server.verify();
+    }
+
+    @Test
+    void getById_normalizesPartialPortionByAmount() {
+        server.expect(requestTo(containsString(DETAIL_PATH)))
+                .andRespond(withSuccess("""
+                        {"fdcId": 171265, "description": "Milk, whole",
+                         "foodPortions": [
+                            {"amount": 0.5, "gramWeight": 122.0,
+                             "measureUnit": {"name": "cup"}}
+                         ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var profile = adapter.getById(171265);
+
+        assertThat(profile).isPresent();
+        assertThat(profile.get().portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 244.0));
+        server.verify();
+    }
+
+    @Test
+    void getById_skipsUnmappedOrWeightlessPortions() {
+        server.expect(requestTo(containsString(DETAIL_PATH)))
+                .andRespond(withSuccess("""
+                        {"fdcId": 171265, "description": "Milk, whole",
+                         "foodPortions": [
+                            {"amount": 1, "gramWeight": 28.35, "measureUnit": {"name": "oz"}},
+                            {"amount": 1, "gramWeight": 1.0, "measureUnit": {"name": "g"}},
+                            {"amount": 1, "gramWeight": 0.0, "measureUnit": {"name": "cup"}},
+                            {"amount": 1, "gramWeight": 30.0, "measureUnit": null}
+                         ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var profile = adapter.getById(171265);
+
+        assertThat(profile).isPresent();
+        assertThat(profile.get().portions()).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    void getById_keepsFirstPortionPerUnit() {
+        server.expect(requestTo(containsString(DETAIL_PATH)))
+                .andRespond(withSuccess("""
+                        {"fdcId": 171265, "description": "Milk, whole",
+                         "foodPortions": [
+                            {"amount": 1, "gramWeight": 244.0, "measureUnit": {"name": "cup"}},
+                            {"amount": 1, "gramWeight": 122.0,
+                             "measureUnit": {"name": "cup, chopped"}}
+                         ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var profile = adapter.getById(171265);
+
+        assertThat(profile).isPresent();
+        assertThat(profile.get().portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 244.0));
+        server.verify();
+    }
+
+    @Test
+    void getByIds_mapsPortionsInBatch() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andRespond(withSuccess("""
+                        {"foods": [
+                            {"fdcId": 171265, "description": "Milk, whole",
+                             "foodPortions": [
+                                {"amount": 1, "gramWeight": 244.0,
+                                 "measureUnit": {"name": "cup"}}
+                             ]}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var profiles = adapter.getByIds(List.of(171265L));
+
+        assertThat(profiles.get(171265L).portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 244.0));
+        server.verify();
+    }
 }

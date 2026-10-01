@@ -4,13 +4,16 @@ import com.pantrybase.api.catalog.domain.FoodCatalogPort;
 import com.pantrybase.api.catalog.domain.FoodProfile;
 import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
+import com.pantrybase.api.catalog.domain.Portion;
 import com.pantrybase.api.catalog.dto.IngredientDetailResponse;
 import com.pantrybase.api.catalog.dto.IngredientSearchResponse;
 import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
+import com.pantrybase.api.catalog.repository.IngredientMeasureRepository;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -24,7 +27,9 @@ import java.util.stream.Collectors;
  * Orchestrates the external live catalog and the local materialization.
  *
  * <p>Searches hit the USDA FDC provider on the fly; detail lookups merge
- * the live profile with the internally persisted ingredient id.</p>
+ * the live profile with the internally persisted ingredient id, and also
+ * capture the provider's household measures (grams per cup, tablespoon, ...)
+ * so volume-to-weight conversions can use the ingredient's own measure.</p>
  */
 @Service
 @Transactional(readOnly = true)
@@ -35,11 +40,14 @@ public class IngredientCatalogService {
 
     private final FoodCatalogPort catalogPort;
     private final IngredientRepository ingredientRepo;
+    private final IngredientMeasureRepository measureRepo;
 
     public IngredientCatalogService(FoodCatalogPort catalogPort,
-                                    IngredientRepository ingredientRepo) {
+                                    IngredientRepository ingredientRepo,
+                                    IngredientMeasureRepository measureRepo) {
         this.catalogPort = catalogPort;
         this.ingredientRepo = ingredientRepo;
+        this.measureRepo = measureRepo;
     }
 
     public List<IngredientSearchResponse> search(String query) {
@@ -101,9 +109,18 @@ public class IngredientCatalogService {
         materialize(profile);
         Ingredient ingredient = ingredientRepo.findByFdcId(profile.fdcId())
                 .orElseThrow(() -> new IllegalStateException("Ingredient not found after materialization"));
+        persistMeasures(ingredient.getId(), profile);
         return new IngredientDetailResponse(
                 ingredient.getId(), profile.fdcId(), profile.description(),
                 profile.dataType(), profile.category(), profile.nutrientsPer100g());
+    }
+
+    private void persistMeasures(Long ingredientId, FoodProfile profile) {
+        if (profile.portions() == null) return;
+        for (Portion portion : profile.portions()) {
+            measureRepo.insertIfAbsent(ingredientId, portion.unitCode(),
+                    BigDecimal.valueOf(portion.gramPerUnit()));
+        }
     }
 
     private void materialize(FoodProfile profile) {

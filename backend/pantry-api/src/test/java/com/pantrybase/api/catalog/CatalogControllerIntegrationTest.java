@@ -31,7 +31,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody()).hasSize(11);
+        assertThat(response.getBody()).hasSize(12);
         assertThat(response.getBody()).extracting(UnitResponse::code).isSorted();
     }
 
@@ -40,7 +40,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                BigDecimal.ONE, "PINT", "GRAM", "FLOUR");
+                BigDecimal.ONE, "PINT", "GRAM", null, "FLOUR");
 
         ResponseEntity<UnitConversionResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), UnitConversionResponse.class);
@@ -56,7 +56,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                BigDecimal.ZERO, "CUP", "ML", null);
+                BigDecimal.ZERO, "CUP", "ML", null, null);
 
         ResponseEntity<UnitConversionResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), UnitConversionResponse.class);
@@ -72,7 +72,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("-2"), "CUP", "ML", null);
+                new BigDecimal("-2"), "CUP", "ML", null, null);
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);
@@ -85,7 +85,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("2.5"), "", "ML", null);
+                new BigDecimal("2.5"), "", "ML", null, null);
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);
@@ -98,7 +98,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("2"), "XXX", "ML", null);
+                new BigDecimal("2"), "XXX", "ML", null, null);
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);
@@ -111,7 +111,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("2"), "CUP", "GRAM", "UNKNOWN_CATEGORY");
+                new BigDecimal("2"), "CUP", "GRAM", null, "UNKNOWN_CATEGORY");
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);
@@ -124,7 +124,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("2"), "UNIT", "GRAM", null);
+                new BigDecimal("2"), "UNIT", "GRAM", null, null);
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);
@@ -137,7 +137,7 @@ public class CatalogControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         ConvertUnitsRequest body = new ConvertUnitsRequest(
-                new BigDecimal("2"), "CUP", "GRAM", null);
+                new BigDecimal("2"), "CUP", "GRAM", null, null);
 
         ResponseEntity<ErrorResponse> response =
                 rest.exchange(UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, headers), ErrorResponse.class);

@@ -41,7 +41,8 @@ public class UnitController {
     @PostMapping("/convert")
     public UnitConversionResponse convert(@Valid @RequestBody ConvertUnitsRequest request) {
         QuantityInfo result = conversionService.convert(
-                request.amount(), request.from(), request.to(), request.ingredientCategory());
+                request.amount(), request.from(), request.to(),
+                request.ingredientId(), request.ingredientCategory());
         return new UnitConversionResponse(result.amount(), result.unitCode());
     }
 }

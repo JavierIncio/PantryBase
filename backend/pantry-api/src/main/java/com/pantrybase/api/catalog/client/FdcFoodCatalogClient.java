@@ -4,13 +4,16 @@ import com.pantrybase.api.catalog.domain.FoodCatalogPort;
 import com.pantrybase.api.catalog.domain.FoodProfile;
 import com.pantrybase.api.catalog.domain.FoodSearchHit;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
+import com.pantrybase.api.catalog.domain.Portion;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -33,11 +36,17 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
     }
 
     record FoodDetail(long fdcId, String description, String dataType,
-                      FoodCategory foodCategory, List<FoodNutrient> foodNutrients) {
+                      FoodCategory foodCategory, List<FoodNutrient> foodNutrients,
+                      List<FoodPortion> foodPortions) {
         record FoodCategory(String description) {
         }
 
         record FoodNutrient(int nutrientId, Double value, String unitName) {
+        }
+    }
+
+    record FoodPortion(Double amount, Double gramWeight, MeasureUnit measureUnit) {
+        record MeasureUnit(String name) {
         }
     }
 
@@ -46,6 +55,10 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
 
     record BatchResponse(List<FoodDetail> foods) {
     }
+
+    /** Household volume measures captured from the provider; others are skipped. */
+    private static final Map<String, String> PORTION_UNIT_CODES = Map.of(
+            "tsp", "TSP", "tbsp", "TBSP", "cup", "CUP", "fl oz", "FLOZ", "pint", "PINT");
 
     private final RestClient client;
     private final FdcProperties props;
@@ -124,7 +137,46 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                 d.foodCategory() == null ? null : d.foodCategory().description(),
                 new NutrientProfile(
                         nutrient(d, 1008), nutrient(d, 1003),
-                        nutrient(d, 1004), nutrient(d, 1005)));
+                        nutrient(d, 1004), nutrient(d, 1005)),
+                mapPortions(d));
+    }
+
+    private List<Portion> mapPortions(FoodDetail d) {
+        if (d.foodPortions() == null || d.foodPortions().isEmpty()) return List.of();
+        Map<String, Portion> byUnit = new LinkedHashMap<>();
+        for (FoodPortion p : d.foodPortions()) {
+            if (p == null || p.gramWeight() == null || p.gramWeight() <= 0) continue;
+            Double amount = (p.amount() == null || p.amount() <= 0) ? 1.0 : p.amount();
+            String code = portionUnitCode(p.measureUnit() == null ? null : p.measureUnit().name());
+            if (code == null) continue;
+            double gpu = p.gramWeight() / amount;
+            if (gpu <= 0) continue;
+            // A measure is unique per (ingredient, unit); the provider can repeat a unit
+            // ("cup" and "cup, chopped"), so the first recognized one wins.
+            byUnit.putIfAbsent(code, new Portion(code, gpu));
+        }
+        return List.copyOf(byUnit.values());
+    }
+
+    /**
+     * Resolves the measure unit name to one of our volume unit codes, or {@code null}
+     * when it is not a household volume measure we support.
+     *
+     * <p>Only volume units are captured: weight measures (oz, lb) would be redundant
+     * with {@code measure_conversions}. The provider qualifies a measure with the
+     * preparation mode ("cup, nf", "cup, chopped", "tbsp, level"), and every
+     * qualification of a base volume measure describes the same volume, so the base
+     * measure before the comma is the one that matters.</p>
+     */
+    private String portionUnitCode(String name) {
+        if (name == null || name.isBlank()) return null;
+
+        String norm = name.toLowerCase(Locale.ROOT).trim();
+        String code = PORTION_UNIT_CODES.get(norm);
+        if (code != null) return code;
+
+        int qualifier = norm.indexOf(',');
+        return qualifier > 0 ? PORTION_UNIT_CODES.get(norm.substring(0, qualifier).trim()) : null;
     }
 
     private Double nutrient(FoodDetail d, int nutrientId) {
