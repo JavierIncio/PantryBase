@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Comparator;
 import java.util.Optional;
 
 /**
@@ -91,8 +92,12 @@ public class UnitConversionService implements UnitConverter {
      *        <li>If the ingredient has a captured measure for the volume unit involved
      *            (a household measure such as one cup), that measure wins; it is the
      *            ingredient's own weight rather than an average of the category.</li>
-     *        <li>Otherwise it falls back to the density of the category, the one of the
-     *            given ingredient when present, else the one passed.</li>
+     *        <li>Otherwise any other captured measure of that ingredient defines the
+     *            density, so a tablespoon still converts cups without leaving the
+     *            ingredient's own data.</li>
+     *        <li>Only when the ingredient has no measure at all does it fall back to the
+     *            density of the category, the one of the given ingredient when present,
+     *            else the one passed.</li>
      *        <li>If converting from weight to volume, it divides the weight by the density.</li>
      *        <li>If converting from volume to weight, it multiplies the volume by the density.</li>
      *   </ul>
@@ -101,7 +106,7 @@ public class UnitConversionService implements UnitConverter {
      * @param amount             The amount to convert.
      * @param fromCode           The unit code of the original amount.
      * @param toCode             The unit code to convert to.
-     * @param ingredientId       Optional ingredient whose own measure takes precedence over the category.
+     * @param ingredientId       Optional ingredient whose own measures take precedence over the category.
      * @param ingredientCategory The category of the ingredient for density-based conversions.
      * @return A QuantityInfo object containing the converted amount and target unit code.
      * @throws UnknownUnitException if either unit code is not found in the repository.
@@ -140,12 +145,8 @@ public class UnitConversionService implements UnitConverter {
         // The source amount is always canonicalized through fromCode: it is the real input.
         BigDecimal canonicalAmount = toCanonical(amount, fromCode).amount();
 
-        Optional<IngredientMeasure> measure = ingredientId == null
-                ? Optional.empty()
-                : ingredientMeasureRepo.findByIngredientIdAndUnitCode(ingredientId, volumeCode);
-
-        BigDecimal converted = measure
-                .map(m -> convertByMeasure(canonicalAmount, m, volumeCode, weightToVolume))
+        BigDecimal converted = resolveSourceMeasure(ingredientId, volumeCode)
+                .map(m -> convertByMeasure(canonicalAmount, m, weightToVolume))
                 .orElseGet(() -> convertByDensity(canonicalAmount, ingredient,
                         ingredientCategory, fromCode, toCode, weightToVolume));
 
@@ -153,15 +154,38 @@ public class UnitConversionService implements UnitConverter {
     }
 
     /**
-     * Converts through the ingredient's own measure, as the ratio between the volume of one
-     * measure unit and its weight, instead of flattening it into a rounded density.
+     * Picks the ingredient measure that will define the density of this conversion.
+     *
+     * <p>Prefers the measure of the exact volume unit involved, because the provider may
+     * have weighed a different amount for it. When that unit was not captured, any other
+     * measure of the same ingredient already defines its density, which spares us from
+     * falling back to a category average; the largest volume wins because a gram weight
+     * measured on a cup is more precise than the same weight on a teaspoon.</p>
+     */
+    private Optional<IngredientMeasure> resolveSourceMeasure(Long ingredientId, String volumeCode) {
+        if (ingredientId == null) return Optional.empty();
+
+        Optional<IngredientMeasure> exact =
+                ingredientMeasureRepo.findByIngredientIdAndUnitCode(ingredientId, volumeCode);
+        if (exact.isPresent()) return exact;
+
+        return ingredientMeasureRepo.findByIngredientId(ingredientId).stream()
+                .max(Comparator.comparing(m -> millilitersPerUnit(m.getUnitCode())));
+    }
+
+    /**
+     * Converts through one of the ingredient's own measures, as the ratio between the
+     * volume of the measure unit and its weight, instead of flattening it into a rounded
+     * density.
      *
      * <p>Keeps the conversion exact: two cups of a 244 g-per-cup ingredient are exactly
-     * 488 g, whereas dividing by a density rounded to six decimals would drift.</p>
+     * 488 g, whereas dividing by a density rounded to six decimals would drift. The
+     * measure does not need to be the requested unit, since a single measure is enough
+     * to know how the ingredient's volume relates to its weight.</p>
      */
     private BigDecimal convertByMeasure(BigDecimal canonicalAmount, IngredientMeasure measure,
-                                        String volumeCode, boolean weightToVolume) {
-        BigDecimal mlPerUnit = millilitersPerUnit(volumeCode);
+                                        boolean weightToVolume) {
+        BigDecimal mlPerUnit = millilitersPerUnit(measure.getUnitCode());
         BigDecimal gramPerUnit = measure.getGramPerUnit();
 
         return weightToVolume

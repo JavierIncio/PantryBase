@@ -328,6 +328,26 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void convert_ingredientWithOnlyATablespoonMeasure_stillConvertsCups() {
+        stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
+                "SR Legacy", "Dairy and Egg Products",
+                new NutrientProfile(61.0, 3.15, 3.25, 4.8),
+                List.of(new Portion("TBSP", 15.2)))));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        ConvertUnitsRequest body =
+                new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", ingredientId, null);
+
+        ResponseEntity<UnitConversionResponse> response = rest.exchange(
+                UNITS_CONVERT, HttpMethod.POST, new HttpEntity<>(body, authenticate()),
+                UnitConversionResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // A tablespoon of 15.2 g makes two cups weigh about 486.4 g.
+        assertThat(response.getBody().amount()).isBetween(new BigDecimal("486.3"),
+                new BigDecimal("486.5"));
+    }
+
+    @Test
     void convert_unknownIngredientId_returns404() {
         ConvertUnitsRequest body =
                 new ConvertUnitsRequest(new BigDecimal("2"), "CUP", "GRAM", 999_999L, "FLOUR");

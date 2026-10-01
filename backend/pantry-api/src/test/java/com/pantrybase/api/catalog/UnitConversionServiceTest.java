@@ -25,6 +25,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -214,7 +215,51 @@ public class UnitConversionServiceTest {
     }
 
     @Test
-    void convert_ingredientWithoutMeasure_fallsBackToItsCategory() {
+    void convert_volumeToWeight_usesAnotherMeasureWhenTheUnitWasNotCaptured() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubUnit("TBSP", UnitCategory.VOLUME, false);
+        stubIngredient(1L, "FLOUR");
+        stubFactor("CUP", "ML", "236.588");
+        stubFactor("TBSP", "ML", "14.7868");
+        when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
+        when(measureRepo.findByIngredientId(1L)).thenReturn(List.of(measure("TBSP", "15.2")));
+
+        QuantityInfo q = unitConversionService.convert(
+                new BigDecimal("2"), "CUP", "GRAM", 1L, null);
+
+        // One tablespoon is 15.2 g, so two cups (32 tablespoons) weigh about 486.4 g.
+        // The residual comes from the seed factors: a cup is 236.588 ml while sixteen
+        // tablespoons are 236.5888 ml, so deriving one from the other cannot be exact.
+        assertThat(q.unitCode()).isEqualTo("GRAM");
+        assertThat(q.amount()).isCloseTo(new BigDecimal("486.4"), within(new BigDecimal("0.01")));
+    }
+
+    @Test
+    void convert_prefersTheLargestCapturedMeasure() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubUnit("TBSP", UnitCategory.VOLUME, false);
+        stubUnit("PINT", UnitCategory.VOLUME, false);
+        stubUnit("TSP", UnitCategory.VOLUME, false);
+        stubIngredient(1L, "FLOUR");
+        stubFactor("CUP", "ML", "236.588");
+        stubFactor("TBSP", "ML", "14.7868");
+        stubFactor("PINT", "ML", "473.176");
+        stubFactor("TSP", "ML", "4.92892");
+        when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
+        when(measureRepo.findByIngredientId(1L)).thenReturn(List.of(
+                measure("TBSP", "15.2"), measure("PINT", "500.0"), measure("TSP", "4.7")));
+
+        QuantityInfo q = unitConversionService.convert(
+                new BigDecimal("1"), "CUP", "GRAM", 1L, null);
+
+        // 500 g per pint is the largest captured volume, so it defines the density.
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("250"));
+    }
+
+    @Test
+    void convert_ingredientWithoutAnyMeasure_fallsBackToItsCategory() {
         stubUnit("CUP", UnitCategory.VOLUME, false);
         stubUnit("GRAM", UnitCategory.WEIGHT, true);
         stubFactor("CUP", "ML", "236.588");
@@ -266,11 +311,15 @@ public class UnitConversionServiceTest {
     }
 
     private void stubMeasure(Long ingredientId, String unitCode, String gramPerUnit) {
+        when(measureRepo.findByIngredientIdAndUnitCode(ingredientId, unitCode))
+                .thenReturn(Optional.of(measure(unitCode, gramPerUnit)));
+    }
+
+    private IngredientMeasure measure(String unitCode, String gramPerUnit) {
         IngredientMeasure m = new IngredientMeasure();
         m.setUnitCode(unitCode);
         m.setGramPerUnit(new BigDecimal(gramPerUnit));
-        when(measureRepo.findByIngredientIdAndUnitCode(ingredientId, unitCode))
-                .thenReturn(Optional.of(m));
+        return m;
     }
 
     private void stubIngredient(Long id, String category) {
