@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -29,8 +30,14 @@ import java.util.List;
 
 /**
  * Security configuration class for the application.
+ *
+ * <p>Method security is enabled so a controller can state its own access rule with
+ * {@code @PreAuthorize} and have the {@code filterChain} rules stay about URL paths.
+ * Without it those annotations are silently ignored, and a restricted endpoint would
+ * quietly fall back to whatever the URL rule allows.</p>
  */
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
 
     /**

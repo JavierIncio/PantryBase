@@ -4,6 +4,8 @@ import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.repository.RefreshTokenRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
 import com.pantrybase.api.common.dto.ErrorResponse;
+import com.pantrybase.api.user.domain.Role;
+import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.repository.UserPreferencesRepository;
 import com.pantrybase.api.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -84,6 +87,33 @@ public abstract class AbstractIntegrationTest {
         Session session = registerSession();
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(session.tokens().accessToken());
+
+        return headers;
+    }
+
+    /**
+     * Authenticates as an administrator, granting {@code ROLE_ADMIN} directly in the
+     * database.
+     *
+     * <p>The role is set after registration because no public endpoint assigns it, and
+     * the access token is then issued by a fresh login so the claim is really present
+     * in the JWT: the tests below would otherwise pass or fail for the wrong reason.</p>
+     */
+    protected HttpHeaders authenticateAsAdmin() {
+        registerUser(DEFAULT_USER);
+        User user = userRepository
+                .findByUsernameOrEmail(DEFAULT_USER.get("username"), DEFAULT_USER.get("email"))
+                .orElseThrow();
+        user.setRoles(new HashSet<>(Set.of(Role.ADMIN)));
+        userRepository.saveAndFlush(user);
+
+        ResponseEntity<AuthResponse> login = rest.postForEntity(
+                LOGIN, credentials(DEFAULT_USER.get("email"), DEFAULT_USER.get("password")),
+                AuthResponse.class);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(login.getBody().accessToken());
 
         return headers;
     }

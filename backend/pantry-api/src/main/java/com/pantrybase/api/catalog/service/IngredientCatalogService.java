@@ -112,7 +112,8 @@ public class IngredientCatalogService {
         persistMeasures(ingredient.getId(), profile);
         return new IngredientDetailResponse(
                 ingredient.getId(), profile.fdcId(), profile.description(),
-                profile.dataType(), profile.category(), profile.nutrientsPer100g());
+                profile.dataType(), profile.category(), profile.nutrientsPer100g(),
+                ingredient.getDensityClass());
     }
 
     private void persistMeasures(Long ingredientId, FoodProfile profile) {

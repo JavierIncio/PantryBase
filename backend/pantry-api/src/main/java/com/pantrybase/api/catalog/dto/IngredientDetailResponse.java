@@ -15,5 +15,6 @@ public record IngredientDetailResponse(
         String name,
         String dataType,
         String category,
-        NutrientProfile nutrients
+        NutrientProfile nutrients,
+        String densityClass
 ) {}

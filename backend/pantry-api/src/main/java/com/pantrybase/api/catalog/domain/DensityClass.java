@@ -27,6 +27,16 @@ public class DensityClass {
     @Column(name = "density_g_per_ml", nullable = false)
     private BigDecimal densityGPerMl;
 
+    /**
+     * How this density was established, for example "FDC fdcId 171265: 1 cup = 244 g".
+     *
+     * <p>Optional and not a constraint: the point is auditability, so that a class
+     * added later can be traced back to a measurement rather than appearing as a
+     * bare number nobody can defend.</p>
+     */
+    @Column(name = "source")
+    private String source;
+
     public DensityClass() {
     }
 
@@ -44,5 +54,13 @@ public class DensityClass {
 
     public void setDensityGPerMl(BigDecimal densityGPerMl) {
         this.densityGPerMl = densityGPerMl;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
     }
 }
