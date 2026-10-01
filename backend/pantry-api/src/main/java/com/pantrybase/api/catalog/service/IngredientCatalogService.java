@@ -11,7 +11,14 @@ import com.pantrybase.api.catalog.repository.IngredientRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Orchestrates the external live catalog and the local materialization.
@@ -22,6 +29,9 @@ import java.util.List;
 @Service
 @Transactional(readOnly = true)
 public class IngredientCatalogService {
+
+    /** USDA FDC caps a single batch lookup at twenty ids. */
+    private static final int FDC_BATCH_MAX = 20;
 
     private final FoodCatalogPort catalogPort;
     private final IngredientRepository ingredientRepo;
@@ -48,8 +58,48 @@ public class IngredientCatalogService {
     public IngredientDetailResponse getById(long fdcId) {
         FoodProfile profile = catalogPort.getById(fdcId)
                 .orElseThrow(() -> new IngredientNotFoundException(fdcId));
+        return materializeAndMerge(profile);
+    }
+
+    /**
+     * Materializes a batch of ingredients from the provider.
+     *
+     * <p>Duplicate ids are collapsed, and ids the provider does not know are
+     * simply absent from the result (never an error, per the port contract).
+     * The provider is called in chunks of {@link #FDC_BATCH_MAX} ids.</p>
+     *
+     * @throws IllegalArgumentException when the collection is empty
+     */
+    @Transactional
+    public Map<Long, IngredientDetailResponse> getByIds(Collection<Long> fdcIds) {
+        if (fdcIds.isEmpty()) {
+            throw new IllegalArgumentException("fdcIds must not be empty");
+        }
+        List<Long> ids = new ArrayList<>(new LinkedHashSet<>(fdcIds));
+        return fetchAll(ids).values().stream()
+                .map(this::materializeAndMerge)
+                .collect(Collectors.toMap(IngredientDetailResponse::fdcId, Function.identity()));
+    }
+
+    private Map<Long, FoodProfile> fetchAll(List<Long> ids) {
+        Map<Long, FoodProfile> profiles = new HashMap<>();
+        for (List<Long> chunk : chunks(ids)) {
+            profiles.putAll(catalogPort.getByIds(chunk));
+        }
+        return profiles;
+    }
+
+    private List<List<Long>> chunks(List<Long> ids) {
+        List<List<Long>> chunks = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i += FDC_BATCH_MAX) {
+            chunks.add(ids.subList(i, Math.min(ids.size(), i + FDC_BATCH_MAX)));
+        }
+        return chunks;
+    }
+
+    private IngredientDetailResponse materializeAndMerge(FoodProfile profile) {
         materialize(profile);
-        Ingredient ingredient = ingredientRepo.findByFdcId(fdcId)
+        Ingredient ingredient = ingredientRepo.findByFdcId(profile.fdcId())
                 .orElseThrow(() -> new IllegalStateException("Ingredient not found after materialization"));
         return new IngredientDetailResponse(
                 ingredient.getId(), profile.fdcId(), profile.description(),

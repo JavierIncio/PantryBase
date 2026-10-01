@@ -5,10 +5,16 @@ import com.pantrybase.api.catalog.domain.FoodProfile;
 import com.pantrybase.api.catalog.domain.FoodSearchHit;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
+import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * USDA FoodData Central adapter for the {@link FoodCatalogPort}.
@@ -33,6 +39,12 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
 
         record FoodNutrient(int nutrientId, Double value, String unitName) {
         }
+    }
+
+    record BatchRequest(List<Long> fdcIds) {
+    }
+
+    record BatchResponse(List<FoodDetail> foods) {
     }
 
     private final RestClient client;
@@ -81,6 +93,31 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
         return Optional.of(mapDetail(detail));
     }
 
+    /**
+     * Fetches profiles in one {@code POST /foods} call using the full format,
+     * so the wire food shape (and mapping) matches {@link #getById(long)}.
+     * Unknown ids are simply absent from the returned map, never an error.
+     */
+    @Override
+    public Map<Long, FoodProfile> getByIds(Collection<Long> fdcIds) {
+        BatchResponse response = client.post().uri(uriBuilder -> uriBuilder
+                        .path("/foods")
+                        .queryParam("api_key", props.apiKey())
+                        .queryParam("format", "full")
+                        .build())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new BatchRequest(new ArrayList<>(fdcIds)))
+                .retrieve()
+                .onStatus(s -> !s.is2xxSuccessful(), (req, res) -> {
+                    throw new FdcProviderException("FDC batch lookup failed: " + req.getURI());
+                })
+                .body(BatchResponse.class);
+
+        return response.foods().stream()
+                .map(this::mapDetail)
+                .collect(Collectors.toMap(FoodProfile::fdcId, Function.identity(), (a, b) -> a));
+    }
+
     private FoodProfile mapDetail(FoodDetail d) {
         return new FoodProfile(
                 d.fdcId(), d.description(), d.dataType(),
@@ -91,6 +128,7 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
     }
 
     private Double nutrient(FoodDetail d, int nutrientId) {
+        if (d.foodNutrients() == null) return null;
         return d.foodNutrients().stream()
                 .filter(n -> n.nutrientId() == nutrientId)
                 .map(FoodDetail.FoodNutrient::value)

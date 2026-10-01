@@ -6,6 +6,7 @@ import com.pantrybase.api.catalog.domain.FoodSearchHit;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
 import com.pantrybase.api.catalog.dto.IngredientDetailResponse;
 import com.pantrybase.api.catalog.dto.IngredientSearchResponse;
+import com.pantrybase.api.catalog.exception.FdcProviderException;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.catalog.service.IngredientCatalogService;
 import com.pantrybase.api.common.dto.ErrorResponse;
@@ -21,15 +22,19 @@ import org.springframework.http.ResponseEntity;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Import(StubFoodCatalogPortConfig.class)
 public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
@@ -51,7 +56,11 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     }
 
     private static FoodProfile profile() {
-        return new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat", "SR Legacy",
+        return profile(FDC_ID);
+    }
+
+    private static FoodProfile profile(long fdcId) {
+        return new FoodProfile(fdcId, "Milk, whole, 3.25% milkfat", "SR Legacy",
                 "Dairy and Egg Products", new NutrientProfile(61.0, 3.15, 3.25, 4.8));
     }
 
@@ -163,5 +172,62 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     void unauthorized_returns401ForBothEndpoints() {
         assertUnauthorized(INGREDIENTS, HttpMethod.GET);
         assertUnauthorized(INGREDIENTS + "/" + FDC_ID, HttpMethod.GET);
+    }
+
+    @Test
+    void batch_materializesAllKnownIds() {
+        stubPort.returns(Map.of(
+                171265L, profile(171265L),
+                169757L, profile(169757L)));
+
+        Map<Long, IngredientDetailResponse> result =
+                ingredientService.getByIds(List.of(171265L, 169757L));
+
+        assertThat(result).hasSize(2).containsOnlyKeys(171265L, 169757L);
+        assertThat(result.get(171265L).id()).isPositive();
+        assertThat(result.get(169757L).name()).isEqualTo("Milk, whole, 3.25% milkfat");
+        assertThat(ingredientRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void batch_unknownId_omittedWithoutRow() {
+        stubPort.returns(Map.of(171265L, profile(171265L)));
+
+        Map<Long, IngredientDetailResponse> result =
+                ingredientService.getByIds(List.of(171265L, 999999L));
+
+        assertThat(result).hasSize(1).containsOnlyKeys(171265L);
+        assertThat(ingredientRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void batch_twentyFiveIds_splitsIntoCallsOfTwenty() {
+        List<Long> ids = IntStream.rangeClosed(1, 25).asLongStream().boxed().toList();
+        stubPort.returns(ids.stream()
+                .collect(Collectors.toMap(Function.identity(), IngredientCatalogIntegrationTest::profile)));
+
+        Map<Long, IngredientDetailResponse> result = ingredientService.getByIds(ids);
+
+        assertThat(result).hasSize(25);
+        assertThat(stubPort.batchRequests()).containsExactly(
+                IntStream.rangeClosed(1, 20).asLongStream().boxed().toList(),
+                IntStream.rangeClosed(21, 25).asLongStream().boxed().toList());
+        assertThat(ingredientRepository.count()).isEqualTo(25);
+    }
+
+    @Test
+    void batch_emptyIds_throwsIllegalArgumentWithoutRow() {
+        assertThatThrownBy(() -> ingredientService.getByIds(List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(ingredientRepository.count()).isZero();
+    }
+
+    @Test
+    void batch_providerFailure_throwsWithoutRows() {
+        stubPort.fails();
+
+        assertThatThrownBy(() -> ingredientService.getByIds(List.of(171265L)))
+                .isInstanceOf(FdcProviderException.class);
+        assertThat(ingredientRepository.count()).isZero();
     }
 }

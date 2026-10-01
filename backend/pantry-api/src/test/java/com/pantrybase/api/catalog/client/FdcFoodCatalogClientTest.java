@@ -11,12 +11,14 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -27,6 +29,7 @@ class FdcFoodCatalogClientTest {
     private static final String BASE_URL = "https://api.nal.usda.gov/fdc/v1";
     private static final String SEARCH_PATH = "/foods/search";
     private static final String DETAIL_PATH = "/food/171265";
+    private static final String BATCH_PATH = "/foods";
 
     private MockRestServiceServer server;
     private FdcFoodCatalogClient adapter;
@@ -34,7 +37,7 @@ class FdcFoodCatalogClientTest {
     @BeforeEach
     void setUp() {
         RestClient.Builder clientBuilder = RestClient.builder().baseUrl(BASE_URL);
-        server = MockRestServiceServer.bindTo(clientBuilder).build();
+        server = MockRestServiceServer.bindTo(clientBuilder).bufferContent().build();
         adapter = new FdcFoodCatalogClient(clientBuilder.build(), new FdcProperties(
                 "TEST_KEY", BASE_URL,
                 List.of("Foundation", "SR Legacy"), 20,
@@ -119,6 +122,80 @@ class FdcFoodCatalogClientTest {
 
         assertThat(profile).isPresent();
         assertThat(profile.get().nutrientsPer100g().carbsG()).isNull();   // 1005 ausente
+        server.verify();
+    }
+
+    @Test
+    void getByIds_mapsMultipleWireFoodsToDomain() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andExpect(queryParam("api_key", "TEST_KEY"))
+                .andExpect(queryParam("format", "full"))
+                .andRespond(withSuccess("""
+                        {"foods": [
+                            {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
+                             "dataType": "SR Legacy",
+                             "foodCategory": {"description": "Dairy and Egg Products"},
+                             "foodNutrients": [
+                                {"nutrientId": 1008, "value": 61.0},
+                                {"nutrientId": 1003, "value": 3.15},
+                                {"nutrientId": 1004, "value": 3.25},
+                                {"nutrientId": 1005, "value": 4.8}]},
+                            {"fdcId": 169757, "description": "Milk, nonfat",
+                             "dataType": "SR Legacy",
+                             "foodCategory": {"description": "Dairy and Egg Products"},
+                             "foodNutrients": [
+                                {"nutrientId": 1008, "value": 34.0},
+                                {"nutrientId": 1003, "value": 3.4},
+                                {"nutrientId": 1004, "value": 0.2},
+                                {"nutrientId": 1005, "value": 5.0}]}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        Map<Long, FoodProfile> profiles = adapter.getByIds(List.of(171265L, 169757L));
+
+        assertThat(profiles).hasSize(2);
+        assertThat(profiles.get(171265L).description()).isEqualTo("Milk, whole, 3.25% milkfat");
+        assertThat(profiles.get(169757L).dataType()).isEqualTo("SR Legacy");
+        server.verify();
+    }
+
+    @Test
+    void getByIds_unknownId_omittedFromResult() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andRespond(withSuccess("""
+                        {"foods": [
+                            {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
+                             "dataType": "SR Legacy", "foodNutrients": []}
+                        ]}
+                        """, MediaType.APPLICATION_JSON));
+
+        Map<Long, FoodProfile> profiles = adapter.getByIds(List.of(171265L, 999999L));
+
+        assertThat(profiles).hasSize(1);
+        assertThat(profiles).containsOnlyKeys(171265L);
+        server.verify();
+    }
+
+    @Test
+    void getByIds_providerError_throws() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+        assertThatThrownBy(() -> adapter.getByIds(List.of(171265L)))
+                .isInstanceOf(FdcProviderException.class);
+        server.verify();
+    }
+
+    @Test
+    void getByIds_sendsSerializedBody_withRequestedFdcIds() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andExpect(content().json("{\"fdcIds\":[171265,169757]}"))
+                .andRespond(withSuccess("""
+                        {"foods": []}
+                        """, MediaType.APPLICATION_JSON));
+
+        adapter.getByIds(List.of(171265L, 169757L));
+
         server.verify();
     }
 }
