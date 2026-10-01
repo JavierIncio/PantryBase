@@ -7,12 +7,11 @@ import com.pantrybase.api.catalog.domain.NutrientProfile;
 import com.pantrybase.api.catalog.domain.Portion;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
 import com.pantrybase.api.catalog.exception.FdcRateLimitException;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,18 +43,42 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
         record FoodCategory(String description) {
         }
 
-        record FoodNutrient(int nutrientId, Double value, String unitName) {
+        /**
+         * The provider nests the nutrient definition and names the quantity {@code amount},
+         * not {@code value}. Both shapes were checked against the live API for fdcId
+         * 168894, where reading {@code nutrientId}/{@code value} yields four nulls instead
+         * of 10.33 g of protein, 0.98 g of fat, 76.31 g of carbs and 364 kcal.
+         */
+        record FoodNutrient(NutrientDefinition nutrient, Double amount) {
+        }
+
+        record NutrientDefinition(int id, String unitName) {
         }
     }
 
-    record FoodPortion(Double amount, Double gramWeight, MeasureUnit measureUnit) {
+    /**
+     * The unit name is in {@code modifier}, not in {@code measureUnit}.
+     *
+     * <p>For every food checked against the live API the provider reports
+     * {@code measureUnit.name = "undetermined"} and puts the real unit in
+     * {@code modifier} ("cup", "tablespoon", "tsp"). Reading only
+     * {@code measureUnit.name} therefore discarded every real household measure, which
+     * is why the captured measure that H2-B-3 relies on never actually appeared.</p>
+     */
+    record FoodPortion(Double amount, Double gramWeight, String modifier, MeasureUnit measureUnit) {
         record MeasureUnit(String name) {
         }
     }
 
-    record BatchRequest(List<Long> fdcIds) {
-    }
-
+    /**
+     * The batch endpoint is {@code GET /foods?fdcIds=} and answers with a bare JSON array.
+     *
+     * <p>It is not a {@code POST} with a {@code {"fdcIds": [...]}} body: that request is
+     * rejected by the provider with 400 "Invalid request", and the tests missed it because
+     * the stubbed server answered whatever shape the adapter expected. The response is an
+     * array of foods, not an object with a {@code foods} property, so it is deserialized
+     * as a {@code List}.</p>
+     */
     record BatchResponse(List<FoodDetail> foods) {
     }
 
@@ -116,19 +139,19 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
     }
 
     /**
-     * Fetches profiles in one {@code POST /foods} call using the full format,
+     * Fetches profiles in one {@code GET /foods?fdcIds=} call using the full format,
      * so the wire food shape (and mapping) matches {@link #getById(long)}.
      * Unknown ids are simply absent from the returned map, never an error.
      */
     @Override
     public Map<Long, FoodProfile> getByIds(Collection<Long> fdcIds) {
-        BatchResponse response = client.post().uri(uriBuilder -> uriBuilder
+        List<FoodDetail> response = client.get().uri(uriBuilder -> uriBuilder
                         .path("/foods")
                         .queryParam("api_key", props.apiKey())
                         .queryParam("format", "full")
+                        .queryParam("fdcIds", fdcIds.stream().map(String::valueOf)
+                                .collect(Collectors.joining(",")))
                         .build())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new BatchRequest(new ArrayList<>(fdcIds)))
                 .retrieve()
                 .onStatus(HttpStatusCode::is4xxClientError, ((req, res) -> {
                     throw statusAware("FDC batch lookup failed: ", req.getURI(), res.getStatusCode().value());
@@ -136,9 +159,9 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                 .onStatus(s -> !s.is2xxSuccessful(), (req, res) -> {
                     throw new FdcProviderException("FDC batch lookup failed: " + safeUri(req.getURI()));
                 })
-                .body(BatchResponse.class);
+                .body(new ParameterizedTypeReference<List<FoodDetail>>() {});
 
-        return response.foods().stream()
+        return response.stream()
                 .map(this::mapDetail)
                 .collect(Collectors.toMap(FoodProfile::fdcId, Function.identity(), (a, b) -> a));
     }
@@ -194,7 +217,7 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
         for (FoodPortion p : d.foodPortions()) {
             if (p == null || p.gramWeight() == null || p.gramWeight() <= 0) continue;
             Double amount = (p.amount() == null || p.amount() <= 0) ? 1.0 : p.amount();
-            String code = portionUnitCode(p.measureUnit() == null ? null : p.measureUnit().name());
+            String code = portionUnitCode(portionUnitName(p));
             if (code == null) continue;
             double gpu = p.gramWeight() / amount;
             if (gpu <= 0) continue;
@@ -203,6 +226,22 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
             byUnit.putIfAbsent(code, new Portion(code, gpu));
         }
         return List.copyOf(byUnit.values());
+    }
+
+    /**
+     * Picks the field that actually names the unit.
+     *
+     * <p>The live API reports {@code measureUnit.name = "undetermined"} for household
+     * measures and carries the real unit in {@code modifier}. Preferring {@code modifier}
+     * and falling back to {@code measureUnit.name} covers both: the observed shape, and
+     * the shape used by older {@code SR Legacy} rows where {@code measureUnit} is
+     * properly populated.</p>
+     */
+    private String portionUnitName(FoodPortion p) {
+        if (p.modifier() != null && !p.modifier().isBlank()) {
+            return p.modifier();
+        }
+        return p.measureUnit() == null ? null : p.measureUnit().name();
     }
 
     /**
@@ -226,11 +265,18 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
         return qualifier > 0 ? PORTION_UNIT_CODES.get(norm.substring(0, qualifier).trim()) : null;
     }
 
+    /**
+     * Reads one nutrient per 100 g by its provider id.
+     *
+     * <p>The id lives in the nested {@code nutrient} object and the quantity is
+     * {@code amount}; entries may also be missing {@code nutrient} entirely, which
+     * happens for derivation and conversion rows in the same array.</p>
+     */
     private Double nutrient(FoodDetail d, int nutrientId) {
         if (d.foodNutrients() == null) return null;
         return d.foodNutrients().stream()
-                .filter(n -> n.nutrientId() == nutrientId)
-                .map(FoodDetail.FoodNutrient::value)
+                .filter(n -> n.nutrient() != null && n.nutrient().id() == nutrientId)
+                .map(FoodDetail.FoodNutrient::amount)
                 .findFirst().orElse(null);
     }
 

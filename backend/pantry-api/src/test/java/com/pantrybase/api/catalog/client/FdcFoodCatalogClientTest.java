@@ -15,11 +15,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.http.HttpMethod;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -31,6 +33,66 @@ class FdcFoodCatalogClientTest {
     private static final String SEARCH_PATH = "/foods/search";
     private static final String DETAIL_PATH = "/food/171265";
     private static final String BATCH_PATH = "/foods";
+    private static final String REAL_FOOD_PATH = "/food/168894";
+
+    /**
+     * Verbatim slice of a live {@code GET /food/168894} response, in the shape the
+     * provider actually uses.
+     *
+     * <p>Fixtures written from the record definitions rather than from a real response
+     * are what let three wire mismatches through: the nutrients nest the id under
+     * {@code nutrient} and call the quantity {@code amount}, the household measure lives
+     * in {@code modifier} while {@code measureUnit} says "undetermined", and the batch
+     * endpoint is a GET answering a bare array. Capturing the real shape here is the
+     * guard, so the next field rename fails a test instead of silently reading nulls.</p>
+     */
+    private static final String REAL_FOOD_168894 = """
+            {
+              "fdcId": 168894,
+              "description": "Wheat flour, white, all-purpose, enriched, bleached",
+              "dataType": "SR Legacy",
+              "foodCategory": { "id": 20, "description": "Cereal Grains and Pasta" },
+              "foodNutrients": [
+                { "type": "FoodNutrient", "nutrient": { "id": 2045, "name": "Proximates" } },
+                {
+                  "type": "FoodNutrient",
+                  "nutrient": { "id": 1008, "name": "Energy", "unitName": "kcal" },
+                  "amount": 364.0
+                },
+                {
+                  "type": "FoodNutrient",
+                  "foodNutrientDerivation": { "id": 1, "code": "A" },
+                  "amount": 12.0
+                },
+                {
+                  "type": "FoodNutrient",
+                  "nutrient": { "id": 1003, "name": "Protein", "unitName": "g" },
+                  "amount": 10.33
+                },
+                {
+                  "type": "FoodNutrient",
+                  "nutrient": { "id": 1004, "name": "Total lipid (fat)", "unitName": "g" },
+                  "amount": 0.98
+                },
+                {
+                  "type": "FoodNutrient",
+                  "nutrient": { "id": 1005, "name": "Carbohydrate, by difference", "unitName": "g" },
+                  "amount": 76.31
+                }
+              ],
+              "foodPortions": [
+                {
+                  "amount": 1.0,
+                  "gramWeight": 125.0,
+                  "modifier": "cup",
+                  "measureUnit": { "id": 1001, "name": "undetermined" }
+                }
+              ]
+            }
+            """;
+
+    /** The batch endpoint answers with a bare array, not an object with a "foods" key. */
+    private static final String REAL_BATCH_ARRAY = "[" + REAL_FOOD_168894 + "]";
 
     private MockRestServiceServer server;
     private FdcFoodCatalogClient adapter;
@@ -68,28 +130,57 @@ class FdcFoodCatalogClientTest {
     }
 
     @Test
-    void getById_mapsWireNutrientsToDomain() {
+    void getById_mapsRealWireNutrientsToDomain() {
+        server.expect(requestTo(containsString(REAL_FOOD_PATH)))
+                .andRespond(withSuccess(REAL_FOOD_168894, MediaType.APPLICATION_JSON));
+
+        Optional<FoodProfile> profile = adapter.getById(168894);
+
+        assertThat(profile).isPresent();
+        assertThat(profile.get().description())
+                .isEqualTo("Wheat flour, white, all-purpose, enriched, bleached");
+        assertThat(profile.get().category()).isEqualTo("Cereal Grains and Pasta");
+        // Read from the live shape: id under "nutrient", value in "amount". The fixture
+        // also carries entries with no "nutrient" at all, which must not break the lookup.
+        assertThat(profile.get().nutrientsPer100g())
+                .extracting(n -> n.energyKcal(), n -> n.proteinG(), n -> n.fatG(), n -> n.carbsG())
+                .containsExactly(364.0, 10.33, 0.98, 76.31);
+        server.verify();
+    }
+
+    @Test
+    void getById_capturesThePortionTheRealProviderReportsInModifier() {
+        server.expect(requestTo(containsString(REAL_FOOD_PATH)))
+                .andRespond(withSuccess(REAL_FOOD_168894, MediaType.APPLICATION_JSON));
+
+        var profile = adapter.getById(168894);
+
+        // measureUnit is "undetermined" here, so a mapping that only reads measureUnit
+        // captures nothing at all: 125 g per cup is the entire basis of the conversion.
+        assertThat(profile).isPresent();
+        assertThat(profile.get().portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 125.0));
+        server.verify();
+    }
+
+    @Test
+    void getById_fallsBackToMeasureUnitWhenModifierIsAbsent() {
         server.expect(requestTo(containsString(DETAIL_PATH)))
                 .andRespond(withSuccess("""
-                        {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
-                         "dataType": "SR Legacy",
-                         "foodCategory": {"description": "Dairy and Egg Products"},
-                         "foodNutrients": [
-                            {"nutrientId": 1008, "value": 61.0, "unitName": "KCAL"},
-                            {"nutrientId": 1003, "value": 3.15, "unitName": "G"},
-                            {"nutrientId": 1004, "value": 3.25, "unitName": "G"},
-                            {"nutrientId": 1005, "value": 4.8, "unitName": "G"}
+                        {"fdcId": 171265, "description": "Milk, whole",
+                         "foodPortions": [
+                            {"amount": 1, "gramWeight": 244.0,
+                             "measureUnit": {"name": "cup, nf"}}
                          ]}
                         """, MediaType.APPLICATION_JSON));
 
-        Optional<FoodProfile> profile = adapter.getById(171265);
+        var profile = adapter.getById(171265);
 
         assertThat(profile).isPresent();
-        assertThat(profile.get().description()).isEqualTo("Milk, whole, 3.25% milkfat");
-        assertThat(profile.get().category()).isEqualTo("Dairy and Egg Products");
-        assertThat(profile.get().nutrientsPer100g())
-                .extracting(n -> n.energyKcal(), n -> n.proteinG(), n -> n.fatG(), n -> n.carbsG())
-                .containsExactly(61.0, 3.15, 3.25, 4.8);
+        assertThat(profile.get().portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 244.0));
         server.verify();
     }
 
@@ -117,7 +208,10 @@ class FdcFoodCatalogClientTest {
         server.expect(requestTo(containsString(DETAIL_PATH)))
                 .andRespond(withSuccess("""
                         {"fdcId": 171265, "description": "Milk, whole",
-                         "foodNutrients": [{"nutrientId": 1003, "value": 3.15, "unitName": "G"}]}
+                         "foodNutrients": [
+                            {"nutrient": {"id": 1003, "name": "Protein", "unitName": "g"},
+                             "amount": 3.15}
+                         ]}
                         """, MediaType.APPLICATION_JSON));
 
         var profile = adapter.getById(171265);
@@ -128,36 +222,38 @@ class FdcFoodCatalogClientTest {
     }
 
     @Test
-    void getByIds_mapsMultipleWireFoodsToDomain() {
+    void getByIds_readsTheBareArrayTheProviderReturns() {
         server.expect(requestTo(containsString(BATCH_PATH)))
                 .andExpect(queryParam("api_key", "TEST_KEY"))
                 .andExpect(queryParam("format", "full"))
-                .andRespond(withSuccess("""
-                        {"foods": [
-                            {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
-                             "dataType": "SR Legacy",
-                             "foodCategory": {"description": "Dairy and Egg Products"},
-                             "foodNutrients": [
-                                {"nutrientId": 1008, "value": 61.0},
-                                {"nutrientId": 1003, "value": 3.15},
-                                {"nutrientId": 1004, "value": 3.25},
-                                {"nutrientId": 1005, "value": 4.8}]},
-                            {"fdcId": 169757, "description": "Milk, nonfat",
-                             "dataType": "SR Legacy",
-                             "foodCategory": {"description": "Dairy and Egg Products"},
-                             "foodNutrients": [
-                                {"nutrientId": 1008, "value": 34.0},
-                                {"nutrientId": 1003, "value": 3.4},
-                                {"nutrientId": 1004, "value": 0.2},
-                                {"nutrientId": 1005, "value": 5.0}]}
-                        ]}
-                        """, MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(REAL_BATCH_ARRAY, MediaType.APPLICATION_JSON));
 
-        Map<Long, FoodProfile> profiles = adapter.getByIds(List.of(171265L, 169757L));
+        Map<Long, FoodProfile> profiles = adapter.getByIds(List.of(168894L));
 
-        assertThat(profiles).hasSize(2);
-        assertThat(profiles.get(171265L).description()).isEqualTo("Milk, whole, 3.25% milkfat");
-        assertThat(profiles.get(169757L).dataType()).isEqualTo("SR Legacy");
+        // A {"foods": [...]} fixture deserialized into a List would have passed the
+        // original tests and failed against the real endpoint, which answers with a
+        // bare array and rejects the POST body this adapter used to send.
+        assertThat(profiles).containsOnlyKeys(168894L);
+        assertThat(profiles.get(168894L).description())
+                .isEqualTo("Wheat flour, white, all-purpose, enriched, bleached");
+        assertThat(profiles.get(168894L).nutrientsPer100g().energyKcal()).isEqualTo(364.0);
+        assertThat(profiles.get(168894L).portions())
+                .extracting(p -> p.unitCode(), p -> p.gramPerUnit())
+                .containsExactly(tuple("CUP", 125.0));
+        server.verify();
+    }
+
+    @Test
+    void getByIds_usesAGetWithTheIdsInTheQueryString() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(queryParam("fdcIds", "171265,169757"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        adapter.getByIds(List.of(171265L, 169757L));
+
+        // The ids travel as a repeated fdcIds parameter; the live endpoint rejects the
+        // POST-with-JSON-body shape with 400 "Invalid request".
         server.verify();
     }
 
@@ -165,10 +261,10 @@ class FdcFoodCatalogClientTest {
     void getByIds_unknownId_omittedFromResult() {
         server.expect(requestTo(containsString(BATCH_PATH)))
                 .andRespond(withSuccess("""
-                        {"foods": [
+                        [
                             {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
                              "dataType": "SR Legacy", "foodNutrients": []}
-                        ]}
+                        ]
                         """, MediaType.APPLICATION_JSON));
 
         Map<Long, FoodProfile> profiles = adapter.getByIds(List.of(171265L, 999999L));
@@ -270,28 +366,15 @@ class FdcFoodCatalogClientTest {
     }
 
     @Test
-    void getByIds_sendsSerializedBody_withRequestedFdcIds() {
-        server.expect(requestTo(containsString(BATCH_PATH)))
-                .andExpect(content().json("{\"fdcIds\":[171265,169757]}"))
-                .andRespond(withSuccess("""
-                        {"foods": []}
-                        """, MediaType.APPLICATION_JSON));
-
-        adapter.getByIds(List.of(171265L, 169757L));
-
-        server.verify();
-    }
-
-    @Test
-    void getById_mapsHouseholdPortionsToDomain() {
+    void getById_mapsHouseholdPortionsFromModifierToDomain() {
         server.expect(requestTo(containsString(DETAIL_PATH)))
                 .andRespond(withSuccess("""
                         {"fdcId": 171265, "description": "Milk, whole, 3.25% milkfat",
                          "foodPortions": [
-                            {"amount": 1, "gramWeight": 244.0,
-                             "measureUnit": {"name": "cup, nf"}},
-                            {"amount": 1, "gramWeight": 15.0,
-                             "measureUnit": {"name": "tbsp"}}
+                            {"amount": 1, "gramWeight": 244.0, "modifier": "cup",
+                             "measureUnit": {"name": "undetermined"}},
+                            {"amount": 1, "gramWeight": 15.0, "modifier": "tbsp",
+                             "measureUnit": {"name": "undetermined"}}
                          ]}
                         """, MediaType.APPLICATION_JSON));
 
@@ -369,13 +452,13 @@ class FdcFoodCatalogClientTest {
     void getByIds_mapsPortionsInBatch() {
         server.expect(requestTo(containsString(BATCH_PATH)))
                 .andRespond(withSuccess("""
-                        {"foods": [
+                        [
                             {"fdcId": 171265, "description": "Milk, whole",
                              "foodPortions": [
-                                {"amount": 1, "gramWeight": 244.0,
-                                 "measureUnit": {"name": "cup"}}
+                                {"amount": 1, "gramWeight": 244.0, "modifier": "cup",
+                                 "measureUnit": {"name": "undetermined"}}
                              ]}
-                        ]}
+                        ]
                         """, MediaType.APPLICATION_JSON));
 
         var profiles = adapter.getByIds(List.of(171265L));

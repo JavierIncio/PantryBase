@@ -411,18 +411,22 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void batch_twentyFiveIds_splitsIntoCallsOfTwenty() {
-        List<Long> ids = IntStream.rangeClosed(1, 25).asLongStream().boxed().toList();
+    void batch_oneHundredAndOneIds_splitsAtTheBatchLimit() {
+        // The batch call is a GET whose ids travel in the query string, so the limit is a
+        // URI-length guard rather than a documented provider cap (200 ids were accepted
+        // against the live API). The test asserts the split exists and lands on the limit,
+        // not the number 20 the old, unverified assumption had baked in.
+        List<Long> ids = IntStream.rangeClosed(1, 101).asLongStream().boxed().toList();
         stubPort.returns(ids.stream()
                 .collect(Collectors.toMap(Function.identity(), IngredientCatalogIntegrationTest::profile)));
 
         Map<Long, IngredientDetailResponse> result = ingredientService.getByIds(ids);
 
-        assertThat(result).hasSize(25);
+        assertThat(result).hasSize(101);
         assertThat(stubPort.batchRequests()).containsExactly(
-                IntStream.rangeClosed(1, 20).asLongStream().boxed().toList(),
-                IntStream.rangeClosed(21, 25).asLongStream().boxed().toList());
-        assertThat(ingredientRepository.count()).isEqualTo(25);
+                IntStream.rangeClosed(1, 100).asLongStream().boxed().toList(),
+                List.of(101L));
+        assertThat(ingredientRepository.count()).isEqualTo(101);
     }
 
     @Test

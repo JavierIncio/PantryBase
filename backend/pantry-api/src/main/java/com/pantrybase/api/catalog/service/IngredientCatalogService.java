@@ -48,8 +48,16 @@ public class IngredientCatalogService {
 
     private static final Logger log = LoggerFactory.getLogger(IngredientCatalogService.class);
 
-    /** USDA FDC caps a single batch lookup at twenty ids. */
-    private static final int FDC_BATCH_MAX = 20;
+    /**
+     * Upper bound on ids per provider call.
+     *
+     * <p>The batch endpoint is a {@code GET} with the ids in the query string, so the
+     * practical limit is the URL length rather than a documented id cap: 200 ids were
+     * accepted against the live API, and a URL that long is still well inside common
+     * limits. Kept below that so a long id list cannot overflow a proxy's URI limit,
+     * which would surface as an opaque 414 instead of a provider error.</p>
+     */
+    private static final int FDC_BATCH_MAX = 100;
 
     private final FoodCatalogPort catalogPort;
     private final IngredientRepository ingredientRepo;
