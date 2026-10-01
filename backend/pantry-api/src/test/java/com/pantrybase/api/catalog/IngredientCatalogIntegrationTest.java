@@ -25,8 +25,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,12 +61,33 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     IngredientCatalogService ingredientService;
     @Autowired
     StubFoodCatalogPort stubPort;
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void cleanIngredients() {
         measureRepository.deleteAll();
         ingredientRepository.deleteAll();
+        // The stub is a singleton shared by every test in the class, so its call counters
+        // would otherwise accumulate and a "called once" assertion would be measuring the
+        // whole class rather than the test.
+        stubPort.resetCounters();
         stubPort.fails();
+    }
+
+    /**
+     * Backdates the freshness stamp so a test can reach the provider path on demand.
+     *
+     * <p>Done in SQL rather than by waiting: the cache window is 24 h, and a test that
+     * slept to reach a branch would be slow and still time-dependent. It also makes
+     * explicit that {@code synced_at} is the single input to the freshness decision.</p>
+     */
+    private void ageSyncedAt(long fdcId, Duration age) {
+        // Seconds as a number rather than a Duration: the PostgreSQL driver cannot infer
+        // a parameter type from java.time.Duration, and interval arithmetic needs the unit.
+        jdbcTemplate.update(
+                "UPDATE ingredients SET synced_at = now() - (? * INTERVAL '1 second') WHERE fdc_id = ?",
+                age.toSeconds(), fdcId);
     }
 
     private static FoodProfile profile() {
@@ -187,6 +211,174 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void detail_repeatedLookups_insideTheFreshnessWindow_callTheProviderOnce() {
+        stubPort.returns(Optional.of(profile()));
+
+        ingredientService.getById(FDC_ID);
+        ingredientService.getById(FDC_ID);
+        ingredientService.getById(FDC_ID);
+
+        // The whole point of the freshness stamp: three reads, one unit of quota.
+        assertThat(stubPort.detailRequests()).containsExactly(FDC_ID);
+    }
+
+    @Test
+    void detail_freshLocalCopy_isServedWithoutReachingTheProvider() {
+        stubPort.returns(Optional.of(profile()));
+        IngredientDetailResponse first = ingredientService.getById(FDC_ID);
+
+        // The provider now knows nothing; a hit here would mean the local copy was
+        // bypassed, which is what would make a repeated read cost quota again.
+        stubPort.fails();
+        IngredientDetailResponse second = ingredientService.getById(FDC_ID);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(stubPort.detailRequests()).containsExactly(FDC_ID);
+    }
+
+    @Test
+    void detail_staleLocalCopy_isRefreshedFromTheProvider() {
+        stubPort.returns(Optional.of(profile()));
+        ingredientService.getById(FDC_ID);
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
+
+        stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
+                "SR Legacy", "Dairy and Egg Products",
+                new NutrientProfile(62.5, 3.15, 3.25, 4.8),
+                List.of())));
+        IngredientDetailResponse refreshed = ingredientService.getById(FDC_ID);
+
+        assertThat(refreshed.nutrients().energyKcal()).isEqualTo(62.5);
+        assertThat(stubPort.detailRequests()).containsExactly(FDC_ID, FDC_ID);
+    }
+
+    @Test
+    void detail_providerFailure_insideTheStaleWindow_servesTheLocalCopy() {
+        stubPort.returns(Optional.of(profile()));
+        ingredientService.getById(FDC_ID);
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
+
+        stubPort.fails();
+        IngredientDetailResponse stale = ingredientService.getById(FDC_ID);
+
+        assertThat(stale.fdcId()).isEqualTo(FDC_ID);
+        assertThat(stale.nutrients().energyKcal()).isEqualTo(61.0);
+    }
+
+    @Test
+    void detail_providerFailure_pastTheStaleWindow_returns502() {
+        stubPort.returns(Optional.of(profile()));
+        ingredientService.getById(FDC_ID);
+        ageSyncedAt(FDC_ID, Duration.ofDays(31));
+
+        stubPort.fails();
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                INGREDIENTS + "/" + FDC_ID, HttpMethod.GET, new HttpEntity<>(authenticate()),
+                ErrorResponse.class);
+
+        // A bounded amount of old data is useful; an unbounded amount is not, so
+        // beyond max-stale the failure is reported instead of hidden.
+        assertError(response, HttpStatus.BAD_GATEWAY, INGREDIENTS + "/" + FDC_ID);
+    }
+
+    @Test
+    void detail_quotaExhausted_insideTheStaleWindow_servesTheLocalCopyWithoutRetrying() {
+        stubPort.returns(Optional.of(profile()));
+        ingredientService.getById(FDC_ID);
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
+
+        stubPort.quotaExhausted();
+        IngredientDetailResponse stale = ingredientService.getById(FDC_ID);
+
+        assertThat(stale.nutrients().energyKcal()).isEqualTo(61.0);
+        // A 429 must not be retried: the same call cannot succeed until the quota
+        // window resets, so a second attempt would only spend quota that is not there.
+        assertThat(stubPort.detailRequests()).containsExactly(FDC_ID, FDC_ID);
+    }
+
+    @Test
+    void detail_quotaExhausted_pastTheStaleWindow_returns502() {
+        stubPort.quotaExhausted();
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                INGREDIENTS + "/" + FDC_ID, HttpMethod.GET, new HttpEntity<>(authenticate()),
+                ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_GATEWAY, INGREDIENTS + "/" + FDC_ID);
+    }
+
+    @Test
+    void detail_refresh_keepsTheCuratedDensityClassAndExistingMeasure() {
+        stubPort.returns(Optional.of(profile()));
+        Long ingredientId = ingredientService.getById(FDC_ID).id();
+        assignDensityClass(ingredientId, "FLOUR");
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
+
+        stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
+                "SR Legacy", "Dairy and Egg Products",
+                new NutrientProfile(62.5, 3.15, 3.25, 4.8),
+                List.of(new Portion("CUP", 200.0)))));
+        ingredientService.getById(FDC_ID);
+
+        Ingredient refreshed = ingredientRepository.findByFdcId(FDC_ID).orElseThrow();
+        // The density class is a curated claim of ours and the measure is a stored fact:
+        // a provider refresh overwrites neither, or a classification nobody recorded
+        // the source of would vanish on the next read.
+        assertThat(refreshed.getDensityClass()).isEqualTo("FLOUR");
+        assertThat(measureRepository.findByIngredientIdAndUnitCode(refreshed.getId(), "CUP")
+                .orElseThrow().getGramPerUnit()).isEqualByComparingTo(new BigDecimal("244"));
+        // Provider-owned columns do move, which is what the insert-only version could
+        // never do: a corrected nutrient value now reaches the local catalog.
+        assertThat(refreshed.getEnergyKcal()).isEqualTo(62.5);
+        assertThat(refreshed.getDataType()).isEqualTo("SR Legacy");
+    }
+
+    @Test
+    void detail_refresh_advancesTheFreshnessStamp() {
+        stubPort.returns(Optional.of(profile()));
+        ingredientService.getById(FDC_ID);
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
+        Instant before = ingredientRepository.findByFdcId(FDC_ID).orElseThrow().getSyncedAt();
+
+        stubPort.returns(Optional.of(profile()));
+        ingredientService.getById(FDC_ID);
+
+        Instant after = ingredientRepository.findByFdcId(FDC_ID).orElseThrow().getSyncedAt();
+        assertThat(after).isAfter(before);
+    }
+
+    @Test
+    void search_repeatedQuery_isServedFromTheCache() {
+        stubPort.returns(List.of(new FoodSearchHit(FDC_ID, "Milk, whole, 3.25% milkfat", "SR Legacy")));
+
+        List<IngredientSearchResponse> first = ingredientService.search("milk");
+        List<IngredientSearchResponse> second = ingredientService.search("milk");
+
+        assertThat(second).isEqualTo(first);
+        // Search results are never materialized, so Redis is the only possible copy:
+        // without it every keystroke in the search box would spend quota.
+        assertThat(stubPort.searchRequests()).containsExactly("milk");
+    }
+
+    @Test
+    void search_differentQueries_hitTheProviderSeparately() {
+        stubPort.returns(List.of(new FoodSearchHit(FDC_ID, "Milk, whole, 3.25% milkfat", "SR Legacy")));
+
+        ingredientService.search("milk");
+        ingredientService.search("yogurt");
+
+        assertThat(stubPort.searchRequests()).containsExactly("milk", "yogurt");
+    }
+
+    @Test
+    void search_providerFailure_stillReturns502() {
+        stubPort.fails();
+
+        assertThatThrownBy(() -> ingredientService.search("milk"))
+                .isInstanceOf(FdcProviderException.class);
+    }
+
+    @Test
     void unauthorized_returns401ForBothEndpoints() {
         assertUnauthorized(INGREDIENTS, HttpMethod.GET);
         assertUnauthorized(INGREDIENTS + "/" + FDC_ID, HttpMethod.GET);
@@ -266,6 +458,10 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
         stubPort.returns(Optional.of(profile()));
 
         ingredientService.getById(FDC_ID);
+        // Past the freshness window, so the second read really does reach the provider:
+        // otherwise the local short-circuit would answer it and the test would pass
+        // without ever exercising the insert-only behaviour it is about.
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
         stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
                 "SR Legacy", "Dairy and Egg Products",
                 new NutrientProfile(61.0, 3.15, 3.25, 4.8),
@@ -343,8 +539,10 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
         Long ingredientId = ingredientService.getById(FDC_ID).id();
         assignDensityClass(ingredientId, "FLOUR");
 
-        // Materialization must not touch curated data: it only ever inserts.
-        ingredientService.getById(FDC_ID);
+        // Materialization must not touch curated data: it only ever inserts. The first
+        // lookup is inside the freshness window and is answered locally; the second is
+        // backdated so it reaches the provider, which is where the guarantee applies.
+        ageSyncedAt(FDC_ID, Duration.ofHours(25));
         stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
                 "SR Legacy", "Dairy and Egg Products",
                 new NutrientProfile(61.0, 3.15, 3.25, 4.8),

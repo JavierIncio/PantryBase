@@ -79,3 +79,8 @@ app:
       page-size: 20
       connect-timeout: 2s
       read-timeout: 5s
+      # Ventana sin refresco y ventana de datos rancios. La primera evita la llamada
+      # al proveedor; la segunda decide cuanto se sigue sirviendo si el proveedor falla,
+      # que es lo que hace utilizable el catálogo con la cuota de DEMO_KEY (30 req/h).
+      cache-ttl: 24h
+      max-stale: 30d

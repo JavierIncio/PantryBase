@@ -2,6 +2,7 @@ package com.pantrybase.api.catalog.client;
 
 import com.pantrybase.api.catalog.domain.FoodProfile;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
+import com.pantrybase.api.catalog.exception.FdcRateLimitException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -41,7 +42,8 @@ class FdcFoodCatalogClientTest {
         adapter = new FdcFoodCatalogClient(clientBuilder.build(), new FdcProperties(
                 "TEST_KEY", BASE_URL,
                 List.of("Foundation", "SR Legacy"), 20,
-                Duration.ofSeconds(2), Duration.ofSeconds(5)));
+                Duration.ofSeconds(2), Duration.ofSeconds(5),
+                Duration.ofHours(24), Duration.ofDays(30)));
     }
 
     @Test
@@ -210,6 +212,60 @@ class FdcFoodCatalogClientTest {
                 .isInstanceOf(FdcProviderException.class)
                 .hasMessageNotContaining("TEST_KEY")
                 .hasMessageContaining("api_key=***");
+        server.verify();
+    }
+
+    @Test
+    void search_quotaExhausted_raisesARateLimitFailure_withoutTheKey() {
+        server.expect(requestTo(containsString(SEARCH_PATH)))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> adapter.search("milk", 10))
+                // A distinct type so the caller answers from a local copy instead of
+                // reporting an outage, and never retries: the quota cannot be spent.
+                .isInstanceOf(FdcRateLimitException.class)
+                .hasMessageNotContaining("TEST_KEY")
+                .hasMessageContaining("api_key=***");
+        server.verify();
+    }
+
+    @Test
+    void getById_quotaExhausted_raisesARateLimitFailure() {
+        server.expect(requestTo(containsString(DETAIL_PATH)))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> adapter.getById(171265L))
+                .isInstanceOf(FdcRateLimitException.class)
+                .hasMessageContaining("quota")
+                .hasMessageNotContaining("TEST_KEY");
+        server.verify();
+    }
+
+    @Test
+    void getByIds_quotaExhausted_raisesARateLimitFailure_withoutTheKey() {
+        server.expect(requestTo(containsString(BATCH_PATH)))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> adapter.getByIds(List.of(171265L)))
+                .isInstanceOf(FdcRateLimitException.class)
+                .hasMessageNotContaining("TEST_KEY")
+                .hasMessageContaining("api_key=***");
+        server.verify();
+    }
+
+    @Test
+    void search_otherClientError_reportsTheStatusWithoutBeingARateLimitFailure() {
+        server.expect(requestTo(containsString(SEARCH_PATH)))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+
+        assertThatThrownBy(() -> adapter.search("milk", 10))
+                .isInstanceOf(FdcProviderException.class)
+                // A 401 is a credentials problem, not an exhausted quota: treating it as
+                // a rate limit would silently serve old data instead of surfacing the
+                // wrong key.
+                .isNotInstanceOf(FdcRateLimitException.class)
+                .hasMessageContaining("status=401")
+                .hasMessageNotContaining("TEST_KEY");
         server.verify();
     }
 

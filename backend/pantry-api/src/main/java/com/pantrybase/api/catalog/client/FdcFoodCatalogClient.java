@@ -6,6 +6,8 @@ import com.pantrybase.api.catalog.domain.FoodSearchHit;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
 import com.pantrybase.api.catalog.domain.Portion;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
+import com.pantrybase.api.catalog.exception.FdcRateLimitException;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
@@ -79,6 +81,9 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                         .queryParam("pageSize", Math.min(limit, props.pageSize()))
                         .build())
                 .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, ((req, res) -> {
+                    throw statusAware("FDC search failed: ", req.getURI(), res.getStatusCode().value());
+                }))
                 .onStatus(s -> !s.is2xxSuccessful(), ((req, res) -> {
                     throw new FdcProviderException("FDC search failed: " + safeUri(req.getURI()));
                 }))
@@ -98,6 +103,9 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                 .retrieve()
                 .onStatus(s -> s.value() == 404, (req, res) -> {
                     /* no food: Optional.empty below */
+                })
+                .onStatus(s -> s.value() == 429, (req, res) -> {
+                    throw new FdcRateLimitException("FDC quota exhausted (fdcId=%d)".formatted(fdcId));
                 })
                 .onStatus(s -> s.value() != 200, (req, res) -> {
                     throw new FdcProviderException("FDC lookup failed (fdcId=%d)".formatted(fdcId));
@@ -122,6 +130,9 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new BatchRequest(new ArrayList<>(fdcIds)))
                 .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, ((req, res) -> {
+                    throw statusAware("FDC batch lookup failed: ", req.getURI(), res.getStatusCode().value());
+                }))
                 .onStatus(s -> !s.is2xxSuccessful(), (req, res) -> {
                     throw new FdcProviderException("FDC batch lookup failed: " + safeUri(req.getURI()));
                 })
@@ -142,6 +153,22 @@ public class FdcFoodCatalogClient implements FoodCatalogPort {
      * is replaced rather than the whole parameter, so the message still shows which call
      * failed and with what arguments.</p>
      */
+    /**
+     * Builds the exception for a 4xx, separating the quota case from the rest.
+     *
+     * <p>Registered as its own handler ahead of the generic one, because a 429 needs
+     * the caller to fall back to a local copy instead of reporting an outage, and
+     * a 4xx carries no server-side detail worth reporting either way. The URI is
+     * still redacted here: a 429 is one of the most likely responses to see in
+     * normal operation, which makes it the last place that must not print the key.</p>
+     */
+    private FdcProviderException statusAware(String prefix, URI uri, int statusCode) {
+        if (statusCode == 429) {
+            return new FdcRateLimitException(prefix + safeUri(uri));
+        }
+        return new FdcProviderException(prefix + safeUri(uri) + " (status=" + statusCode + ")");
+    }
+
     private String safeUri(URI uri) {
         if (uri == null) return null;
         String rendered = uri.toString();

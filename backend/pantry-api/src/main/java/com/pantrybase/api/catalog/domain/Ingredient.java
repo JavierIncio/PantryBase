@@ -33,6 +33,27 @@ public class Ingredient {
     private String category;
 
     /**
+     * Provider dataset the values above came from (Foundation, SR Legacy, Branded).
+     *
+     * <p>Persisted so a detail read served from the local copy returns the same
+     * contract as one served live; the provider's data type is part of the
+     * response and a client cannot tell which dataset it is looking at without it.</p>
+     */
+    @Column(name = "data_type")
+    private String dataType;
+
+    /**
+     * Instant of the last successful read from the provider, not of the insert.
+     *
+     * <p>Materialization is idempotent and has always been insert-only, so the
+     * creation timestamp can never say whether the stored nutrients still match
+     * the provider. Every decision to reuse or refresh the local copy reads this
+     * field, and it is the only way the detail path can avoid a quota call.</p>
+     */
+    @Column(name = "synced_at", nullable = false)
+    private Instant syncedAt;
+
+    /**
      * Density class this ingredient belongs to, or {@code null} when none has been curated.
      *
      * <p>Curated by us and never written by materialization, so it survives provider
@@ -92,6 +113,22 @@ public class Ingredient {
 
     public void setCategory(String category) {
         this.category = category;
+    }
+
+    public String getDataType() {
+        return dataType;
+    }
+
+    public void setDataType(String dataType) {
+        this.dataType = dataType;
+    }
+
+    public Instant getSyncedAt() {
+        return syncedAt;
+    }
+
+    public void setSyncedAt(Instant syncedAt) {
+        this.syncedAt = syncedAt;
     }
 
     public String getDensityClass() {

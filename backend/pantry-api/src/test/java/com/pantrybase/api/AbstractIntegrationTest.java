@@ -68,6 +68,14 @@ public abstract class AbstractIntegrationTest {
         if (keys != null && !keys.isEmpty()) {
             redisTemplate.delete(keys);
         }
+
+        // The catalog search cache lives in Redis as well. Left behind it would answer a
+        // later test with an earlier test's hits, the provider stub would not be called,
+        // and a caching assertion would pass for the wrong reason.
+        Set<String> catalogKeys = redisTemplate.keys("catalog:*");
+        if (catalogKeys != null && !catalogKeys.isEmpty()) {
+            redisTemplate.delete(catalogKeys);
+        }
     }
 
     protected record Session(AuthResponse tokens, String refreshTokenCookie) {

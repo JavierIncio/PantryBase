@@ -32,7 +32,9 @@ class FdcPropertiesValidationTest {
                         "app.catalog.fdc.data-types=Foundation,SR Legacy",
                         "app.catalog.fdc.page-size=20",
                         "app.catalog.fdc.connect-timeout=2s",
-                        "app.catalog.fdc.read-timeout=5s")
+                        "app.catalog.fdc.read-timeout=5s",
+                        "app.catalog.fdc.cache-ttl=24h",
+                        "app.catalog.fdc.max-stale=30d")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     FdcProperties props = context.getBean(FdcProperties.class);
@@ -51,7 +53,9 @@ class FdcPropertiesValidationTest {
                         "app.catalog.fdc.data-types=Foundation",
                         "app.catalog.fdc.page-size=20",
                         "app.catalog.fdc.connect-timeout=2s",
-                        "app.catalog.fdc.read-timeout=5s")
+                        "app.catalog.fdc.read-timeout=5s",
+                        "app.catalog.fdc.cache-ttl=24h",
+                        "app.catalog.fdc.max-stale=30d")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
@@ -67,7 +71,9 @@ class FdcPropertiesValidationTest {
                         "app.catalog.fdc.data-types=Foundation",
                         "app.catalog.fdc.page-size=0",
                         "app.catalog.fdc.connect-timeout=2s",
-                        "app.catalog.fdc.read-timeout=5s")
+                        "app.catalog.fdc.read-timeout=5s",
+                        "app.catalog.fdc.cache-ttl=24h",
+                        "app.catalog.fdc.max-stale=30d")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
@@ -83,7 +89,9 @@ class FdcPropertiesValidationTest {
                         "app.catalog.fdc.data-types=Foundation",
                         "app.catalog.fdc.page-size=20",
                         "app.catalog.fdc.connect-timeout=0s",
-                        "app.catalog.fdc.read-timeout=0s")
+                        "app.catalog.fdc.read-timeout=0s",
+                        "app.catalog.fdc.cache-ttl=24h",
+                        "app.catalog.fdc.max-stale=30d")
                 .run(context -> {
                     // Boot binds "0s" without complaint, so without this check a zero
                     // timeout would only appear as a mysteriously failing provider.
@@ -102,7 +110,9 @@ class FdcPropertiesValidationTest {
                         "app.catalog.fdc.data-types=",
                         "app.catalog.fdc.page-size=20",
                         "app.catalog.fdc.connect-timeout=2s",
-                        "app.catalog.fdc.read-timeout=5s")
+                        "app.catalog.fdc.read-timeout=5s",
+                        "app.catalog.fdc.cache-ttl=24h",
+                        "app.catalog.fdc.max-stale=30d")
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
@@ -111,11 +121,55 @@ class FdcPropertiesValidationTest {
     }
 
     @Test
+    void zeroCacheTtl_failsAtStartup() {
+        runner.withPropertyValues(
+                        "app.catalog.fdc.api-key=REAL_KEY",
+                        "app.catalog.fdc.base-url=https://api.nal.usda.gov/fdc/v1",
+                        "app.catalog.fdc.data-types=Foundation",
+                        "app.catalog.fdc.page-size=20",
+                        "app.catalog.fdc.connect-timeout=2s",
+                        "app.catalog.fdc.read-timeout=5s",
+                        "app.catalog.fdc.cache-ttl=0s",
+                        "app.catalog.fdc.max-stale=30d")
+                .run(context -> {
+                    // A zero TTL would mean "never reuse the local copy", which is the
+                    // opposite of what a cache is for and would spend quota on every read.
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("cache-ttl must be greater than zero");
+                });
+    }
+
+    @Test
+    void maxStaleShorterThanCacheTtl_failsAtStartup() {
+        runner.withPropertyValues(
+                        "app.catalog.fdc.api-key=REAL_KEY",
+                        "app.catalog.fdc.base-url=https://api.nal.usda.gov/fdc/v1",
+                        "app.catalog.fdc.data-types=Foundation",
+                        "app.catalog.fdc.page-size=20",
+                        "app.catalog.fdc.connect-timeout=2s",
+                        "app.catalog.fdc.read-timeout=5s",
+                        "app.catalog.fdc.cache-ttl=24h",
+                        "app.catalog.fdc.max-stale=1h")
+                .run(context -> {
+                    // Inverted windows would let a copy be discarded while the provider is
+                    // healthy and be unresolvable once it is not: the symptom is an
+                    // unexplained 502 during an outage, so it is refused at startup.
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining(
+                                    "max-stale must be greater than or equal to cache-ttl");
+                });
+    }
+
+    @Test
     void demoKey_isRecognizedSoTheClientCanWarnAboutIt() {
         FdcProperties demo = new FdcProperties("DEMO_KEY", "https://api.nal.usda.gov/fdc/v1",
-                List.of("Foundation"), 20, Duration.ofSeconds(2), Duration.ofSeconds(5));
+                List.of("Foundation"), 20, Duration.ofSeconds(2), Duration.ofSeconds(5),
+                Duration.ofHours(24), Duration.ofDays(30));
         FdcProperties real = new FdcProperties("REAL_KEY", "https://api.nal.usda.gov/fdc/v1",
-                List.of("Foundation"), 20, Duration.ofSeconds(2), Duration.ofSeconds(5));
+                List.of("Foundation"), 20, Duration.ofSeconds(2), Duration.ofSeconds(5),
+                Duration.ofHours(24), Duration.ofDays(30));
 
         assertThat(demo.isDemoKey()).isTrue();
         assertThat(real.isDemoKey()).isFalse();

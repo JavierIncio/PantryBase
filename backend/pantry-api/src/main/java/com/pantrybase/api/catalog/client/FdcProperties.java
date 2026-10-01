@@ -42,8 +42,31 @@ public record FdcProperties(
         Duration connectTimeout,
 
         @NotNull(message = "app.catalog.fdc.read-timeout must be set")
-        Duration readTimeout
+        Duration readTimeout,
+
+        @NotNull(message = "app.catalog.fdc.cache-ttl must be set")
+        Duration cacheTtl,
+
+        @NotNull(message = "app.catalog.fdc.max-stale must be set")
+        Duration maxStale
 ) {
+
+    /**
+     * Whether {@code maxStale} is longer than {@code cacheTtl}.
+     *
+     * <p>The two windows are only meaningful in that order: a copy inside
+     * {@code cacheTtl} is served without asking the provider, and one between the
+     * two is served only when the provider fails. If the stale window were the
+     * shorter, an entry could be discarded while the provider is healthy and be
+     * unresolvable once it is not, which is the opposite of what the setting is
+     * for. Caught at startup because the symptom otherwise only appears as an
+     * unexplained 502 under a provider outage.</p>
+     */
+    @AssertTrue(message = "app.catalog.fdc.max-stale must be greater than or equal to cache-ttl")
+    public boolean isMaxStaleNotShorterThanCacheTtl() {
+        return cacheTtl != null && maxStale != null
+                && !maxStale.minus(cacheTtl).isNegative();
+    }
 
     /**
      * Whether the client is running on the shared public key, which is capped at
@@ -70,5 +93,15 @@ public record FdcProperties(
     @AssertTrue(message = "app.catalog.fdc.read-timeout must be greater than zero")
     public boolean isReadTimeoutPositive() {
         return readTimeout != null && !readTimeout.isZero() && !readTimeout.isNegative();
+    }
+
+    @AssertTrue(message = "app.catalog.fdc.cache-ttl must be greater than zero")
+    public boolean isCacheTtlPositive() {
+        return cacheTtl != null && !cacheTtl.isZero() && !cacheTtl.isNegative();
+    }
+
+    @AssertTrue(message = "app.catalog.fdc.max-stale must be greater than zero")
+    public boolean isMaxStalePositive() {
+        return maxStale != null && !maxStale.isZero() && !maxStale.isNegative();
     }
 }

@@ -89,3 +89,5 @@ app:
       page-size: 20
       connect-timeout: 2s
       read-timeout: 5s
+      cache-ttl: 24h
+      max-stale: 30d
