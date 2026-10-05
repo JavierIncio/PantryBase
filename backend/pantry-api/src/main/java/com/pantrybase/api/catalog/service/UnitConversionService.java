@@ -38,6 +38,12 @@ public class UnitConversionService implements UnitConverter {
 
     private static final int DENSITY_SCALE = 6;
 
+    /**
+     * Canonical mass unit, the target every stored quantity of a weighable or
+     * measurable ingredient converges on.
+     */
+    private static final String GRAM = "GRAM";
+
     private final UnitRepository unitRepo;
     private final MeasureConversionRepository measureConversionRepo;
     private final DensityClassRepository densityClassRepo;
@@ -152,6 +158,37 @@ public class UnitConversionService implements UnitConverter {
                         densityClass, fromCode, toCode, weightToVolume));
 
         return scaleTo(converted, toCode);
+    }
+
+    /**
+     * Resolves a quantity to the unit a stored quantity is kept in: mass and volume
+     * land on {@code GRAM}, a count stays {@code UNIT}.
+     *
+     * <p>The original unit is handed to {@link #convert} rather than canonicalized first,
+     * because a volume measure is captured per unit: converting "2 CUP" straight to grams
+     * is what lets the engine use the cup the provider weighed, while going through
+     * {@code ML} first would throw that away and settle for an average of the ingredient's
+     * other measures.</p>
+     *
+     * <p>Only {@link DensityClassRequiredException} is absorbed, and only to keep the
+     * canonical volume. Every other failure propagates on purpose: an unknown unit or a
+     * non-existing ingredient is a client error, and quietly returning a canonical
+     * amount for those would store a wrong quantity instead of reporting the mistake.
+     * A missing density is different, because it is a gap in our data rather than in
+     * the request, and the user still owns a real quantity of something.</p>
+     */
+    @Override
+    public QuantityInfo toStorageUnit(BigDecimal amount, String unitCode, Long ingredientId) {
+        Unit unit = unitRepo.findById(unitCode)
+                .orElseThrow(() -> new UnknownUnitException(unitCode));
+
+        if (unit.getCategory() != UnitCategory.VOLUME) return toCanonical(amount, unitCode);
+
+        try {
+            return convert(amount, unitCode, GRAM, ingredientId, null);
+        } catch (DensityClassRequiredException ex) {
+            return toCanonical(amount, unitCode);
+        }
     }
 
     /**

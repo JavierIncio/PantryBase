@@ -84,11 +84,15 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ## H3 — Inventario (despensa)
 
-- [ ] CRUD `PantryItem` (ingrediente + cantidad canónica + ubicación/nota).
+- [x] **H3-1 CRUD `PantryItem`** (ingrediente + cantidad canónica + ubicación/nota): migración `V12`, `GET/POST/PUT/DELETE /api/pantry`, una fila por `(user_id, ingredient_id)`, cantidad normalizada a `GRAM`/`UNIT` al entrar y unidad inmutable, edición sin campo de cantidad, y aislamiento por propietario con `404` en lugar de `403`. La tabla `consumption_entries` se crea ya en V12 aunque la escriba H3-2.
 - [ ] Alta rápida: búsqueda en catálogo → selector de unidad → conversión automática.
-- [ ] Ajuste de cantidades (añadir/consumir) con auditoría (`ConsumptionEntry` manual).
+- [ ] Ajuste de cantidades (añadir/consumir) con auditoría (`ConsumptionEntry` manual). **Decidido:** endpoint único con cantidad con signo, toda suma o resta deja asiento, y se rechaza si dejaría la cantidad en cero o negativa.
 - [ ] Frontend: vista "Mi despensa" con agrupación por categoría y edición inline.
 - [ ] Métricas: tamaño del inventario, reparto por categoría.
+
+**Decisiones de diseño de H3 (acordadas):** la cantidad se guarda en `GRAM` siempre que se pueda y en `UNIT` para lo que se cuenta; una sola fila por ingrediente, así que añadir algo que ya está devuelve `409` y el cliente usa el ajuste; la edición (`PUT`) sustituye ubicación y nota y **no** admite cantidad, de modo que saltarse la auditoría es imposible por contrato y no por convención.
+
+**Nota sobre `toStorageUnit`:** la regla "a gramos cuando se pueda" vive en el puerto `UnitConverter`, no en el servicio de despensa, porque H4 necesitará exactamente la misma resolución para las líneas de receta. Además **conserva la unidad de entrada** al convertir: canonicalizar antes perdería la medida del ingrediente en esa unidad concreta, que es el peldaño más preciso de la escalera de densidades. Cuando un volumen no tiene densidad conocida se guarda en `ML` en lugar de fallar: el hueco está en nuestros datos, no en la petición, y el usuario sí posee esa cantidad.
 
 **Definition of done:** despensa editable, cantidades siempre en unidad canónica y consistentes con la auditoría.
 

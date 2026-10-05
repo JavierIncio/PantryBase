@@ -9,6 +9,9 @@ import com.pantrybase.api.catalog.exception.UnknownUnitException;
 import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.common.dto.ErrorResponseFactory;
+import com.pantrybase.api.pantry.exception.IngredientAlreadyInPantryException;
+import com.pantrybase.api.pantry.exception.IngredientNotInCatalogException;
+import com.pantrybase.api.pantry.exception.PantryItemNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -207,5 +210,43 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps an ingredient missing from the local catalog to 404.
+     *
+     * <p>404 and not 400: the request names a food that this instance cannot resolve,
+     * and the message tells the client which call fixes it.</p>
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleIngredientNotInCatalogException(IngredientNotInCatalogException ex,
+                                                                                HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps a repeated add to 409.
+     *
+     * <p>The pantry holds one line per ingredient, so a second add is a conflict with a
+     * state the caller could not see, and the message points at the endpoint that does
+     * what it wanted.</p>
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleIngredientAlreadyInPantryException(IngredientAlreadyInPantryException ex,
+                                                                                 HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));
+    }
+
+    /** Maps a missing pantry item, including one owned by somebody else, to 404. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handlePantryItemNotFoundException(PantryItemNotFoundException ex,
+                                                                           HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
     }
 }

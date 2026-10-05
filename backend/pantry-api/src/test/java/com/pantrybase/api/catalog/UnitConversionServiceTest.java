@@ -318,6 +318,89 @@ public class UnitConversionServiceTest {
                 .isInstanceOf(IngredientNotFoundException.class);
     }
 
+    @Test
+    void toStorageUnit_massStaysGrams() {
+        stubUnit("KG", UnitCategory.WEIGHT, false);
+        stubFactor("KG", "GRAM", "1000");
+
+        QuantityInfo q = unitConversionService.toStorageUnit(new BigDecimal("2"), "KG", 1L);
+
+        assertThat(q.unitCode()).isEqualTo("GRAM");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("2000"));
+    }
+
+    @Test
+    void toStorageUnit_countStaysUnit() {
+        stubUnit("UNIT", UnitCategory.COUNT, true);
+
+        QuantityInfo q = unitConversionService.toStorageUnit(new BigDecimal("3"), "UNIT", 1L);
+
+        // Grams of eggs is a number nobody means, so a count is never massed.
+        assertThat(q.unitCode()).isEqualTo("UNIT");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("3"));
+    }
+
+    @Test
+    void toStorageUnit_volumeBecomesGramsThroughTheCapturedMeasure() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubFactor("CUP", "ML", "236.588");
+        stubIngredient(1L, null);
+        stubMeasure(1L, "CUP", "122");
+
+        QuantityInfo q = unitConversionService.toStorageUnit(new BigDecimal("2"), "CUP", 1L);
+
+        // 2 cups x 122 g/cup is exactly 244 g, which a rounded density would not give.
+        assertThat(q.unitCode()).isEqualTo("GRAM");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("244"));
+    }
+
+    @Test
+    void toStorageUnit_volumeWithoutADensityKeepsTheVolume() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        stubFactor("CUP", "ML", "236.588");
+        stubIngredient(1L, "Vegetables and Vegetable Products");
+        when(measureRepo.findByIngredientIdAndUnitCode(1L, "CUP")).thenReturn(Optional.empty());
+
+        QuantityInfo q = unitConversionService.toStorageUnit(new BigDecimal("2"), "CUP", 1L);
+
+        // The gap is in our data, not in the request, and the user does own two cups of
+        // something. Inventing a density would store a confidently wrong weight.
+        assertThat(q.unitCode()).isEqualTo("ML");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("473.176"));
+    }
+
+    @Test
+    void toStorageUnit_volumeWithoutAnIngredientKeepsTheVolume() {
+        stubUnit("ML", UnitCategory.VOLUME, true);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+
+        QuantityInfo q = unitConversionService.toStorageUnit(new BigDecimal("500"), "ML", null);
+
+        assertThat(q.unitCode()).isEqualTo("ML");
+        assertThat(q.amount()).isEqualByComparingTo(new BigDecimal("500"));
+    }
+
+    @Test
+    void toStorageUnit_unknownIngredientId_throwsNotFound() {
+        stubUnit("CUP", UnitCategory.VOLUME, false);
+        stubUnit("GRAM", UnitCategory.WEIGHT, true);
+        when(ingredientRepo.findById(99L)).thenReturn(Optional.empty());
+
+        // A bad id is a client error and must not be downgraded to "kept as volume".
+        assertThatThrownBy(() -> unitConversionService.toStorageUnit(
+                new BigDecimal("2"), "CUP", 99L))
+                .isInstanceOf(IngredientNotFoundException.class);
+    }
+
+    @Test
+    void toStorageUnit_unknownUnit_throwsNotFound() {
+        assertThatThrownBy(() -> unitConversionService.toStorageUnit(
+                new BigDecimal("2"), "XXX", 1L))
+                .isInstanceOf(UnknownUnitException.class);
+    }
+
     private void stubUnit(String code, UnitCategory cat, boolean canonical) {
         Unit u = new Unit();
         u.setCode(code);

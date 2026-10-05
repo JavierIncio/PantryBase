@@ -4,6 +4,7 @@ import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.repository.RefreshTokenRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
 import com.pantrybase.api.common.dto.ErrorResponse;
+import com.pantrybase.api.pantry.repository.PantryItemRepository;
 import com.pantrybase.api.user.domain.Role;
 import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.repository.UserPreferencesRepository;
@@ -57,9 +58,15 @@ public abstract class AbstractIntegrationTest {
     protected UserPreferencesRepository preferencesRepository;
     @Autowired
     protected MeasureConversionRepository measureConversionRepository;
+    @Autowired
+    protected PantryItemRepository pantryItemRepository;
 
     @BeforeEach
     void setUp() {
+        // First, because it is the only table here that both holds data and is referenced
+        // by the two the other tests wipe. Left in place, deleting a user or an ingredient
+        // fails on the foreign key and the failure would look like a bug in the delete.
+        pantryItemRepository.deleteAll();
         userRepository.deleteAll();
         refreshTokenRepository.deleteAll();
         preferencesRepository.deleteAll();

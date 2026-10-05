@@ -20,15 +20,16 @@ No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROA
 8. [Frescura y caché del catálogo](#8-frescura-y-caché-del-catálogo)
 9. [Motor de unidades y densidades](#9-motor-de-unidades-y-densidades)
 10. [Administración de clases de densidad](#10-administración-de-clases-de-densidad)
-11. [Rate limiting](#11-rate-limiting)
-12. [Manejo de errores de la API](#12-manejo-de-errores-de-la-api)
-13. [Observabilidad](#13-observabilidad)
-14. [Correo de desarrollo (Mailpit)](#14-correo-de-desarrollo-mailpit)
-15. [Frontend: sesión, guardas y estructura](#15-frontend-sesión-guardas-y-estructura)
-16. [Migraciones de base de datos](#16-migraciones-de-base-de-datos)
-17. [Tests](#17-tests)
-18. [CI/CD e imágenes Docker](#18-cicd-e-imágenes-docker)
-19. [Zona horaria y notas de mantenimiento](#19-zona-horaria-y-notas-de-mantenimiento)
+11. [Despensa: inventario del usuario (H3-1)](#11-despensa-inventario-del-usuario-h3-1)
+12. [Rate limiting](#12-rate-limiting)
+13. [Manejo de errores de la API](#13-manejo-de-errores-de-la-api)
+14. [Observabilidad](#14-observabilidad)
+15. [Correo de desarrollo (Mailpit)](#15-correo-de-desarrollo-mailpit)
+16. [Frontend: sesión, guardas y estructura](#16-frontend-sesión-guardas-y-estructura)
+17. [Migraciones de base de datos](#17-migraciones-de-base-de-datos)
+18. [Tests](#18-tests)
+19. [CI/CD e imágenes Docker](#19-cicd-e-imágenes-docker)
+20. [Zona horaria y notas de mantenimiento](#20-zona-horaria-y-notas-de-mantenimiento)
 
 ---
 
@@ -319,7 +320,42 @@ Asignar una clase que no existe produce un error `404`: así este endpoint no se
 
 ---
 
-## 11. Rate limiting
+## 11. Despensa: inventario del usuario (H3-1)
+
+**Qué hace:** guarda qué tiene cada usuario en casa, cuánto, y dónde. Es el primer bloque de H3; la auditoría de movimientos y el alta rápida con búsqueda siguen en bloques posteriores.
+
+| Pieza | Ruta |
+|---|---|
+| `PantryController` (`/api/pantry`) | `pantry/web/PantryController.java` |
+| `PantryService` (reglas de alta, edición y borrado) | `pantry/service/PantryService.java` |
+| Entidades | `pantry/domain/PantryItem.java`, `pantry/domain/ConsumptionEntry.java`, `pantry/domain/ConsumptionOrigin.java` |
+| Repositorios | `pantry/repository/PantryItemRepository.java`, `pantry/repository/ConsumptionEntryRepository.java` |
+| DTOs | `pantry/dto/` (`CreatePantryItemRequest`, `UpdatePantryItemRequest`, `PantryItemResponse`) |
+| Excepciones | `pantry/exception/` (`PantryItemNotFoundException`, `IngredientAlreadyInPantryException`, `IngredientNotInCatalogException`) |
+| Tablas | `db/migration/V12__pantry_items.sql` |
+| Tests | `pantry/PantryControllerIntegrationTest.java` |
+
+**Endpoints:** `GET /api/pantry`, `POST /api/pantry`, `PUT /api/pantry/{id}` y `DELETE /api/pantry/{id}`. Todos requieren usuario autenticado y toman el propietario del token, nunca del cuerpo de la petición.
+
+**La regla central: la cantidad se guarda en `GRAM` siempre que se pueda, y en `UNIT` para lo que se cuenta.** Se normaliza al entrar y nunca al salir. El motivo es que una despensa se lee mucho más de lo que se escribe, y todo lo que venga después (cobertura de recetas en H4, descontado en H5) tiene que comparar cantidades entre sí; guardar "2 tazas" obligaría a convertir primero, y esa conversión depende de una densidad que el ingrediente puede que no tenga.
+
+Esa regla la implementa `UnitConverter.toStorageUnit(...)`, en el paquete `catalog`, y **no** el servicio de despensa. Vive en el puerto porque H4 necesita exactamente la misma resolución para las líneas de receta, y dos copias de la misma regla divergirían un día.
+
+Tres comportamientos que conviene entender:
+
+- **Conserva la unidad de entrada al convertir.** "2 CUP" pasa a gramos directamente, sin pasar antes por mililitros. Si se canonicalizara primero, se perdería la medida del ingrediente en esa unidad concreta, que es el peldaño más preciso de la escalera de densidades.
+- **Un volumen sin densidad conocida se guarda en `ML`, no falla.** El hueco está en nuestros datos, no en la petición, y el usuario sí posee esa cantidad: inventar una densidad almacenaría un peso seguro y equivocado. Un error de cliente (unidad inexistente, `ingredientId` que no existe) sí se propaga como `400`/`404`.
+- **La edición no admite cantidad.** `PUT /api/pantry/{id}` solo acepta `location` y `note`. Mover stock es un ajuste, y el ajuste deja asiento en `consumption_entries`; que el campo no exista en el contrato es lo que hace imposible saltarse la auditoría, en lugar de dejarla en manos de la buena voluntad del cliente.
+
+**Una fila por `(user_id, ingredient_id)`, no por envase.** Dos botellas de leche son una línea del inventario, y `location` y `note` describen el ingrediente, no el envase. La alternativa obligaría a agregar en cada lectura y dejaría ambiguo qué fila se está editando. Por eso añadir algo que ya está responde `409` y remite al endpoint de ajuste, en vez de fusionar en silencio las dos botellas.
+
+**Aislamiento entre usuarios.** Cada lectura y cada escritura se filtran por el propietario en la propia consulta, y el repositorio no expone un `findById` que se pueda usar sin él. Una línea de otro usuario produce `404`, no `403`: un `403` confirmaría que el id existe, y eso basta para recorrer el inventario ajeno viendo qué ids se niegan en lugar de faltar.
+
+**La tabla `consumption_entries` ya existe en V12 aunque todavía no se escriba.** Se crea junto a la línea porque el registro de auditoría forma parte del esquema original y no de un añadido posterior sobre uno vivo. Sus entradas llevan `delta_quantity` **con signo**, de forma que la suma de los asientos de una línea es su cantidad actual: esa identidad se puede comprobar en un test en vez de darse por buena. No lleva columna de unidad porque la unidad de una línea es inmutable desde que se crea; repetirla allí solo podría divergir de `pantry_items.unit_code` sin que nada lo notara.
+
+---
+
+## 12. Rate limiting
 
 **Qué hace:** protege la API de abuso limitando cuántas peticiones puede hacer un cliente en una ventana de tiempo.
 
@@ -343,7 +379,7 @@ Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-
 
 ---
 
-## 12. Manejo de errores de la API
+## 13. Manejo de errores de la API
 
 **Qué hace:** convierte los errores internos en respuestas HTTP consistentes, con un formato único para toda la API.
 
@@ -369,7 +405,7 @@ Formato de la respuesta de error (`common/dto/ErrorResponse.java`):
 
 ---
 
-## 13. Observabilidad
+## 14. Observabilidad
 
 **Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos.
 
@@ -384,7 +420,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 14. Correo de desarrollo (Mailpit)
+## 15. Correo de desarrollo (Mailpit)
 
 **Qué hace:** captura los correos que envía la aplicación en lugar de mandarlos de verdad, y los muestra en una interfaz web.
 
@@ -394,7 +430,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 15. Frontend: sesión, guardas y estructura
+## 16. Frontend: sesión, guardas y estructura
 
 **Qué hace:** gestiona la sesión en el navegador y decide a qué páginas puede entrar el usuario.
 
@@ -421,7 +457,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 16. Migraciones de base de datos
+## 17. Migraciones de base de datos
 
 **Qué hace:** crea y modifica el esquema de la base de datos de forma versionada y reproducible.
 
@@ -440,12 +476,13 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 | `V9__catalog_density_class_sources.sql` | Columna `source` (procedencia) y la clase `MILK`. |
 | `V10__catalog_ingredient_freshness.sql` | `data_type`, `synced_at` e índice de frescura. |
 | `V11__catalog_density_class_revalidation.sql` | Procedencia de `FLOUR`, `SUGAR` y `OIL`. |
+| `V12__pantry_items.sql` | `pantry_items` (con `version` para bloqueo optimista) y `consumption_entries`. |
 
 **Regla importante:** una migración ya aplicada **no se edita jamás**; se añade una nueva. Editarla dejaría los entornos desincronizados sin que nada avise. Por eso la procedencia de los valores de `FLOUR`/`SUGAR`/`OIL` no se corrigió en `V5` sino que se documentó en `V11`.
 
 ---
 
-## 17. Tests
+## 18. Tests
 
 **Qué se prueba y cómo:**
 
@@ -459,13 +496,15 @@ Los tests Java replican la estructura del código principal: un test de `catalog
 
 **Los tests de integración no usan bases de datos de mentira.** `TestcontainersConfiguration` arranca un PostgreSQL y un Redis reales en contenedores, de modo que las migraciones, las claves foráneas y las consultas se ejecutan tal como en producción. Un test que pasa contra un motor de base de datos falso puede fallar en producción por una diferencia sutil de sintaxis SQL.
 
+**`AbstractIntegrationTest` limpia `pantry_items` antes que `users`.** El orden importa: es la única tabla que a la vez contiene datos y es referenciada por las dos que otros tests vacían. Si se quedara, borrar un usuario o un ingrediente fallaría por la clave foránea y el fallo parecería un error en el borrado en lugar de un orden de limpieza equivocado.
+
 Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra `StubFoodCatalogPort` como `@Primary`, de manera que el USDA real no se invoca nunca y no se gasta cuota. El `src/test/resources/application.yml` desactiva además la recarga del cubo de fichas (`refill-interval-millis: 3600000`) para que los tests que cuentan tokens exactos no se vuelvan intermitentes; la recarga se cubre por separado en `TokenBucketRefillIntegrationTest`, que sobrescribe ese intervalo.
 
 **Puertas de calidad:** JaCoCo verifica la cobertura y el `Jenkinsfile` ejecuta los tests como paso obligatorio del pipeline.
 
 ---
 
-## 18. CI/CD e imágenes Docker
+## 19. CI/CD e imágenes Docker
 
 **Qué hace:** construye, prueba y publica la imagen de la API automáticamente.
 
@@ -482,7 +521,7 @@ La razón es el tamaño y la superficie: la imagen final no incluye Maven, ni el
 
 ---
 
-## 19. Zona horaria y notas de mantenimiento
+## 20. Zona horaria y notas de mantenimiento
 
 - **Zona horaria:** la aplicación trabaja en UTC. `TimeConfig` expone un bean `Clock` en lugar de llamar a `Instant.now()` directamente en el código, lo que permite sustituir el reloj en los tests y comprobar vencimientos de tokens y de caché sin esperar en tiempo real.
 - **Los secretos nunca se versionan:** viven en `infra/.env`, ignorado por git. En `infra/.env.example` solo aparecen los nombres de las variables.
