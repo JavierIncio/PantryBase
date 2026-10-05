@@ -2,13 +2,13 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **5 de octubre de 2026** (H3-1 y H3-2 cerrados).
+> Máximo 100 líneas. Última actualización: **5 de octubre de 2026** (H3-1, H3-2 y H3-3 cerrados).
 
 ## Dónde estamos
 
-**Hito en curso: H3 (inventario).** H0, H1 y H2 están cerrados y verificados. **H3-1 y H3-2 están implementados, verificados y commiteados.**
+**Hito en curso: H3 (inventario).** H0, H1 y H2 están cerrados y verificados. **H3-1, H3-2 y H3-3 están implementados, verificados y commiteados.**
 
-Estado verificado del backend: **230 tests verdes** (215 al cerrar H3-1 + 15 nuevos de H3-2), gate de JaCoCo superado (`.\mvnw.cmd -o verify`).
+Estado verificado: **backend 230 tests verdes** (215 al cerrar H3-1 + 15 de H3-2), gate de JaCoCo superado con `.\mvnw.cmd -o verify`. **Frontend 116 tests verdes** con `npm test` y `npm run build` sin avisos.
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -20,6 +20,7 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H2-B Catálogo:** integración USDA FDC (búsqueda, detalle y lote), materialización idempotente, medidas por ingrediente, densidad por clase curada, administración de clases con procedencia, caché/frescura (`cache-ttl` 24 h, `max-stale` 30 d), Redis para búsqueda y manejo de 429.
 - **H3-1 Despensa:** paquete `pantry` nuevo. `GET/POST/PUT/DELETE /api/pantry`, `V12__pantry_items.sql` (`pantry_items` + `consumption_entries`), cantidad normalizada a `GRAM`/`UNIT`, una fila por `(user_id, ingredient_id)`, edición sin campo de cantidad, aislamiento por propietario con `404`, y `UnitConverter.toStorageUnit(...)` como nueva operación del puerto.
 - **H3-2 Ajuste y auditoría:** `POST /api/pantry/{id}/adjustments` (cantidad con signo, en cualquier unidad, convertida a la de la línea) y `GET /api/pantry/{id}/entries`. El alta escribe también su asiento. `InsufficientStockException` → `409` solo si el resultado es negativo; ajuste de `0` → `400`. `OptimisticLockingFailureException` → `409`.
+- **H3-3 Frontend «Mi despensa»:** `core/pantry/pantry.service.ts` y `pages/pantry/pantry-page.*`, con los cinco endpoints tipados, lista agrupada por categoría, edición inline, ajuste con signo, borrado con confirmación e historial. 28 tests con Vitest. **El frontend lo hizo el subagente `frontend`; `pantry` no lo toca.**
 
 ## Decisiones ya tomadas de H3 (no volver a abrir sin motivo)
 
@@ -29,13 +30,16 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **Negativo se rechaza con `409`; cero se permite.** Un déficit deja cocinar con ingredientes que no hay; una línea en cero dice la verdad. Por eso `signum() < 0` y no `<= 0`, y `V12` se corrigió a `CHECK (quantity >= 0)`.
 - **La versión no la manda el cliente.** `@Version` decide entre dos escritores concurrentes dentro de la transacción; un ajuste es un delta, así que una vista obsoleta del cliente no lo invalida.
 - El `PATCH` que se consensuó acabó siendo `PUT`: reemplaza ubicación y nota, y no admite cantidad, para que saltarse la auditoría sea imposible por contrato y no por convención.
+- **La versión no se manda de vuelta desde el cliente, y no se manda.** `@Version` decide entre escritores concurrentes; y como un ajuste es un delta, una vista obsoleta del cliente no lo invalida. Descartado `If-Match`: obligaría a releer antes de cada escritura sin ganancia visible para el usuario.
+- **El cliente no reordena la lista ni filtra unidades por convertibilidad.** La API ya devuelve el orden, y qué par de unidades convierte depende de la densidad del ingrediente, que solo conoce el servidor.
 
 ## Próximos pasos
 
-1. **Alta rápida de H3:** buscador de catálogo → selector de unidad → conversión automática.
-2. **H3-3 frontend:** vista "Mi despensa" agrupada por categoría y edición inline (toca el subagente `frontend`).
-3. **Frontend del catálogo:** el buscador y el conversor siguen sin pantalla.
-4. **Verificar el login de Google** contra un cliente real de OAuth2; hasta ahora solo se ha probado el camino con contraseña.
+1. **Alta rápida de H3** (backend antes que pantalla): exponer `GET /api/catalog/ingredients/{fdcId}/measures` —las medidas del ingrediente ya están en `ingredient_measures` y el motor las usa, pero ningún endpoint las publica— e incluir el `id` interno en la búsqueda, que hoy solo devuelve `fdcId`.
+2. **H5 tiene dos deudas conocidas:** `ConsumptionOrigin` pasa a tener dos miembros (`COOKING_SESSION`) y el tipo del frontend es una unión de uno solo, así que el compilador avisará; y el mapa local de nombres de unidad en `pantry-page.ts` duplica el catálogo semilla, pendiente de sustituir por `GET /api/units`.
+3. **H3-4:** métricas de inventario (tamaño y reparto por categoría).
+4. **Frontend del catálogo:** el buscador y el conversor siguen sin pantalla.
+5. **Verificar el login de Google** contra un cliente real de OAuth2; hasta ahora solo se ha probado el camino con contraseña.
 
 ## Cuellos de botella y riesgos
 

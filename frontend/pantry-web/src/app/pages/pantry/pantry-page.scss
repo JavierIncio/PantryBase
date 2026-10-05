@@ -1,0 +1,262 @@
+// Pantry layout: a header, then one card per category. A row stays a single
+// line until it is opened, so the list can be scanned for "what do I have" and
+// not for "which row is mid-edit".
+.pantry-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1.5rem;
+
+  h1 {
+    margin: 0;
+    font-size: var(--mat-sys-headline-medium-size);
+  }
+
+  p {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+// Shared state block for the loading spinner and the load error + retry UI.
+.pantry-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 0;
+}
+
+.pantry-error p {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.pantry-empty {
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 3rem 1.5rem;
+    text-align: center;
+  }
+
+  .pantry-empty-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 48px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  h2 {
+    margin: 0.5rem 0 0;
+    font: var(--mat-sys-title-medium);
+  }
+
+  p {
+    margin: 0;
+    max-width: 34rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.pantry-category {
+  margin-bottom: 1.5rem;
+
+  mat-card-content {
+    padding: 0;
+  }
+}
+
+.pantry-item {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+// Expanded rows get a tinted surface so it is obvious which line the panel
+// below belongs to.
+.pantry-item-open {
+  background: var(--mat-sys-surface-container-low);
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+}
+
+.item-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.item-name {
+  font: var(--mat-sys-title-small);
+}
+
+// The quantity is the reason this page exists, so it leads the row: a line read
+// as "244 g" instead of "g 244". The unit keeps the line's own code resolved to
+// a symbol, and never changes once the line exists.
+.item-quantity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-amount {
+  font: var(--mat-sys-title-medium);
+}
+
+.item-unit {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: var(--mat-sys-label-medium-size);
+}
+
+.item-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+
+  mat-icon {
+    width: 1rem;
+    height: 1rem;
+    font-size: 1rem;
+  }
+}
+
+.item-actions {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.item-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem 1rem 1rem;
+}
+
+.panel-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+
+  mat-form-field {
+    flex: 1 1 12rem;
+  }
+}
+
+.adjust-current {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+
+  strong {
+    color: var(--mat-sys-on-surface);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.panel-status {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.history-note {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.history-empty {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.entry-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.entry-row {
+  display: grid;
+  grid-template-columns: 6rem 1fr auto;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+// The sign carries the direction; the colour only separates the two kinds of
+// movement at a glance and is never the only cue.
+.entry-delta {
+  font: var(--mat-sys-body-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-consumed .entry-delta {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.entry-origin {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.entry-date {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium-size);
+}
+
+.delete-question {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+}
+
+.panel-error {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+// Destructive confirmation: the filled button carries the error color so it is
+// not mistaken for the positive action of the panel above it.
+.confirm-delete {
+  --mat-button-filled-container-color: var(--mat-sys-error);
+  --mat-button-filled-label-text-color: var(--mat-sys-on-error);
+}
+
+@media (max-width: 599px) {
+  .item-row {
+    flex-wrap: wrap;
+  }
+
+  .item-actions {
+    margin-left: auto;
+  }
+}

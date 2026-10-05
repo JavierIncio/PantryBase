@@ -333,7 +333,7 @@ Asignar una clase que no existe produce un error `404`: así este endpoint no se
 | DTOs | `pantry/dto/` (`CreatePantryItemRequest`, `UpdatePantryItemRequest`, `AdjustPantryItemRequest`, `PantryItemResponse`, `ConsumptionEntryResponse`) |
 | Excepciones | `pantry/exception/` (`PantryItemNotFoundException`, `IngredientAlreadyInPantryException`, `IngredientNotInCatalogException`, `InsufficientStockException`, `ZeroAdjustmentException`) |
 | Tablas | `db/migration/V12__pantry_items.sql` |
-| Tests | `pantry/PantryControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java` |
+| Tests | `pantry/PantryControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java`, `src/app/core/pantry/pantry.service.spec.ts`, `src/app/pages/pantry/pantry-page.spec.ts` |
 
 **Endpoints:** `GET /api/pantry`, `POST /api/pantry`, `PUT /api/pantry/{id}`, `DELETE /api/pantry/{id}`, `POST /api/pantry/{id}/adjustments` y `GET /api/pantry/{id}/entries`. Todos requieren usuario autenticado y toman el propietario del token, nunca del cuerpo de la petición.
 
@@ -455,7 +455,9 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | Guarda de rutas | `src/app/core/auth/auth.guard.ts` |
 | Estructura visual (barra + menú) | `src/app/core/layout/shell.ts` |
 | Servicio de perfil | `src/app/core/user/profile.service.ts` |
+| Servicio de despensa | `src/app/core/pantry/pantry.service.ts` |
 | Páginas de autenticación | `src/app/pages/auth/` |
+| Vista «Mi despensa» | `src/app/pages/pantry/pantry-page.{ts,html,scss}` |
 | Proxy de desarrollo | `proxy.conf.json` |
 
 **Las cuatro piezas de la sesión y por qué están separadas:**
@@ -465,7 +467,16 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 - **`auth.guard`** protege las rutas del producto. Un usuario anónimo no es expulsado sin más: como la cookie de refresco es la única credencial del lado del cliente, el guard intenta **restaurar la sesión** (renovar el token y cargar el perfil) antes de rendirse. Si tampoco funciona, recuerda la URL visitada como `returnUrl` para devolver al usuario allí tras identificarse.
 - **`proxy.conf.json`** redirige `/api` y `/oauth2` al backend durante el desarrollo, de modo que el navegador solo habla con el puerto 4200 y no aparece el problema de CORS.
 
-**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil y la página «no encontrado» están implementadas. Las áreas `pantry`, `recipes`, `cooking` y `social` existen como rutas pero muestran un marcador de posición pendiente de sus hitos.
+**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa» y la página «no encontrado» están implementadas. Las áreas `recipes`, `cooking` y `social` existen como rutas pero muestran un marcador de posición pendiente de sus hitos.
+
+**La vista «Mi despensa» (H3-3)** es la primera pantalla real del producto, y su pieza nueva es el servicio `PantryService`, que tipa los cinco endpoints en un único sitio para que el componente sea solo presentación. Cuatro decisiones suyas que conviene conocer:
+
+- **Un solo panel abierto a la vez.** Editar, ajustar, ver el historial y eliminar son las cuatro acciones de una línea, pero cuatro paneles independientes volverían la lista imposible de escanear. Con un único `openPanel` (`{id, kind}`) solo una fila queda alta y el resto compacta.
+- **No reordena la lista.** La API ya responde por categoría y luego por nombre; ordenar en el cliente solo podría discrepar de la colación del servidor, y costaría una copia de la lista en cada escritura. El agrupado es una sola pasada y sin `sort`.
+- **Reemplaza en sitio en vez de recargar.** Ni una edición ni un ajuste pueden cambiar el nombre o la categoría, así que el orden sigue siendo válido y la respuesta del servidor ya trae la cantidad autoritativa. Recargar tras cada escritura añadiría una petición y un parpadeo por línea tocada.
+- **Un `404` cierra el panel y recarga; un `409` se queda en el panel.** Un `404` significa que la línea ya no existe y no hay nada local que reparar, así que solo cabe volver a preguntarle al servidor. Un `409` de un ajuste insuficiente, en cambio, va de la cifra que tecleó el usuario: el mensaje del backend trae las tres cantidades implicadas y la corrección es teclear un número menor, no reintentar lo mismo.
+
+Los nombres de unidad se resuelven con un mapa local porque el contrato solo devuelve `unitCode` y `GET /api/units` sigue fuera de la vista; un código desconocido se muestra tal cual, que es información verdadera, en vez de en blanco. Ese mapa duplica el catálogo semilla y habrá que sustituirlo por `GET /api/units` cuando llegue el alta desde el catálogo, que es justo cuando la selección de unidad deja de ser un detalle.
 
 ---
 
