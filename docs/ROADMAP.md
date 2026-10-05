@@ -131,7 +131,22 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ---
 
-## H6 — Recomendador con LLM
+## H6 — Temas de usuario (Material theming)
+
+**Objetivo:** que el usuario elija su paleta de colores sin salir del sistema de diseño de Angular Material.
+
+- [ ] Definir 4-5 paletas base (azul, verde, ámbar, rosa, neutro) como *design tokens* SCSS: `$theme-blue`, `$theme-green`, … cada una con `primary`, `accent`, `warn` y sus variantes `lighter`/`darker`/`text`.
+- [ ] Generar un tema compilado por paleta con `@include mat.all-component-themes($theme-*)` y volcar sus CSS custom properties en `:root[data-theme="blue"]`, `:root[data-theme="green"]`, … para que el cambio sea instantáneo sin recargar.
+- [ ] Persistencia: `themeId` en `UserPreferences` (ya existe `PUT /api/users/preferences`), y `themeId` viaja en el JWT o se lee al login; al arrancar la app, `document.documentElement.dataset.theme = user.themeId`.
+- [ ] Selector en «Perfil / Preferencias»: tarjetas con preview de la paleta, accesible (contraste AA en todas).
+- [ ] **Sin Tailwind ni FontAwesome**: todo el estilo vive en el theming nativo de Material; los componentes (`<mat-icon>`, `<mat-menu>`, `<mat-select>`, chips, badges, steppers) conservan sus iconos Material y su comportamiento.
+- [ ] Tests: cambio de tema persiste tras recarga; todas las paletas pasan contraste AA; ninguna regla de componente se rompe al cambiar `data-theme`.
+
+**Definition of done:** un usuario cambia de "azul" a "ámbar" en preferencias, recarga la página, y toda la UI (incluidos diálogos, menús, tooltips) refleja la nueva paleta sin FOUC ni reglas rotas.
+
+---
+
+## H7 — Recomendador con LLM
 
 **Objetivo:** asistente gratuito, multi-proveedor, que recomiende sobre catálogo real.
 
@@ -145,7 +160,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ---
 
-## H7 — Social y personalización
+## H8 — Social y personalización
 
 - [ ] Favoritos (`Favorite`), guardadas (`SavedRecipe`), publicaciones (`PublishedRecipe`).
 - [ ] Historial de recetas realizadas (`RecipeHistory`) alimentado automáticamente al completar sesión.
@@ -156,7 +171,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ---
 
-## H8 — Producción y endurecimiento
+## H9 — Producción y endurecimiento
 
 - [ ] Hardening de seguridad: rate limiting por IP, auditoría de llamadas externas, secretos en Vault/CI. Hecho en H2-B-5: la key de USDA FDC viaja en la query string (la API no admite otra forma) y ya no se escribe en los logs, porque las URLs de error se sanean antes de entrar en `FdcProviderException`; además `FdcProperties` está validada al arrancar, de modo que una key ausente, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos rompen el arranque en lugar de degradarse en silencio, y la caída a `DEMO_KEY` (30 req/h) emite un warning. Pendiente: Vault/CI.
 - [ ] Dashboards de Grafana finales: salud, cuotas de APIs externas (USDA FDC, TheMealDB, LLM), cobertura de despensa, rendimiento del recomendador.

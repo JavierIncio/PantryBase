@@ -42,9 +42,10 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 ## Próximos pasos
 
 1. **H4 (recetas y filtrado por disponibilidad)** es el siguiente hito: la recomendación por despensa es el diferencial del producto y el motor de unidades que ya existe se reutiliza tal cual. Empezar por la integración con **TheMealDB**, que es otro proveedor externo con su propia forma de respuesta: **replicar desde el primer endpoint la regla de `FdcCachePolicy` (TTL) y usar fixtures literales de respuesta real**, que es lo que evitó tres correcciones de wire con el USDA.
-2. **H5 tiene una deuda conocida:** `ConsumptionOrigin` pasa a tener dos miembros (`COOKING_SESSION`) y el tipo del frontend es una unión de uno solo, así que el compilador avisará.
-3. **Frontend del catálogo:** el conversor de unidades sigue sin pantalla (el buscador ya existe dentro del alta rápida).
-4. **Verificar el login de Google** contra un cliente real de OAuth2; hasta ahora solo se ha probado el camino con contraseña.
+2. **H5 (modo cocina)** tiene una deuda conocida: `ConsumptionOrigin` pasa a tener dos miembros (`COOKING_SESSION`) y el tipo del frontend es una unión de uno solo, así que el compilador avisará.
+3. **H6 (temas de usuario, Material theming)** ya está definido en el roadmap: 4-5 paletas con design tokens SCSS, persistencia en `UserPreferences`, selector en preferencias, sin Tailwind ni FontAwesome. Es trabajo de frontend puro, ~2 días.
+4. **Frontend del catálogo:** el conversor de unidades sigue sin pantalla (el buscador ya existe dentro del alta rápida).
+5. **Verificar el login de Google** contra un cliente real de OAuth2; hasta ahora solo se ha probado el camino con contraseña.
 
 ## Cuellos de botella y riesgos
 
