@@ -2,15 +2,19 @@ package com.pantrybase.api.pantry.service;
 
 import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
+import com.pantrybase.api.catalog.domain.UnitCategory;
 import com.pantrybase.api.catalog.domain.UnitConverter;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.pantry.domain.ConsumptionEntry;
 import com.pantrybase.api.pantry.domain.ConsumptionOrigin;
 import com.pantrybase.api.pantry.domain.PantryItem;
 import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
+import com.pantrybase.api.pantry.dto.CategoryShareResponse;
 import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
+import com.pantrybase.api.pantry.dto.PantrySummaryResponse;
+import com.pantrybase.api.pantry.dto.UnitShareResponse;
 import com.pantrybase.api.pantry.dto.UpdatePantryItemRequest;
 import com.pantrybase.api.pantry.exception.IngredientAlreadyInPantryException;
 import com.pantrybase.api.pantry.exception.IngredientNotInCatalogException;
@@ -23,7 +27,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Owns the user's inventory: what they have, in the unit it is kept in.
@@ -43,6 +51,18 @@ import java.util.List;
 @Service
 @Transactional(readOnly = true)
 public class PantryService {
+
+    /**
+     * Heading used for lines whose ingredient carries no category.
+     *
+     * <p>A display string chosen by the server, which is a compromise and not a
+     * precedent: the API answers in English everywhere else, so a client in another
+     * language gets this one label in Spanish. The alternatives were worse — a null the
+     * client has to name, or a sentinel like {@code UNCATEGORIZED} that the client still
+     * has to translate before showing. Worth revisiting the moment the app has a second
+     * language, and cheap to change while it has only one.</p>
+     */
+    private static final String UNCATEGORIZED_LABEL = "Sin categoría";
 
     private final PantryItemRepository pantryItemRepo;
     private final ConsumptionEntryRepository consumptionEntryRepo;
@@ -70,6 +90,63 @@ public class PantryService {
         return pantryItemRepo.findAllWithIngredientByUserId(userId).stream()
                 .map(row -> toResponse((PantryItem) row[0], (Ingredient) row[1]))
                 .toList();
+    }
+
+    /**
+     * How much the user has, counted by category and by kind of storage unit.
+     *
+     * <p>Both breakdowns are folded out of one grouped query, so the totals agree with the
+     * detail by construction: {@code totalItems} is the sum of {@code byCategory} rather
+     * than a second count, because a total that could differ from the numbers it is made
+     * of is a total nobody can check.</p>
+     *
+     * <p>A line at zero counts as a line and is also counted in {@code zeroItems}. Zero is
+     * a state the schema represents on purpose, and dropping those lines from the total
+     * would report fewer things than the inventory view is showing; hiding them inside the
+     * total instead of publishing the count would make the decision the server's and not
+     * the user's.</p>
+     *
+     * <p>An ingredient with no category is reported under {@link #UNCATEGORIZED_LABEL} so
+     * the wire never carries a null heading the client would have to invent. A pantry line
+     * whose stored unit has no category cannot be placed on the unit axis at all, and the
+     * schema still permits that combination even though every seeded unit has one: an
+     * {@link EnumMap} turns a corrupt catalog row into a failure that names this line
+     * instead of a total that quietly omits it.</p>
+     */
+    public PantrySummaryResponse summary(Long userId) {
+        Map<String, Long> itemsPerCategory = new HashMap<>();
+        Map<UnitCategory, Long> itemsPerUnitType = new EnumMap<>(UnitCategory.class);
+        long zeroItems = 0;
+
+        for (Object[] row : pantryItemRepo.countGroupedByCategoryAndUnitCategoryByUserId(userId)) {
+            String category = (String) row[0];
+            UnitCategory unitCategory = (UnitCategory) row[1];
+            // COUNT arrives as a Long today and as an Integer under another dialect; the
+            // aggregate functions do not promise one, so nothing here narrows blindly.
+            long items = ((Number) row[2]).longValue();
+
+            itemsPerCategory.merge(
+                    category == null ? UNCATEGORIZED_LABEL : category, items, Long::sum);
+            itemsPerUnitType.merge(unitCategory, items, Long::sum);
+            zeroItems += ((Number) row[3]).longValue();
+        }
+
+        return new PantrySummaryResponse(
+                itemsPerCategory.values().stream().mapToLong(Long::longValue).sum(),
+                zeroItems,
+                itemsPerCategory.entrySet().stream()
+                        .map(entry -> new CategoryShareResponse(entry.getKey(), entry.getValue()))
+                        // Largest share first, because that is the order a reader wants to
+                        // scan it in; the name breaks ties so two equal categories cannot
+                        // swap places between calls and make the row look like a change.
+                        .sorted(Comparator.comparingLong(CategoryShareResponse::items)
+                                .reversed()
+                                .thenComparing(CategoryShareResponse::category))
+                        .toList(),
+                itemsPerUnitType.entrySet().stream()
+                        .map(entry -> new UnitShareResponse(entry.getKey(), entry.getValue()))
+                        .sorted(Comparator.comparing(UnitShareResponse::category))
+                        .toList());
     }
 
     /**

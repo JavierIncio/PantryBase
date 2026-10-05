@@ -4,6 +4,7 @@ import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
 import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
+import com.pantrybase.api.pantry.dto.PantrySummaryResponse;
 import com.pantrybase.api.pantry.dto.UpdatePantryItemRequest;
 import com.pantrybase.api.pantry.service.PantryService;
 import jakarta.validation.Valid;
@@ -44,6 +45,23 @@ public class PantryController {
     @GetMapping
     public List<PantryItemResponse> list(@AuthenticationPrincipal Long userId) {
         return pantryService.list(userId);
+    }
+
+    /**
+     * The size of the pantry, counted by category and by kind of unit.
+     *
+     * <p>A fixed segment rather than a path variable, which is what lets it sit at
+     * {@code /summary} instead of {@code /{itemId}/summary}: the ids are numbers, so a
+     * request for the literal word could not be one of them, but nothing about that is
+     * enforced and a future numeric segment would make the routing ambiguous.</p>
+     *
+     * <p>Separate from the list rather than a field of it, because it answers a different
+     * question: the list is what the user has, this is what they have overall, and the
+     * counts have to stay correct even if the list is ever given a page of its own.</p>
+     */
+    @GetMapping("/summary")
+    public PantrySummaryResponse summary(@AuthenticationPrincipal Long userId) {
+        return pantryService.summary(userId);
     }
 
     @ResponseStatus(HttpStatus.CREATED)
