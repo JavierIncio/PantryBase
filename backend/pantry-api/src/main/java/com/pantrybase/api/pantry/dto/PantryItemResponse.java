@@ -10,9 +10,11 @@ import java.time.Instant;
  * per category and labels every line with the food's name; a response of bare ids would
  * force a second request per item to draw the list.</p>
  *
- * <p>{@code version} travels with it so a later write can tell the server which revision
- * the client was looking at, which is what makes a lost update reportable instead of
- * silently applied.</p>
+ * <p>{@code version} travels with it because the server keeps a count of how many times
+ * the line has been written, which is what turns two actors touching the same quantity
+ * into a reported conflict rather than a silent overwrite. Nothing asks the client to
+ * send it back: the check happens inside the write, between reading the line and saving
+ * it, so a caller that adjusts stock is not required to have loaded the item first.</p>
  */
 public record PantryItemResponse(
         long id,

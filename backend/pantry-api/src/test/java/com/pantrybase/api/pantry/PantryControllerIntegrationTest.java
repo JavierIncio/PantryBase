@@ -1,19 +1,11 @@
 package com.pantrybase.api.pantry;
 
-import com.pantrybase.api.AbstractIntegrationTest;
-import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.catalog.domain.Ingredient;
-import com.pantrybase.api.catalog.domain.IngredientMeasure;
-import com.pantrybase.api.catalog.repository.IngredientMeasureRepository;
-import com.pantrybase.api.catalog.repository.IngredientRepository;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import com.pantrybase.api.pantry.dto.UpdatePantryItemRequest;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,33 +13,22 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-class PantryControllerIntegrationTest extends AbstractIntegrationTest {
+/**
+ * The creation, read, edit and delete of pantry lines.
+ *
+ * <p>Covers what the lines are and how they are stored. Moving a quantity is
+ * {@link PantryAdjustmentIntegrationTest}'s subject, and the gap between the two is
+ * deliberate: one suite per question, so a failure names the question that broke.</p>
+ */
+class PantryControllerIntegrationTest extends AbstractPantryIntegrationTest {
 
-    private static final String PANTRY = "/api/pantry";
     private static final String INGREDIENT_DETAIL = "/api/catalog/ingredients/";
-
-    /** Real FDC ids, so a mistake in the payload shows up as a miss and not as a fixture. */
-    private static final long MILK_FDC_ID = 170899;
-    private static final long FLOUR_FDC_ID = 168918;
-    private static final long UNKNOWN_FDC_ID = 999_999L;
-
-    @Autowired
-    IngredientRepository ingredientRepository;
-    @Autowired
-    IngredientMeasureRepository measureRepository;
-
-    @BeforeEach
-    void cleanCatalog() {
-        measureRepository.deleteAll();
-        ingredientRepository.deleteAll();
-    }
 
     @Test
     void create_storesTheQuantityInGramsWhateverTheUnit() {
@@ -136,7 +117,7 @@ class PantryControllerIntegrationTest extends AbstractIntegrationTest {
 
         assertError(response, HttpStatus.NOT_FOUND, PANTRY);
         assertThat(response.getBody().message())
-                .contains("/api/catalog/ingredients/" + UNKNOWN_FDC_ID);
+                .contains(INGREDIENT_DETAIL + UNKNOWN_FDC_ID);
     }
 
     @Test
@@ -257,7 +238,7 @@ class PantryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void update_bumpsTheVersionSoAStaleWriteIsDetectable() {
+    void update_bumpsTheVersionSoAConcurrentWriteIsLosing() {
         HttpHeaders headers = authenticate();
         materialize(MILK_FDC_ID, "Milk, whole", "Dairy and Egg Products");
         long id = addMilk(headers, new BigDecimal("1")).getBody().id();
@@ -273,7 +254,7 @@ class PantryControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void delete_removesTheLine() {
+    void delete_removesTheLineAndItsLedger() {
         HttpHeaders headers = authenticate();
         materialize(MILK_FDC_ID, "Milk, whole", "Dairy and Egg Products");
         long id = addMilk(headers, new BigDecimal("1")).getBody().id();
@@ -283,10 +264,13 @@ class PantryControllerIntegrationTest extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(list(headers).getBody()).isEmpty();
+        // The entries go with it: an entry with no line to belong to is an orphan, not a
+        // record, and keeping it would make the deletion impossible without a second call.
+        assertThat(consumptionEntryRepository.findAll()).isEmpty();
     }
 
     @Test
-    void anotherUsersLine_isNotFoundAndNotReadable() {
+    void anotherUsersLine_isNotFoundAndNotEditable() {
         HttpHeaders mine = authenticate();
         HttpHeaders theirs = authenticateAsSecondUser();
         materialize(MILK_FDC_ID, "Milk, whole", "Dairy and Egg Products");
@@ -312,83 +296,7 @@ class PantryControllerIntegrationTest extends AbstractIntegrationTest {
         assertUnauthorized(PANTRY, HttpMethod.POST);
         assertUnauthorized(PANTRY + "/1", HttpMethod.PUT);
         assertUnauthorized(PANTRY + "/1", HttpMethod.DELETE);
-    }
-
-    private ResponseEntity<List<PantryItemResponse>> list(HttpHeaders headers) {
-        return rest.exchange(PANTRY, HttpMethod.GET, new HttpEntity<>(headers), itemsType());
-    }
-
-    private ResponseEntity<PantryItemResponse> addMilk(HttpHeaders headers, BigDecimal amount) {
-        return add(headers, MILK_FDC_ID, amount, "L");
-    }
-
-    /**
-     * Registers the second user and returns its headers.
-     *
-     * <p>Every use goes through this instead of {@link #authenticate()}, which would
-     * collide on the unique username and make the isolation test fail during setup for a
-     * reason that has nothing to do with isolation.</p>
-     */
-    private HttpHeaders authenticateAsSecondUser() {
-        Map<String, String> credentials = Map.of(
-                "username", "JaneDoe",
-                "email", "jane.doe@example.com",
-                "password", "password123");
-
-        ResponseEntity<AuthResponse> registered = registerUser(credentials);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(registered.getBody().accessToken());
-
-        return headers;
-    }
-
-    private ResponseEntity<PantryItemResponse> add(HttpHeaders headers, long fdcId,
-                                                   BigDecimal amount, String unitCode) {
-        return rest.exchange(PANTRY, HttpMethod.POST,
-                new HttpEntity<>(new CreatePantryItemRequest(fdcId, amount, unitCode, null, null),
-                        headers),
-                PantryItemResponse.class);
-    }
-
-    private Ingredient materialize(long fdcId, String name, String category) {
-        return materialize(fdcId, name, category, null);
-    }
-
-    /**
-     * Inserts an ingredient straight into the catalog.
-     *
-     * <p>Written by hand rather than through the catalog endpoint so that no test depends
-     * on a provider stub, and so the density class can be chosen per case: with one, a
-     * volume really does reach the pantry in grams; without one, it stays in milliliters
-     * instead of failing.</p>
-     */
-    private Ingredient materialize(long fdcId, String name, String category, String densityClass) {
-        Ingredient ingredient = new Ingredient();
-        ingredient.setFdcId(fdcId);
-        ingredient.setName(name);
-        ingredient.setCategory(category);
-        ingredient.setDataType("SR Legacy");
-        ingredient.setDensityClass(densityClass);
-        ingredient.setSyncedAt(Instant.now());
-        ingredient.setEnergyKcal(100.0);
-        ingredient.setProteinG(1.0);
-        ingredient.setFatG(1.0);
-        ingredient.setCarbsG(1.0);
-
-        return ingredientRepository.saveAndFlush(ingredient);
-    }
-
-    private IngredientMeasure measure(Ingredient ingredient, String unitCode, String gramPerUnit) {
-        IngredientMeasure measure = new IngredientMeasure();
-        measure.setIngredient(ingredient);
-        measure.setUnitCode(unitCode);
-        measure.setGramPerUnit(new BigDecimal(gramPerUnit));
-
-        return measureRepository.saveAndFlush(measure);
-    }
-
-    private static ParameterizedTypeReference<List<PantryItemResponse>> itemsType() {
-        return new ParameterizedTypeReference<>() {
-        };
+        assertUnauthorized(PANTRY + "/1/adjustments", HttpMethod.POST);
+        assertUnauthorized(PANTRY + "/1/entries", HttpMethod.GET);
     }
 }

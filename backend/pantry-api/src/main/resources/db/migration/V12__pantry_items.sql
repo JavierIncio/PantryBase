@@ -16,7 +16,12 @@ CREATE TABLE pantry_items
     id           BIGSERIAL     PRIMARY KEY,
     user_id      BIGINT        NOT NULL REFERENCES users (id),
     ingredient_id BIGINT       NOT NULL REFERENCES ingredients (id),
-    quantity     DECIMAL(14, 6) NOT NULL CHECK (quantity > 0),
+    -- Zero is a real state and the table has to be able to say it: running out of the
+    -- last of something is an ordinary event, and the only way to record it honestly is a
+    -- line that reaches zero. Negative is what must never exist, because a deficit lets
+    -- a recipe be started on stock that is not there. So the floor is >= 0 and the
+    -- application refuses to go below it.
+    quantity     DECIMAL(14, 6) NOT NULL CHECK (quantity >= 0),
     unit_code    VARCHAR(16)   NOT NULL REFERENCES units (code),
     location     VARCHAR(100),
     note         VARCHAR(255),
@@ -34,7 +39,8 @@ CREATE TABLE pantry_items
 -- its index, so the first is the only one worth adding.
 CREATE INDEX idx_pantry_items_user_id ON pantry_items (user_id);
 
--- Ledger of quantity movements, created now and written from H3-2 onwards.
+-- Ledger of quantity movements, written for every movement including the one that
+-- creates the line.
 --
 -- delta_quantity is signed: positive adds stock, negative consumes it, so the
 -- sum of an item's entries is its current quantity and that identity can be

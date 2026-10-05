@@ -4,17 +4,25 @@ import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
 import com.pantrybase.api.catalog.domain.UnitConverter;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
+import com.pantrybase.api.pantry.domain.ConsumptionEntry;
+import com.pantrybase.api.pantry.domain.ConsumptionOrigin;
 import com.pantrybase.api.pantry.domain.PantryItem;
+import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
+import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import com.pantrybase.api.pantry.dto.UpdatePantryItemRequest;
 import com.pantrybase.api.pantry.exception.IngredientAlreadyInPantryException;
 import com.pantrybase.api.pantry.exception.IngredientNotInCatalogException;
+import com.pantrybase.api.pantry.exception.InsufficientStockException;
 import com.pantrybase.api.pantry.exception.PantryItemNotFoundException;
+import com.pantrybase.api.pantry.exception.ZeroAdjustmentException;
+import com.pantrybase.api.pantry.repository.ConsumptionEntryRepository;
 import com.pantrybase.api.pantry.repository.PantryItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -27,19 +35,26 @@ import java.util.List;
  * <p>The quantity is normalized on the way in and never on the way out. Storing what the
  * user typed would mean every later comparison (recipe coverage in H4, the deduction in
  * H5) had to convert first, against a density that the ingredient may not have.</p>
+ *
+ * <p>Every movement of a quantity writes a {@link ConsumptionEntry}, including the one
+ * that creates the line. That is what makes the sum of an item's entries equal its
+ * quantity, an identity the tests assert rather than a convention the code follows.</p>
  */
 @Service
 @Transactional(readOnly = true)
 public class PantryService {
 
     private final PantryItemRepository pantryItemRepo;
+    private final ConsumptionEntryRepository consumptionEntryRepo;
     private final IngredientRepository ingredientRepo;
     private final UnitConverter unitConverter;
 
     public PantryService(PantryItemRepository pantryItemRepo,
+                         ConsumptionEntryRepository consumptionEntryRepo,
                          IngredientRepository ingredientRepo,
                          UnitConverter unitConverter) {
         this.pantryItemRepo = pantryItemRepo;
+        this.consumptionEntryRepo = consumptionEntryRepo;
         this.ingredientRepo = ingredientRepo;
         this.unitConverter = unitConverter;
     }
@@ -67,6 +82,11 @@ public class PantryService {
      * caller cannot see, and telling them to use the adjustment is more useful than
      * complaining about anything else in a request they are about to redo.</p>
      *
+     * <p>The opening entry is written here rather than on first adjustment, so that the
+     * identity "the sum of an item's entries is its quantity" already holds for a line
+     * nobody has touched yet. Same transaction, which means the ledger cannot end up with
+     * a line that has no way to explain its own quantity.</p>
+     *
      * @throws IngredientNotInCatalogException    if the food is not in the local catalog
      * @throws IngredientAlreadyInPantryException if the user already has this ingredient
      */
@@ -90,7 +110,82 @@ public class PantryService {
         item.setLocation(request.location());
         item.setNote(request.note());
 
-        return toResponse(pantryItemRepo.save(item), ingredient);
+        PantryItem saved = pantryItemRepo.save(item);
+        recordEntry(saved, stored.amount());
+
+        return toResponse(saved, ingredient);
+    }
+
+    /**
+     * Moves an item's quantity by a signed amount and records the movement.
+     *
+     * <p>The amount is converted into the unit the line already stores rather than into
+     * whatever the caller sent, because the unit of a line is immutable: reinterpreting
+     * the whole history under a new unit would silently change the meaning of every
+     * entry written before it.</p>
+     *
+     * <p>A result below zero is refused with {@link InsufficientStockException}. Exactly
+     * zero is allowed, so a caller may trust that a successful adjustment leaves stock
+     * they have, or none at all — never a deficit they would cook against.</p>
+     *
+     * <p>The entry is written before the item is flushed, inside the same transaction, so
+     * a delta can never outlive the quantity it explains. A writer who loaded the line
+     * first loses the race through {@code @Version} and the whole transaction rolls back
+     * with it, entry included.</p>
+     *
+     * @throws PantryItemNotFoundException   if the item is not in this user's pantry
+     * @throws ZeroAdjustmentException       if the amount is zero
+     * @throws InsufficientStockException    if the result would not leave stock on the shelf
+     */
+    @Transactional
+    public PantryItemResponse adjust(Long userId, long itemId, AdjustPantryItemRequest request) {
+        PantryItem item = requireOwned(userId, itemId);
+
+        if (request.amount().signum() == 0) {
+            throw new ZeroAdjustmentException();
+        }
+
+        QuantityInfo delta = unitConverter.convert(
+                request.amount(), request.unitCode(), item.getUnitCode(), item.getIngredientId(), null);
+
+        BigDecimal result = item.getQuantity().add(delta.amount());
+        if (result.signum() < 0) {
+            // Strictly below zero, not zero or below: running out of an ingredient is a
+            // normal outcome, and BigDecimal.signum() returns 0 for an exact zero, so a
+            // "<= 0" test here would refuse precisely the case that has to work.
+            throw new InsufficientStockException(itemId, delta.amount(), item.getQuantity(), result, item.getUnitCode());
+        }
+
+        item.setQuantity(result);
+        PantryItem saved = pantryItemRepo.save(item);
+        recordEntry(saved, delta.amount());
+
+        return toResponse(saved,
+                ingredientRepo.getReferenceById(item.getIngredientId()));
+    }
+
+    /**
+     * The movements that explain an item's quantity, oldest first.
+     *
+     * <p>Reading the ledger is what makes it an audit trail rather than a table nobody
+     * queries, and it is the only way to check the identity the whole design rests on.</p>
+     *
+     * <p>Scoped by the owner of the item, not by the entry's own user id: the entries of
+     * a line are only reachable through that line, so requiring ownership first is both
+     * cheaper and impossible to get wrong by forgetting a condition.</p>
+     *
+     * @throws PantryItemNotFoundException if the item is not in this user's pantry
+     */
+    public List<ConsumptionEntryResponse> entries(Long userId, long itemId) {
+        requireOwned(userId, itemId);
+
+        return consumptionEntryRepo.findByPantryItemIdOrderByCreatedAtAsc(itemId).stream()
+                .map(entry -> new ConsumptionEntryResponse(
+                        entry.getId(),
+                        entry.getDeltaQuantity(),
+                        entry.getOrigin(),
+                        entry.getCreatedAt()))
+                .toList();
     }
 
     /**
@@ -139,6 +234,23 @@ public class PantryService {
     private PantryItem requireOwned(Long userId, long itemId) {
         return pantryItemRepo.findByIdAndUserId(itemId, userId)
                 .orElseThrow(() -> new PantryItemNotFoundException(itemId));
+    }
+
+    /**
+     * Writes one movement of stock into the ledger.
+     *
+     * <p>Takes the saved item because the entry needs its id, which only exists after
+     * the insert; taking the delta separately keeps the caller from having to restate a
+     * number that is already in hand.</p>
+     */
+    private void recordEntry(PantryItem item, BigDecimal delta) {
+        ConsumptionEntry entry = new ConsumptionEntry();
+        entry.setPantryItemId(item.getId());
+        entry.setUserId(item.getUserId());
+        entry.setDeltaQuantity(delta);
+        entry.setOrigin(ConsumptionOrigin.MANUAL);
+
+        consumptionEntryRepo.save(entry);
     }
 
     private PantryItemResponse toResponse(PantryItem item, Ingredient ingredient) {

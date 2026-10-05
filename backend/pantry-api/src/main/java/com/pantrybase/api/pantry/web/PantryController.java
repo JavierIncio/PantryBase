@@ -1,5 +1,7 @@
 package com.pantrybase.api.pantry.web;
 
+import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
+import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import com.pantrybase.api.pantry.dto.UpdatePantryItemRequest;
@@ -69,5 +71,26 @@ public class PantryController {
     @DeleteMapping("/{itemId}")
     public void delete(@AuthenticationPrincipal Long userId, @PathVariable long itemId) {
         pantryService.delete(userId, itemId);
+    }
+
+    /**
+     * Moves an item's quantity by a signed amount.
+     *
+     * <p>A sub-resource and not a PATCH on the line itself, because it creates a ledger
+     * entry rather than editing fields, and because a merge patch on the line would put
+     * the quantity back within reach of an endpoint that has no way to record the
+     * movement it made.</p>
+     */
+    @PostMapping("/{itemId}/adjustments")
+    public PantryItemResponse adjust(@AuthenticationPrincipal Long userId,
+                                     @PathVariable long itemId,
+                                     @Valid @RequestBody AdjustPantryItemRequest request) {
+        return pantryService.adjust(userId, itemId, request);
+    }
+
+    @GetMapping("/{itemId}/entries")
+    public List<ConsumptionEntryResponse> entries(@AuthenticationPrincipal Long userId,
+                                                 @PathVariable long itemId) {
+        return pantryService.entries(userId, itemId);
     }
 }

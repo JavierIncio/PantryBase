@@ -11,10 +11,13 @@ import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.common.dto.ErrorResponseFactory;
 import com.pantrybase.api.pantry.exception.IngredientAlreadyInPantryException;
 import com.pantrybase.api.pantry.exception.IngredientNotInCatalogException;
+import com.pantrybase.api.pantry.exception.InsufficientStockException;
 import com.pantrybase.api.pantry.exception.PantryItemNotFoundException;
+import com.pantrybase.api.pantry.exception.ZeroAdjustmentException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -248,5 +251,49 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps an adjustment that would leave no stock to 409.
+     *
+     * <p>409 and not 400: the request itself is well formed, what fails is the state it
+     * was applied to. It is the same conflict as the duplicate add — the state the
+     * caller could not see is what does not admit what they asked for.</p>
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleInsufficientStockException(InsufficientStockException ex,
+                                                                          HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));
+    }
+
+    /** Maps an adjustment of zero to 400: it is a malformed movement, not a conflict. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleZeroAdjustmentException(ZeroAdjustmentException ex,
+                                                                       HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps a lost optimistic-lock race to 409.
+     *
+     * <p>Handled on the superclass rather than JPA's own subtype so the mapping does not
+     * depend on which persistence provider raises it, and so a lost update over any
+     * other versioned row reports the same honest conflict instead of a 500.</p>
+     *
+     * <p>Reporting 500 would blame the server for the one situation the caller can act
+     * on by simply retrying against fresh numbers.</p>
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleOptimisticLockFailure(OptimisticLockingFailureException ex,
+                                                                     HttpServletRequest request) {
+        log.debug("Optimistic lock conflict on {}: {}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponseFactory.of(HttpStatus.CONFLICT,
+                        "The item was modified concurrently; read it again and retry", request));
     }
 }

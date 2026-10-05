@@ -20,7 +20,7 @@ No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROA
 8. [Frescura y caché del catálogo](#8-frescura-y-caché-del-catálogo)
 9. [Motor de unidades y densidades](#9-motor-de-unidades-y-densidades)
 10. [Administración de clases de densidad](#10-administración-de-clases-de-densidad)
-11. [Despensa: inventario del usuario (H3-1)](#11-despensa-inventario-del-usuario-h3-1)
+11. [Despensa: inventario del usuario (H3-1 y H3-2)](#11-despensa-inventario-del-usuario-h3-1-y-h3-2)
 12. [Rate limiting](#12-rate-limiting)
 13. [Manejo de errores de la API](#13-manejo-de-errores-de-la-api)
 14. [Observabilidad](#14-observabilidad)
@@ -320,22 +320,22 @@ Asignar una clase que no existe produce un error `404`: así este endpoint no se
 
 ---
 
-## 11. Despensa: inventario del usuario (H3-1)
+## 11. Despensa: inventario del usuario (H3-1 y H3-2)
 
-**Qué hace:** guarda qué tiene cada usuario en casa, cuánto, y dónde. Es el primer bloque de H3; la auditoría de movimientos y el alta rápida con búsqueda siguen en bloques posteriores.
+**Qué hace:** guarda qué tiene cada usuario en casa, cuánto y dónde, y lleva el registro de los movimientos que explican esa cantidad. El alta rápida con búsqueda desde el catálogo sigue en un bloque posterior.
 
 | Pieza | Ruta |
 |---|---|
 | `PantryController` (`/api/pantry`) | `pantry/web/PantryController.java` |
-| `PantryService` (reglas de alta, edición y borrado) | `pantry/service/PantryService.java` |
+| `PantryService` (reglas de alta, edición, borrado y ajuste) | `pantry/service/PantryService.java` |
 | Entidades | `pantry/domain/PantryItem.java`, `pantry/domain/ConsumptionEntry.java`, `pantry/domain/ConsumptionOrigin.java` |
 | Repositorios | `pantry/repository/PantryItemRepository.java`, `pantry/repository/ConsumptionEntryRepository.java` |
-| DTOs | `pantry/dto/` (`CreatePantryItemRequest`, `UpdatePantryItemRequest`, `PantryItemResponse`) |
-| Excepciones | `pantry/exception/` (`PantryItemNotFoundException`, `IngredientAlreadyInPantryException`, `IngredientNotInCatalogException`) |
+| DTOs | `pantry/dto/` (`CreatePantryItemRequest`, `UpdatePantryItemRequest`, `AdjustPantryItemRequest`, `PantryItemResponse`, `ConsumptionEntryResponse`) |
+| Excepciones | `pantry/exception/` (`PantryItemNotFoundException`, `IngredientAlreadyInPantryException`, `IngredientNotInCatalogException`, `InsufficientStockException`, `ZeroAdjustmentException`) |
 | Tablas | `db/migration/V12__pantry_items.sql` |
-| Tests | `pantry/PantryControllerIntegrationTest.java` |
+| Tests | `pantry/PantryControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java` |
 
-**Endpoints:** `GET /api/pantry`, `POST /api/pantry`, `PUT /api/pantry/{id}` y `DELETE /api/pantry/{id}`. Todos requieren usuario autenticado y toman el propietario del token, nunca del cuerpo de la petición.
+**Endpoints:** `GET /api/pantry`, `POST /api/pantry`, `PUT /api/pantry/{id}`, `DELETE /api/pantry/{id}`, `POST /api/pantry/{id}/adjustments` y `GET /api/pantry/{id}/entries`. Todos requieren usuario autenticado y toman el propietario del token, nunca del cuerpo de la petición.
 
 **La regla central: la cantidad se guarda en `GRAM` siempre que se pueda, y en `UNIT` para lo que se cuenta.** Se normaliza al entrar y nunca al salir. El motivo es que una despensa se lee mucho más de lo que se escribe, y todo lo que venga después (cobertura de recetas en H4, descontado en H5) tiene que comparar cantidades entre sí; guardar "2 tazas" obligaría a convertir primero, y esa conversión depende de una densidad que el ingrediente puede que no tenga.
 
@@ -349,9 +349,21 @@ Tres comportamientos que conviene entender:
 
 **Una fila por `(user_id, ingredient_id)`, no por envase.** Dos botellas de leche son una línea del inventario, y `location` y `note` describen el ingrediente, no el envase. La alternativa obligaría a agregar en cada lectura y dejaría ambiguo qué fila se está editando. Por eso añadir algo que ya está responde `409` y remite al endpoint de ajuste, en vez de fusionar en silencio las dos botellas.
 
-**Aislamiento entre usuarios.** Cada lectura y cada escritura se filtran por el propietario en la propia consulta, y el repositorio no expone un `findById` que se pueda usar sin él. Una línea de otro usuario produce `404`, no `403`: un `403` confirmaría que el id existe, y eso basta para recorrer el inventario ajeno viendo qué ids se niegan en lugar de faltar.
+**Aislamiento entre usuarios.** Cada lectura y cada escritura se filtran por el propietario en la propia consulta. `PantryItemRepository` sí hereda un `findById` de `JpaRepository` — no hay forma de quitarlo sin dejar de ser un `JpaRepository`—, pero el servicio no lo usa nunca: toda carga pasa por `findByIdAndUserId`, que lleva el propietario dentro de la consulta y por eso convierte un id ajeno en un `404` en lugar de una lectura correcta. Una línea de otro usuario produce `404`, no `403`: un `403` confirmaría que el id existe, y eso basta para recorrer el inventario ajeno viendo qué ids se niegan en lugar de faltar.
 
-**La tabla `consumption_entries` ya existe en V12 aunque todavía no se escriba.** Se crea junto a la línea porque el registro de auditoría forma parte del esquema original y no de un añadido posterior sobre uno vivo. Sus entradas llevan `delta_quantity` **con signo**, de forma que la suma de los asientos de una línea es su cantidad actual: esa identidad se puede comprobar en un test en vez de darse por buena. No lleva columna de unidad porque la unidad de una línea es inmutable desde que se crea; repetirla allí solo podría divergir de `pantry_items.unit_code` sin que nada lo notara.
+**El libro de movimientos, y por qué lo escribe también el alta.** `POST /api/pantry/{id}/adjustments` mueve la cantidad con un número **con signo**: positivo añade, negativo consume. La cantidad se convierte a la unidad que la línea ya guarda, porque esa unidad es inmutable desde que se crea y cambiarla reinterpretaría todos los asientos ya escritos. `GET /api/pantry/{id}/entries` devuelve el historial de la línea.
+
+El asiento con signo es lo que hace útil la tabla: **la suma de los asientos de una línea es su cantidad**, y eso se puede comprobar en un test en vez de darse por bueno. Para que la identidad se cumpla desde la primera fila, el alta escribe también su propio asiento con la cantidad completa. Sin él, un saldo inicial no registrado sería indistinguible de una línea a la que nadie ha tocado la cantidad, y ninguna migración posterior podría separar los dos casos.
+
+Un ajuste de `0` se rechaza con `400`: es un movimiento mal formado, no un conflicto, y aceptarlo añadiría una entrada que no explica nada.
+
+**Por qué un resultado negativo se rechaza con `409` y el cero se permite.** Un déficit dejaría cocinar con ingredientes que no existen: la receta diría que hay 400 g y la ausencia de error diría lo mismo, así que el plato se empezaría con algo que nadie tiene. Estar corto de un ingrediente debe costar la receta, no la sorpresa en la mesa. Una línea en cero, en cambio, dice la verdad y además obliga al usuario a decidir qué hacer con ella, que es justo lo que se quiere. El código es `signum() < 0`, no `<= 0`: `BigDecimal.ZERO.signum()` devuelve `0`, y un `<= 0` rechazaría precisamente el caso que tiene que funcionar. `V12` se corrigió a `CHECK (quantity >= 0)` para que ese estado sea representable.
+
+El `409` y no el `400` porque la petición es válida en sí misma; lo que no la admite es el estado sobre el que se aplica. Es el mismo conflicto que el alta duplicada: el estado que el cliente no podía ver.
+
+**Las versiones no las manda el cliente.** `PantryItem.version` (`@Version`) la incrementa Hibernate en cada escritura, dentro de la transacción, entre leer la línea y guardarla. Si dos escritores la han tocado, el segundo recibe `409` con un mensaje que le pide releer y reintentar, en vez de pisar al primero con números viejos. No hace falta que el cliente devuelva la versión: un ajuste es un delta, así que "añadir 100 g" sigue siendo válido aunque la cantidad haya cambiado mientras el formulario estaba abierto. Lo que protege son escrituras que se solapan, no una vista obsoleta.
+
+Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_entries` **no lleva columna de unidad**, porque la de la línea es inmutable y repetirla allí solo podría divergir de `pantry_items.unit_code` sin que nada lo notara; y los asientos se **borran en cascada** con su línea, porque una entrada sin línea a la que pertenecer no es un registro sino un huérfano, y conservarla obligaría a un segundo endpoint cuyo único propósito sería poder borrar.
 
 ---
 
@@ -476,7 +488,7 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 | `V9__catalog_density_class_sources.sql` | Columna `source` (procedencia) y la clase `MILK`. |
 | `V10__catalog_ingredient_freshness.sql` | `data_type`, `synced_at` e índice de frescura. |
 | `V11__catalog_density_class_revalidation.sql` | Procedencia de `FLOUR`, `SUGAR` y `OIL`. |
-| `V12__pantry_items.sql` | `pantry_items` (con `version` para bloqueo optimista) y `consumption_entries`. |
+| `V12__pantry_items.sql` | `pantry_items` (con `version` para bloqueo optimista y `CHECK (quantity >= 0)`) y `consumption_entries` (`delta_quantity` con signo, sin columna de unidad, borrado en cascada). |
 
 **Regla importante:** una migración ya aplicada **no se edita jamás**; se añade una nueva. Editarla dejaría los entornos desincronizados sin que nada avise. Por eso la procedencia de los valores de `FLOUR`/`SUGAR`/`OIL` no se corrigió en `V5` sino que se documentó en `V11`.
 

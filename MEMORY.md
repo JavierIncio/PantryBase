@@ -2,14 +2,14 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **5 de octubre de 2026** (H3-1 cerrado).
+> Máximo 100 líneas. Última actualización: **5 de octubre de 2026** (H3-1 y H3-2 cerrados).
 
 ## Dónde estamos
 
-**Hito en curso: H3 (inventario).** H0, H1 y H2 están cerrados y verificados. El bloque **H3-1 está implementado, verificado y commiteado** (`feat(pantry): CRUD of pantry items with unit normalization on write`).
+**Hito en curso: H3 (inventario).** H0, H1 y H2 están cerrados y verificados. **H3-1 y H3-2 están implementados, verificados y commiteados.**
 
-Estado verificado del backend: **215 tests verdes** (192 al cerrar H2 + 23 nuevos de H3-1), gate de JaCoCo superado (`.\mvnw.cmd -o verify`).
-Rama `main` sin push: los commits locales siguen sin publicarse.
+Estado verificado del backend: **230 tests verdes** (215 al cerrar H3-1 + 15 nuevos de H3-2), gate de JaCoCo superado (`.\mvnw.cmd -o verify`).
+Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
 
@@ -19,17 +19,20 @@ Rama `main` sin push: los commits locales siguen sin publicarse.
 - **H2-A Unidades:** 12 unidades US customary, tabla `measure_conversions`, densidades por clase y `UnitConversionService` con la escalera de precedencia medida propia > otra medida > clase del ingrediente > clase pasada.
 - **H2-B Catálogo:** integración USDA FDC (búsqueda, detalle y lote), materialización idempotente, medidas por ingrediente, densidad por clase curada, administración de clases con procedencia, caché/frescura (`cache-ttl` 24 h, `max-stale` 30 d), Redis para búsqueda y manejo de 429.
 - **H3-1 Despensa:** paquete `pantry` nuevo. `GET/POST/PUT/DELETE /api/pantry`, `V12__pantry_items.sql` (`pantry_items` + `consumption_entries`), cantidad normalizada a `GRAM`/`UNIT`, una fila por `(user_id, ingredient_id)`, edición sin campo de cantidad, aislamiento por propietario con `404`, y `UnitConverter.toStorageUnit(...)` como nueva operación del puerto.
+- **H3-2 Ajuste y auditoría:** `POST /api/pantry/{id}/adjustments` (cantidad con signo, en cualquier unidad, convertida a la de la línea) y `GET /api/pantry/{id}/entries`. El alta escribe también su asiento. `InsufficientStockException` → `409` solo si el resultado es negativo; ajuste de `0` → `400`. `OptimisticLockingFailureException` → `409`.
 
 ## Decisiones ya tomadas de H3 (no volver a abrir sin motivo)
 
 - La cantidad se guarda en **`GRAM` siempre que se pueda** y en `UNIT` para lo que se cuenta. Si un volumen no tiene densidad conocida se guarda en `ML` en vez de fallar: el hueco está en nuestros datos, no en la petición.
 - **Una fila por `(user_id, ingredient_id)`**; añadir algo que ya está responde `409` y remite al ajuste, nunca fusiona en silencio.
-- **Un único endpoint de ajuste con cantidad con signo**, toda suma o resta deja `ConsumptionEntry`, y se rechaza si dejaría la cantidad en cero o negativa.
+- **Un único endpoint de ajuste con cantidad con signo**, y toda suma o resta deja `ConsumptionEntry`. **El alta también deja asiento**, para que «la suma de los asientos = la cantidad» sea cierto desde la primera fila y no solo después del primer ajuste.
+- **Negativo se rechaza con `409`; cero se permite.** Un déficit deja cocinar con ingredientes que no hay; una línea en cero dice la verdad. Por eso `signum() < 0` y no `<= 0`, y `V12` se corrigió a `CHECK (quantity >= 0)`.
+- **La versión no la manda el cliente.** `@Version` decide entre dos escritores concurrentes dentro de la transacción; un ajuste es un delta, así que una vista obsoleta del cliente no lo invalida.
 - El `PATCH` que se consensuó acabó siendo `PUT`: reemplaza ubicación y nota, y no admite cantidad, para que saltarse la auditoría sea imposible por contrato y no por convención.
 
 ## Próximos pasos
 
-1. **H3-2:** endpoint de ajuste con cantidad con signo y `ConsumptionEntry`; comprobar el invariante "la suma de los deltas de una línea es su cantidad". Pendiente además: la carrera entre el `existsByIngredientId` previo y el `insert` puede dar `500` en lugar de `409` si dos altas simultáneas compiten.
+1. **Alta rápida de H3:** buscador de catálogo → selector de unidad → conversión automática.
 2. **H3-3 frontend:** vista "Mi despensa" agrupada por categoría y edición inline (toca el subagente `frontend`).
 3. **Frontend del catálogo:** el buscador y el conversor siguen sin pantalla.
 4. **Verificar el login de Google** contra un cliente real de OAuth2; hasta ahora solo se ha probado el camino con contraseña.
@@ -40,6 +43,8 @@ Rama `main` sin push: los commits locales siguen sin publicarse.
 - **Forma del wire del USDA:** ya costó tres correcciones (`298c109`). La regla vigente: los fixtures del adaptador son recortes literales de respuestas reales. No escribir fixtures a partir de los records del adapter.
 - **Densidades:** solo hay 4 clases curadas (`FLOUR`, `SUGAR`, `OIL`, `MILK`). La categoría del proveedor **no** sirve como densidad (demostrado en H2-B-4). Ampliar el catálogo solo con valores citables de una porción FDC.
 - **Sin densidad, `toStorageUnit` deja la cantidad en `ML`:** es deliberado, pero significa que muchas líneas de despensa quedarán en mililitros mientras falten clases curadas, y H4 tendrá que convertir al comparar. Vigilarlo al llegar a H4.
+- **Carrera en el alta de despensa:** el `existsByIngredientId` previo al `insert` no es atómico, así que dos altas simultáneas del mismo ingrediente pueden dar `500` por violación de unicidad en vez de `409`. No se ha arreglado: mapear `DataIntegrityViolationException` a `409` de forma global enmascararía otros errores de integridad.
+- **La carrera por bloqueo optimista no tiene test.** Reproducir una lectura y una escritura solapadas de forma determinista necesita un cerrojo dentro de la petición, y un test basado en tiempos sería el primero intermitente del proyecto. no escribiéndolo en un test.
 - **Sesión de OAuth2 sin verificar en producción**, y `app.security.cookie.secure` está en `false`: hay que ponerla en `true` al desplegar.
 - **`infra/.env` es local:** cualquier despliegue necesita sus propias variables (`JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `DB_*`). No hay secretos en el repositorio.
 - **Deuda técnica anotada en el roadmap:** Vault/CI para secretos, auditoría de llamadas externas, y límite de cuota propio por usuario en el rate limiting (hoy es por usuario o IP, no por usuario con coste).

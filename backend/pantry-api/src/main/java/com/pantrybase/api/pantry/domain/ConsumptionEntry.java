@@ -24,9 +24,14 @@ import java.time.Instant;
  * so a copy of it here could only ever drift away from the item it belongs to without
  * anything detecting it, and reading it would raise the question of which one wins.</p>
  *
- * <p>Not written by H3-1: the table ships with the item so that the audit trail is part
- * of the original schema rather than a later addition to a live one. Entries are written
- * from H3-2, the block that introduces the adjustment endpoint.</p>
+ * <p>The first entry of a line is written together with the line itself, carrying the
+ * whole amount as its delta. Without it the identity above would be false for every
+ * item ever added: an opening balance that is not recorded is indistinguishable from a
+ * line nobody has adjusted yet, and no later migration could tell the two apart.</p>
+ *
+ * <p>Rows are never modified. A movement that used to be 100 g and is now 200 g was two
+ * movements, and correcting it in place would leave the wrong answer in the only place
+ * the right one was ever written.</p>
  */
 @Entity
 @Table(name = "consumption_entries")
