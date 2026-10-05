@@ -9,6 +9,7 @@ import com.pantrybase.api.catalog.domain.NutrientProfile;
 import com.pantrybase.api.catalog.domain.Portion;
 import com.pantrybase.api.catalog.dto.ConvertUnitsRequest;
 import com.pantrybase.api.catalog.dto.IngredientDetailResponse;
+import com.pantrybase.api.catalog.dto.IngredientMeasureResponse;
 import com.pantrybase.api.catalog.dto.IngredientSearchResponse;
 import com.pantrybase.api.catalog.dto.UnitConversionResponse;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
@@ -151,6 +152,48 @@ public class IngredientCatalogIntegrationTest extends AbstractIntegrationTest {
         });
         assertThat(ingredientRepository.findByFdcId(FDC_ID)).isPresent();
         assertThat(ingredientRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void detail_returnsTheMeasuresItJustCaptured() {
+        stubPort.returns(Optional.of(profile()));
+
+        ResponseEntity<IngredientDetailResponse> response = rest.exchange(
+                INGREDIENTS + "/" + FDC_ID, HttpMethod.GET, new HttpEntity<>(authenticate()),
+                IngredientDetailResponse.class);
+
+        // The household measures a client needs to build a quantity entry travel with the
+        // detail: the lookup that captures them is this one, so reading them anywhere else
+        // could only answer from an older moment. Compared numerically rather than by
+        // record equality, because the scale is the column's business: what the provider
+        // sends and what the column stores do not agree on trailing zeros.
+        assertThat(response.getBody().measures()).singleElement().satisfies(m -> {
+            assertThat(m.unitCode()).isEqualTo("CUP");
+            assertThat(m.gramPerUnit()).isEqualByComparingTo("244");
+        });
+    }
+
+    @Test
+    void detail_ordersMeasuresByUnitCodeRegardlessOfProviderOrder() {
+        stubPort.returns(Optional.of(new FoodProfile(FDC_ID, "Milk, whole, 3.25% milkfat",
+                "SR Legacy", "Dairy and Egg Products", new NutrientProfile(61.0, 3.15, 3.25, 4.8),
+                List.of(new Portion("TBSP", 15.2), new Portion("CUP", 244.0)))));
+
+        IngredientDetailResponse detail = ingredientService.getById(FDC_ID);
+
+        assertThat(detail.measures()).extracting(IngredientMeasureResponse::unitCode)
+                .containsExactly("CUP", "TBSP");
+    }
+
+    @Test
+    void detail_ingredientWithoutPortions_returnsEmptyMeasuresRatherThanNull() {
+        stubPort.returns(Optional.of(profileWithoutPortions(FDC_ID)));
+
+        IngredientDetailResponse detail = ingredientService.getById(FDC_ID);
+
+        // A null here would push a null check onto every client for a completely normal
+        // outcome: the provider simply weighed no household measure for this food.
+        assertThat(detail.measures()).isEmpty();
     }
 
     @Test

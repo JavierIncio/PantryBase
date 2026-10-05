@@ -225,10 +225,15 @@ Las preferencias y las exclusiones se guardan con semántica de **reemplazo comp
 | Construcción del cliente HTTP | `catalog/client/FdcClientConfig.java` |
 | Orquestación (búsqueda, detalle, lote, materialización) | `catalog/service/IngredientCatalogService.java` |
 | `IngredientController` (`/api/catalog/ingredients`) | `catalog/web/IngredientController.java` |
+| DTOs | `catalog/dto/` (`IngredientSearchResponse`, `IngredientDetailResponse`, `IngredientMeasureResponse`) |
 | Entidades | `catalog/domain/` (`Ingredient`, `IngredientMeasure`, `NutrientProfile`, `Portion`, `FoodProfile`) |
 | Tablas | `db/migration/V6__catalog_ingredients.sql`, `V7__catalog_ingredient_measures.sql`, `V10__catalog_ingredient_freshness.sql` |
 
 **Endpoints:** `GET /api/catalog/ingredients?query=` (búsqueda) y `GET /api/catalog/ingredients/{fdcId}` (detalle).
+
+**El detalle incluye las medidas del ingrediente** (`measures`: lista de `{unitCode, gramPerUnit}`, ordenada por código de unidad). Van dentro de la misma respuesta y no en un endpoint aparte porque **la petición de detalle es justo la llamada que captura esas medidas**: separarlas solo daría dos respuestas que pueden discrepar tras un refresco del proveedor. Con la lista vacía el USDA no pesó ninguna medida doméstica para ese alimento, que es un resultado normal y llega como `[]` y nunca como `null`. El nombre de la unidad no viaja aquí: los rótulos pertenecen a `GET /api/units`, que es una tabla fija.
+
+**Por qué la búsqueda no devuelve un id interno:** la búsqueda **nunca materializa** —sus resultados no se guardan en nuestra base de datos—, así que un hit no tiene id local que devolver. Existe la tentación de incluirlo igualmente, pero obligaría a materializar cada resultado de la búsqueda, es decir, una llamada al proveedor por cada alimento que el usuario ni siquiera ha elegido. El flujo real es buscar → el usuario elige → detalle (materializa) → entrar la cantidad, y esa llamada de detalle es necesaria igualmente porque sin datos no hay nada que guardar en la despensa.
 
 **Qué significa "materializar":** cuando se pide un detalle, los datos del proveedor no se quedan en memoria, se **insertan en nuestra base de datos**. El insert usa `ON CONFLICT DO NOTHING` sobre la columna única `fdc_id`, y después se relee de la base de datos. Esto hace que la operación sea idempotente (repetirla no duplica nada) y que dos peticiones simultáneas no se pisen: es la base de datos la que arbitra la carrera, no el código de aplicación.
 

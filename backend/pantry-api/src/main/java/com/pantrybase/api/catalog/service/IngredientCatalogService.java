@@ -7,6 +7,7 @@ import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.catalog.domain.NutrientProfile;
 import com.pantrybase.api.catalog.domain.Portion;
 import com.pantrybase.api.catalog.dto.IngredientDetailResponse;
+import com.pantrybase.api.catalog.dto.IngredientMeasureResponse;
 import com.pantrybase.api.catalog.dto.IngredientSearchResponse;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
 import com.pantrybase.api.catalog.exception.FdcRateLimitException;
@@ -158,6 +159,11 @@ public class IngredientCatalogService {
      * at once, and the local rows cannot answer for ids that were never
      * materialized, so there is no local-first shortcut to take here.</p>
      *
+     * <p>Each detail also reads that ingredient's own measures, one query per
+     * ingredient rather than one for the batch. It is left that way deliberately: an
+     * item here costs a provider round trip, so a measure lookup on top is noise, and a
+     * single batched query would have to be built for a path no HTTP caller uses yet.</p>
+     *
      * @throws IllegalArgumentException when the collection is empty
      */
     @Transactional
@@ -252,6 +258,9 @@ public class IngredientCatalogService {
                 ingredient.getDataType(), ingredient.getCategory(),
                 new NutrientProfile(ingredient.getEnergyKcal(), ingredient.getProteinG(),
                         ingredient.getFatG(), ingredient.getCarbsG()),
-                ingredient.getDensityClass());
+                ingredient.getDensityClass(),
+                measureRepo.findByIngredientIdOrderByUnitCodeAsc(ingredient.getId()).stream()
+                        .map(m -> new IngredientMeasureResponse(m.getUnitCode(), m.getGramPerUnit()))
+                        .toList());
     }
 }

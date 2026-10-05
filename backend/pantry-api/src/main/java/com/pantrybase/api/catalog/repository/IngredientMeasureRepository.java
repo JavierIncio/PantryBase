@@ -19,6 +19,16 @@ public interface IngredientMeasureRepository
     List<IngredientMeasure> findByIngredientId(Long ingredientId);
 
     /**
+     * Same rows, ordered by unit code.
+     * <p>
+     * Used to build an API response, where the order is part of the contract: an unordered
+     * result would make the payload unstable between two reads of the same unchanged data.
+     * The order itself is arbitrary and says nothing about size or usage -- it only has to
+     * be stable, so clients may present it as it arrives.
+     */
+    List<IngredientMeasure> findByIngredientIdOrderByUnitCodeAsc(Long ingredientId);
+
+    /**
      * Inserts the measure only if the ingredient does not have that unit yet.
      *
      * <p>Mirrors {@link com.pantrybase.api.catalog.repository.IngredientRepository#insertIfAbsent}:
