@@ -461,8 +461,10 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | Estructura visual (barra + menú) | `src/app/core/layout/shell.ts` |
 | Servicio de perfil | `src/app/core/user/profile.service.ts` |
 | Servicio de despensa | `src/app/core/pantry/pantry.service.ts` |
+| Servicios de catálogo (búsqueda, detalle, unidades) | `src/app/core/catalog/` (`catalog.service.ts`, `unit.service.ts`, `unit-groups.ts`) |
 | Páginas de autenticación | `src/app/pages/auth/` |
 | Vista «Mi despensa» | `src/app/pages/pantry/pantry-page.{ts,html,scss}` |
+| Diálogo de alta desde el catálogo | `src/app/pages/pantry/add-pantry-item-dialog.{ts,html,scss}` |
 | Proxy de desarrollo | `proxy.conf.json` |
 
 **Las cuatro piezas de la sesión y por qué están separadas:**
@@ -481,7 +483,22 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 - **Reemplaza en sitio en vez de recargar.** Ni una edición ni un ajuste pueden cambiar el nombre o la categoría, así que el orden sigue siendo válido y la respuesta del servidor ya trae la cantidad autoritativa. Recargar tras cada escritura añadiría una petición y un parpadeo por línea tocada.
 - **Un `404` cierra el panel y recarga; un `409` se queda en el panel.** Un `404` significa que la línea ya no existe y no hay nada local que reparar, así que solo cabe volver a preguntarle al servidor. Un `409` de un ajuste insuficiente, en cambio, va de la cifra que tecleó el usuario: el mensaje del backend trae las tres cantidades implicadas y la corrección es teclear un número menor, no reintentar lo mismo.
 
-Los nombres de unidad se resuelven con un mapa local porque el contrato solo devuelve `unitCode` y `GET /api/units` sigue fuera de la vista; un código desconocido se muestra tal cual, que es información verdadera, en vez de en blanco. Ese mapa duplica el catálogo semilla y habrá que sustituirlo por `GET /api/units` cuando llegue el alta desde el catálogo, que es justo cuando la selección de unidad deja de ser un detalle.
+**Los nombres de unidad vienen de `GET /api/units`, no de un mapa local.** `UnitService` es el único sitio donde un código se convierte en etiqueta, y carga ese catálogo una vez por sesión publicándolo en un *signal*. Antes había una tabla en `pantry-page.ts` que duplicaba el catálogo semilla: tres pantallas necesitan ya esas etiquetas (las filas, el ajuste y el alta) y tres copias de la misma tabla solo podían discrepar entre sí. La regla que sostiene el servicio es que **un código que el catálogo no conoce se muestra tal cual**: un `FLOZ` en crudo es información accionable, mientras que una celda vacía parece una cantidad que falta. Una carga fallida no es fatal ni se cachea como fallo: los códigos siguen siendo enviables, solo faltan las etiquetas, y una llamada posterior reintenta.
+
+**El alta rápida desde el catálogo (H3-4)** es un diálogo sobre la lista de la despensa, no una página: el valor de la funcionalidad es añadir una línea *sin perder de vista* la despensa, y una ruta la sustituiría. El flujo tiene tres pasos porque el catálogo los impone — buscar, elegir (que obliga a leer el detalle, y ese detalle es lo que **materializa** el ingrediente: sin él el alta se rechaza con `404`) y decir cuánto hay — y ese tercer paso no puede existir antes de que el detalle responda.
+
+| Decisión | Por qué |
+|---|---|
+| **Las medidas del ingrediente salen primero en el selector, con su peso** («CUP · 244 g») | Son las únicas unidades que el USDA pesó de verdad para ese alimento, y las que el usuario busca. El resto se ofrece igualmente y **no se filtra nada**: la conversión no necesita una medida capturada, porque el motor cae a la clase de densidad curada y, si no hay ninguna, conserva el volumen. Ocultar «por si acaso» escondería combinaciones que funcionan. |
+| **Partición estable, no orden** | Las medidas se mueven al principio de su grupo y el resto conserva el orden del catálogo. Un `sort` podría reordenar de más maneras de las previstas; una partición solo mueve lo que tiene que mover. |
+| **El `409` no es un callejón sin salida** | El backend pide ajustar la cantidad existente en lugar de añadir una segunda línea, así que el diálogo entrega el `fdcId` y la página localiza esa línea en la lista que ya tiene y **le abre el panel de ajuste**. |
+| **El `404` se repara con la llamada que lo arregla** | Es el único fallo con reparación concreta: volver a leer el detalle. El backend nombra esa llamada en su mensaje, y el diálogo la ofrece en vez de reintentar un alta que volvería a fallar. Se ofrece, no se dispara sola, porque esa lectura puede costar cuota del proveedor. |
+| **Nada reintenta solo** | El USDA responde `502` tanto si está caído como si ha agotado su cuota (su `429` se traduce a `502`), y la cuota son **30 peticiones por hora sin key**. Reintentar en silencio gastaría una cuota que ya no existe, así que el texto nombra las dos causas y decide el usuario. |
+| **Tras guardar, la lista se recarga** | El orden y el agrupado son del servidor; buscar la posición alfabética de la línea nueva en el cliente es la duplicación que la página evita en todas partes. El aviso de confirmación enseña la cantidad **tal como se guardó**, porque el backend normaliza a la unidad de la línea y enseñar lo tecleado mentiría sobre el dato. |
+| **El `POST` lleva `fdcId`, nunca el id interno** | Es el contrato deliberado: el cliente solo ve ids del proveedor en el catálogo, y esa elección es la que permite responder `409` y `404` con un mensaje accionable. |
+| **Contadores de secuencia en las dos lecturas** | El template ya deshabilita el botón de buscar mientras busca y los resultados mientras se lee un detalle, así que hoy no hay forma de solaparlas. Los contadores están para que **los métodos no dependan de esa disposición**: `add()` ya refusaba un segundo clic en código y no en el botón, y estas dos lecturas eran la excepción. |
+
+
 
 ---
 

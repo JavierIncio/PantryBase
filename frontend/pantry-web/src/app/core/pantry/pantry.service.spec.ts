@@ -72,6 +72,22 @@ describe('PantryService', () => {
     await expect(result).resolves.toBeNull();
   });
 
+  it('createItem POSTs the catalog reference and nothing invented', async () => {
+    const result = firstValueFrom(
+      service.createItem({ fdcId: 171265, amount: 2, unitCode: 'PINT' }),
+    );
+
+    const req = http.expectOne('/api/pantry');
+    expect(req.request.method).toBe('POST');
+    // The backend answers 409 when the ingredient is already there, which it can only
+    // tell from the fdcId: a local id would be a contract this client invented.
+    expect(req.request.body).toEqual({ fdcId: 171265, amount: 2, unitCode: 'PINT' });
+    expect(req.request.body).not.toHaveProperty('ingredientId');
+    req.flush({ ...ITEM, quantity: 488, unitCode: 'GRAM' });
+
+    await expect(result).resolves.toMatchObject({ quantity: 488, unitCode: 'GRAM' });
+  });
+
   it('adjustQuantity POSTs the signed amount and the unit it was typed in', async () => {
     const adjusted = { ...ITEM, quantity: 199.5, version: 1 };
     const result = firstValueFrom(service.adjustQuantity(7, { amount: -44.5, unitCode: 'ML' }));

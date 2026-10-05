@@ -1,11 +1,17 @@
 <header class="pantry-header">
-  <h1>My pantry</h1>
-  @if (!loading() && !loadError() && itemCount() > 0) {
-    <p class="pantry-summary">
-      {{ itemCount() }} {{ itemCount() === 1 ? 'item' : 'items' }} in {{ categoryCount() }}
-      {{ categoryCount() === 1 ? 'category' : 'categories' }}
-    </p>
-  }
+  <div class="pantry-heading">
+    <h1>My pantry</h1>
+    @if (!loading() && !loadError() && itemCount() > 0) {
+      <p class="pantry-summary">
+        {{ itemCount() }} {{ itemCount() === 1 ? 'item' : 'items' }} in {{ categoryCount() }}
+        {{ categoryCount() === 1 ? 'category' : 'categories' }}
+      </p>
+    }
+  </div>
+  <button mat-flat-button type="button" class="open-add-item" (click)="openAddItem()">
+    <mat-icon>add</mat-icon>
+    Add item
+  </button>
 </header>
 
 @if (loading()) {
@@ -194,8 +200,12 @@
                   <mat-form-field class="unit-field">
                     <mat-label>Unit</mat-label>
                     <mat-select formControlName="unitCode">
-                      @for (unit of adjustmentUnits; track unit.code) {
-                        <mat-option [value]="unit.code">{{ unit.label }}</mat-option>
+                      @for (group of adjustmentGroups(); track group.category) {
+                        <mat-optgroup [label]="group.title">
+                          @for (unit of group.options; track unit.code) {
+                            <mat-option [value]="unit.code">{{ unit.label }}</mat-option>
+                          }
+                        </mat-optgroup>
                       }
                     </mat-select>
                     <mat-hint>Converted to the unit this line keeps.</mat-hint>

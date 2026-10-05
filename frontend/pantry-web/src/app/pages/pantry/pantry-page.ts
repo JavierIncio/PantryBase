@@ -23,7 +23,8 @@ import {
   MatCardSubtitle,
   MatCardTitle,
 } from '@angular/material/card';
-import { MatOption } from '@angular/material/core';
+import { MatOption, MatOptgroup } from '@angular/material/core';
+import { MatDialog } from '@angular/material/dialog';
 import { MatError, MatFormField, MatHint, MatLabel } from '@angular/material/form-field';
 import { MatIcon } from '@angular/material/icon';
 import { MatInput } from '@angular/material/input';
@@ -31,6 +32,8 @@ import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSelect } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { toErrorResponse } from '../../core/auth/auth.models';
+import { UnitGroup, buildUnitGroups } from '../../core/catalog/unit-groups';
+import { UnitService } from '../../core/catalog/unit.service';
 import {
   AdjustPantryItemRequest,
   ConsumptionEntry,
@@ -39,6 +42,7 @@ import {
   UpdatePantryItemRequest,
 } from '../../core/pantry/pantry.models';
 import { PantryService } from '../../core/pantry/pantry.service';
+import { AddPantryItemDialog, AddPantryItemResult } from './add-pantry-item-dialog';
 
 /** Which of a row's inline editors is expanded; at most one, never two. */
 type PanelKind = 'edit' | 'adjust' | 'history';
@@ -55,45 +59,7 @@ interface PantrySection {
   readonly items: PantryItem[];
 }
 
-/**
- * Display symbols for the codes of the seeded `units` catalog.
- *
- * The API answers with `unitCode` and nothing else, so the label lives here
- * until the unit catalog reaches the frontend (`GET /api/units` exists but is
- * not part of this feature). An unknown code renders as itself rather than
- * blank: a code we do not recognise is still true information.
- */
-const UNIT_LABELS: Record<string, string> = {
-  GRAM: 'g',
-  ML: 'ml',
-  UNIT: 'units',
-  KG: 'kg',
-  OZ: 'oz',
-  LB: 'lb',
-  L: 'l',
-  CUP: 'cup',
-  TBSP: 'tbsp',
-  TSP: 'tsp',
-  PINT: 'pint',
-};
-
-/**
- * Units offered when adjusting a line, drawn from the same seeded catalog.
- *
- * Deliberately not narrowed to what the line's own unit can be converted into:
- * whether a pair of units converts at all depends on the ingredient's density
- * (the ladder of H2-B-4), which only the server knows. Guessing here would hide
- * combinations that do work and invent ones that do not, so an impossible pair
- * is refused by the API and its message shown.
- */
-const ADJUSTMENT_UNITS: ReadonlyArray<{ code: string; label: string }> = Object.entries(
-  UNIT_LABELS,
-).map(([code, label]) => ({ code, label }));
-
 const ORIGIN_LABELS: Record<ConsumptionOrigin, string> = { MANUAL: 'Manual' };
-
-/** Unit code as the user sees it, falling through to the raw code. */
-const unitLabel = (unitCode: string): string => UNIT_LABELS[unitCode] ?? unitCode;
 
 /** Origin of a movement as the user sees it, falling through to the raw value. */
 const originLabel = (origin: ConsumptionOrigin): string => ORIGIN_LABELS[origin] ?? origin;
@@ -139,13 +105,18 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
 
 /**
  * "My pantry": the user's inventory grouped by category, with every write the
- * milestone allows — edit location/note, adjust the quantity with a signed
- * amount, remove the line, read its ledger — available inline on each row.
+ * milestone allows — add a food from the catalog, edit location/note, adjust the
+ * quantity with a signed amount, remove the line, read its ledger — available
+ * without leaving the list.
  *
- * Only one row is expanded at a time. The four actions are the whole feature
+ * Only one row is expanded at a time. The four row actions are the whole feature
  * area of a line and they all read better next to the line they belong to, but
  * four independently collapsible panels would leave the list impossible to scan;
  * a single `openPanel` keeps one row tall and the rest compact.
+ *
+ * Unit codes are labelled from the unit catalog (`GET /api/units`), never from a
+ * local table: the codes travel in every payload and their names are the API's
+ * to say, so a second copy of them here could only ever disagree with it.
  *
  * The list is the whole view, so a failed load is a page-level error with a
  * retry rather than an empty inventory that silently looks like an empty pantry.
@@ -174,6 +145,7 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
     MatInput,
     MatLabel,
     MatOption,
+    MatOptgroup,
     MatProgressSpinner,
     MatSelect,
     ReactiveFormsModule,
@@ -185,9 +157,9 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
 export class PantryPage implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly pantry = inject(PantryService);
+  private readonly units = inject(UnitService);
+  private readonly dialog = inject(MatDialog);
   private readonly snackBar = inject(MatSnackBar);
-
-  protected readonly adjustmentUnits = ADJUSTMENT_UNITS;
 
   /** The whole pantry, in the order the API answered. */
   private readonly items = signal<PantryItem[]>([]);
@@ -200,6 +172,19 @@ export class PantryPage implements OnInit {
   protected readonly categoryCount = computed(() => this.sections().length);
   protected readonly isEmpty = computed(
     () => !this.loading() && this.loadError() === null && this.items().length === 0,
+  );
+
+  /**
+   * Units offered when adjusting a line, grouped by category.
+   *
+   * The whole catalog, and not narrowed to what the line's own unit can be
+   * converted into: whether a pair of units converts at all depends on the
+   * ingredient's density (the ladder of H2-B-4), which only the server knows.
+   * Guessing here would hide combinations that do work and invent ones that do
+   * not, so an impossible pair is refused by the API and its message shown.
+   */
+  protected readonly adjustmentGroups = computed<UnitGroup[]>(() =>
+    buildUnitGroups(this.units.units() ?? []),
   );
 
   /** The one expanded panel, or null when every row is collapsed. */
@@ -252,6 +237,9 @@ export class PantryPage implements OnInit {
   });
 
   ngOnInit(): void {
+    // The unit labels of the rows and the units offered to adjust them both come
+    // from the catalog, so it is loaded with the pantry rather than on demand.
+    this.units.load();
     this.load();
   }
 
@@ -283,9 +271,76 @@ export class PantryPage implements OnInit {
     return open?.id === itemId && open.kind === kind;
   }
 
-  protected unitLabel = unitLabel;
+  protected unitLabel = (unitCode: string): string => this.units.label(unitCode);
   protected originLabel = originLabel;
   protected signedDelta = signedDelta;
+
+  /**
+   * Opens the quick-add dialog over the pantry.
+   *
+   * A dialog and not a route because the point of the feature is adding a line
+   * without losing sight of the pantry it goes into: a route would replace the
+   * list, and the only way back to it would be to reload it. The dialog is the
+   * flow, this page stays on screen behind it.
+   *
+   * Nothing is inserted into the list here. The dialog reports what it created and
+   * the list is asked for again, because its order and its grouping are the
+   * server's and finding the alphabetical position of the new line in the client
+   * is exactly the duplication this page avoids everywhere else.
+   */
+  protected openAddItem(): void {
+    this.dialog
+      .open(AddPantryItemDialog, {
+        autoFocus: 'first-tabbable',
+        restoreFocus: true,
+        maxWidth: '34rem',
+        width: 'calc(100% - 2rem)',
+      })
+      .afterClosed()
+      .subscribe((result: AddPantryItemResult | undefined) => {
+        if (!result) {
+          return;
+        }
+        if (result.kind === 'created') {
+          this.load();
+          // What the user typed is not what was stored: the backend normalizes the
+          // amount to the unit the line keeps, and the row is about to show that
+          // figure, so this notice must be the same one.
+          const { name, quantity, unitCode } = result.item;
+          this.notify(`${name} added as ${quantity} ${this.units.label(unitCode)}`);
+          return;
+        }
+        this.openExistingLine(result.fdcId, result.message);
+      });
+  }
+
+  /**
+   * Takes the user to the line an add was refused because it already exists.
+   *
+   * The conflict message names the food by its `fdcId`, not by the line's id, and
+   * the pantry on screen already holds every line, so the line is found there and
+   * its adjustment panel is opened: the backend's advice is to adjust the
+   * existing quantity instead of adding a second line, and that is exactly the
+   * panel that does it.
+   *
+   * A pantry that does not hold that food has nothing to jump to — the list was
+   * read before the line was added somewhere else — so the backend's message is
+   * shown instead and the list asked for again.
+   */
+  private openExistingLine(fdcId: number, message: string): void {
+    const item = this.items().find((candidate) => candidate.fdcId === fdcId);
+    if (!item) {
+      this.notify(message || 'That ingredient is already in your pantry.', true);
+      this.load();
+      return;
+    }
+
+    this.confirmingDeleteId.set(null);
+    this.panelError.set(null);
+    this.openPanel.set({ id: item.id, kind: 'adjust' });
+    this.adjustForm.reset({ amount: null, unitCode: item.unitCode });
+    this.notify(`${item.name} is already stored: add to its quantity instead.`);
+  }
 
   /** Opens the location/note editor, or closes it when it is already open. */
   protected openEdit(item: PantryItem): void {

@@ -42,6 +42,27 @@ export interface PantryItem {
 }
 
 /**
+ * Body of `POST /api/pantry` — adds a line.
+ *
+ * `fdcId` and not the catalog's internal `id`, and that is the whole point of
+ * the field: the client only ever sees provider ids in the catalog, and an
+ * endpoint that took an internal id would tie the pantry to a numbering it has no
+ * reason to know. Reading `GET /api/catalog/ingredients/{fdcId}` first is not
+ * optional, because it is what puts the food in the local catalog this request
+ * resolves against (without it the endpoint answers 404).
+ *
+ * `amount` must be greater than zero and is free in any unit of the catalog: the
+ * backend normalizes it to the unit the line will keep (`GRAM`, `ML` or `UNIT`)
+ * and reports the stored figures back, so the caller must show what came back
+ * rather than what it sent.
+ */
+export interface CreatePantryItemRequest {
+  readonly fdcId: number;
+  readonly amount: number;
+  readonly unitCode: string;
+}
+
+/**
  * Body of `PUT /api/pantry/{id}` — replacement semantics for both fields.
  *
  * The endpoint replaces the two editable attributes of the line, so an omitted

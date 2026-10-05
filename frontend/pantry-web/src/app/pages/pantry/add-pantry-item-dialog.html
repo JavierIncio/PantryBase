@@ -1,0 +1,172 @@
+<h2 mat-dialog-title>Add to your pantry</h2>
+
+<mat-dialog-content>
+  @if (step() === 'search') {
+    <form class="search-form" [formGroup]="searchForm" (ngSubmit)="search()">
+      <mat-form-field class="search-field">
+        <mat-label>What are you storing?</mat-label>
+        <input
+          matInput
+          formControlName="query"
+          autocomplete="off"
+          placeholder="milk, lentils, olive oil"
+        />
+        @if (searchForm.controls.query.touched && searchForm.controls.query.hasError('blank')) {
+          <mat-error>Type something to search for.</mat-error>
+        }
+        <mat-hint>Searched against the USDA food catalog.</mat-hint>
+      </mat-form-field>
+      <button
+        mat-flat-button
+        type="button"
+        class="run-search"
+        [disabled]="searching()"
+        (click)="search()"
+      >
+        @if (searching()) {
+          <mat-spinner diameter="20" />
+        } @else {
+          Search
+        }
+      </button>
+    </form>
+
+    @if (searching() || detailLoading()) {
+      <div class="dialog-status"><mat-spinner diameter="24" /></div>
+    } @else if (searchError(); as message) {
+      <p class="add-error">{{ message }}</p>
+    } @else if (searched() && hits().length === 0) {
+      <p class="no-hits">Nothing in the catalog matches that. Try a plainer word.</p>
+    }
+
+    @if (detailError(); as message) {
+      <p class="add-error">{{ message }}</p>
+    }
+
+    @if (hits().length > 0) {
+      <ul class="search-results">
+        @for (hit of hits(); track hit.fdcId) {
+          <li>
+            <button
+              type="button"
+              class="search-result"
+              [disabled]="detailLoading()"
+              (click)="choose(hit)"
+            >
+              <span class="result-name">{{ hit.name }}</span>
+              <span class="result-type">{{ hit.dataType }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  } @else {
+    @if (detailLoading()) {
+      <div class="dialog-status"><mat-spinner diameter="24" /></div>
+    }
+
+    @if (ingredient(); as food) {
+      <div class="chosen-food">
+        <span class="chosen-name">{{ food.name }}</span>
+        <span class="chosen-category">{{ food.category }}</span>
+      </div>
+    }
+
+    <form class="quantity-form" [formGroup]="quantityForm" (ngSubmit)="add()">
+      <div class="quantity-fields">
+        <mat-form-field class="amount-field">
+          <mat-label>Amount</mat-label>
+          <input matInput type="number" step="any" inputmode="decimal" formControlName="amount" />
+          <mat-hint>The line keeps it in its own unit, whatever this one is.</mat-hint>
+          @if (
+            quantityForm.controls.amount.touched &&
+            quantityForm.controls.amount.hasError('required')
+          ) {
+            <mat-error>Enter an amount.</mat-error>
+          }
+          @if (
+            quantityForm.controls.amount.touched &&
+            quantityForm.controls.amount.hasError('positive')
+          ) {
+            <mat-error>More than zero, please.</mat-error>
+          }
+          @if (rejectedAmount(); as message) {
+            <mat-error>{{ message }}</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field class="unit-field">
+          <mat-label>Unit</mat-label>
+          <mat-select formControlName="unitCode">
+            @for (group of unitGroups(); track group.category) {
+              <mat-optgroup [label]="group.title">
+                @for (option of group.options; track option.code) {
+                  <mat-option [value]="option.code">
+                    @if (option.gramPerUnit !== null) {
+                      {{ option.label }} · {{ option.gramPerUnit }} g
+                    } @else {
+                      {{ option.label }}
+                    }
+                  </mat-option>
+                }
+              </mat-optgroup>
+            }
+          </mat-select>
+          <mat-hint>Measured options come first; everything else is converted.</mat-hint>
+        </mat-form-field>
+      </div>
+
+      @if (unitCatalogError(); as message) {
+        <p class="unit-catalog-error">
+          {{ message }} Unit names are shown as their codes until the catalog loads.
+          <button mat-button type="button" class="retry-units" (click)="retryUnitCatalog()">
+            Retry
+          </button>
+        </p>
+      }
+
+      @if (addError(); as message) {
+        <div class="add-failure">
+          <p class="add-error">{{ message }}</p>
+          @if (ingredientMissing()) {
+            <button
+              mat-stroked-button
+              type="button"
+              class="reload-ingredient"
+              (click)="reloadIngredient()"
+            >
+              Read the ingredient again
+            </button>
+          }
+          @if (alreadyInPantry()) {
+            <button mat-stroked-button type="button" class="goto-existing" (click)="gotoExisting()">
+              Go to the existing item
+            </button>
+          }
+        </div>
+      }
+    </form>
+  }
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" class="cancel-add" (click)="cancel()">Cancel</button>
+  @if (step() === 'quantity') {
+    <button mat-stroked-button type="button" class="change-food" (click)="changeFood()">
+      Change the food
+    </button>
+    <button
+      mat-flat-button
+      type="button"
+      class="confirm-add"
+      [disabled]="quantityForm.invalid || saving()"
+      (click)="add()"
+    >
+      @if (saving()) {
+        <mat-spinner diameter="20" />
+      } @else {
+        Add to pantry
+      }
+    </button>
+  }
+</mat-dialog-actions>

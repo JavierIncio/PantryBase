@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import {
   AdjustPantryItemRequest,
   ConsumptionEntry,
+  CreatePantryItemRequest,
   PantryItem,
   UpdatePantryItemRequest,
 } from './pantry.models';
@@ -27,6 +28,24 @@ export class PantryService {
   /** Whole pantry, already ordered by category and then by name. */
   listItems(): Observable<PantryItem[]> {
     return this.http.get<PantryItem[]>('/api/pantry');
+  }
+
+  /**
+   * Adds a line and returns it as stored.
+   *
+   * The request is addressed by the provider's `fdcId` and the food has to be in
+   * the local catalog already (the catalog's detail read is what puts it there),
+   * otherwise the endpoint answers 404. A 409 means the ingredient is already in
+   * the pantry: an add is never folded into the existing quantity, because that
+   * would leave no trace of the second addition, and the adjustment endpoint is
+   * what records a movement.
+   *
+   * The returned quantity and unit are the authoritative ones — the amount is
+   * normalized to the unit the line keeps, so "two cups" may well come back as
+   * grams.
+   */
+  createItem(request: CreatePantryItemRequest): Observable<PantryItem> {
+    return this.http.post<PantryItem>('/api/pantry', request);
   }
 
   /**

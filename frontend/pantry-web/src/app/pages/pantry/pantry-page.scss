@@ -3,8 +3,10 @@
 // not for "which row is mid-edit".
 .pantry-header {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
   margin-bottom: 1.5rem;
 
   h1 {
@@ -16,6 +18,13 @@
     margin: 0;
     color: var(--mat-sys-on-surface-variant);
   }
+}
+
+// The title and the summary stack, with the add button beside them.
+.pantry-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 // Shared state block for the loading spinner and the load error + retry UI.

@@ -1,0 +1,125 @@
+// Quick-add dialog: a two-step flow (search, then amount + unit) that has to fit
+// in a dialog without becoming a scroll of three screens.
+//
+// The result rows are plain buttons rather than Material ones on purpose: a
+// search hit needs the food name on one side and its dataset on the other, and
+// the label of a Material button is an opaque flex item, so spreading the two
+// would mean styling inside the library's shadow DOM. Everything that IS a
+// Material widget (fields, select, spinner, actions) is one.
+.search-form {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem 1rem;
+
+  .search-field {
+    flex: 1 1 auto;
+  }
+
+  // Aligned with the field's baseline rather than its box, so the button does not
+  // sit a whole form-field below the input.
+  .run-search {
+    margin-top: 0.5rem;
+  }
+}
+
+.dialog-status {
+  display: flex;
+  justify-content: center;
+  padding: 1.25rem 0;
+}
+
+// Bounded and scrollable: a search of "oil" can answer dozens of foods and the
+// dialog must not grow taller than the viewport. The cut-off list is a worse
+// answer than a scrolled one, because the foods you did not scroll to are gone.
+.search-results {
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.search-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--mat-sys-surface-container);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+}
+
+// The dataset the provider answered with (Foundation, SR Legacy, ...): useful
+// when two foods share a name, never the thing being looked for.
+.result-type {
+  flex: 0 0 auto;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-small);
+}
+
+.no-hits {
+  margin: 0.5rem 0 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.chosen-food {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-bottom: 1rem;
+}
+
+.chosen-name {
+  font: var(--mat-sys-title-small);
+}
+
+.chosen-category {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.quantity-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+
+  mat-form-field {
+    flex: 1 1 11rem;
+  }
+}
+
+.unit-catalog-error {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.add-failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.add-error {
+  margin: 0.5rem 0 0;
+  color: var(--mat-sys-error);
+}

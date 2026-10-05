@@ -1,8 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { Subject } from 'rxjs';
+import { Unit } from '../../core/catalog/catalog.models';
 import { ConsumptionEntry, PantryItem } from '../../core/pantry/pantry.models';
+import { AddPantryItemResult } from './add-pantry-item-dialog';
 import { PantryPage } from './pantry-page';
 
 /** Two categories, in the order the API is documented to answer them. */
@@ -62,21 +66,44 @@ const errorResponse = (status: number, message: string) => ({
   path: '/api/pantry',
 });
 
+/** The three units the fixture lines use; the endpoint has twelve. */
+const UNITS: Unit[] = [
+  { code: 'GRAM', name: 'Gram', category: 'WEIGHT', canonical: true },
+  { code: 'ML', name: 'Milliliter', category: 'VOLUME', canonical: true },
+  { code: 'UNIT', name: 'Unit', category: 'COUNT', canonical: true },
+];
+
+const CONFLICT =
+  'Pantry already contains ingredient fdcId 171265: adjust the existing line instead';
+
 describe('PantryPage', () => {
   let http: HttpTestingController;
   let snackBar: { open: ReturnType<typeof vi.fn> };
+  let dialogClosed: Subject<AddPantryItemResult | undefined>;
 
   const configure = async () => {
     snackBar = { open: vi.fn() };
+    dialogClosed = new Subject<AddPantryItemResult | undefined>();
     await TestBed.configureTestingModule({
       imports: [PantryPage],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: MatSnackBar, useValue: snackBar },
+        // Only the wiring is under test here, so the dialog is a report back and
+        // not an overlay: the dialog's own steps are covered by its own spec.
+        {
+          provide: MatDialog,
+          useValue: { open: vi.fn().mockReturnValue({ afterClosed: () => dialogClosed }) },
+        },
       ],
     }).compileComponents();
     http = TestBed.inject(HttpTestingController);
+  };
+
+  /** Answers the unit catalog every page asks for on init. */
+  const flushUnits = (): void => {
+    http.expectOne('/api/units').flush(UNITS);
   };
 
   /** Creates the page and answers the initial list request with `items`. */
@@ -84,6 +111,7 @@ describe('PantryPage', () => {
     await configure();
     const fixture = TestBed.createComponent(PantryPage);
     fixture.detectChanges();
+    flushUnits();
     http.expectOne('/api/pantry').flush(items);
     fixture.detectChanges();
     return fixture;
@@ -157,13 +185,18 @@ describe('PantryPage', () => {
     expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('3 items in 2 categories');
   });
 
-  it('shows the quantity of every line with its unit resolved to a symbol', async () => {
+  it('shows the quantity of every line with the unit named as the catalog names it', async () => {
     const fixture = await render();
 
-    // Quantity first, unit second: "244 g" rather than "g 244". The two live in
-    // their own spans so the row can weight them differently.
+    // Quantity first, unit second: "244 Gram" rather than "Gram 244". The two live
+    // in their own spans so the row can weight them differently. The name comes
+    // from GET /api/units, never from a table hardcoded in the client.
     expect(nodes(fixture, '.item-amount').map((node) => text(node))).toEqual(['244', '2', '500']);
-    expect(nodes(fixture, '.item-unit').map((node) => text(node))).toEqual(['g', 'units', 'g']);
+    expect(nodes(fixture, '.item-unit').map((node) => text(node))).toEqual([
+      'Gram',
+      'Unit',
+      'Gram',
+    ]);
     expect(nodes(fixture, '.item-detail').map((node) => text(node))).toEqual([
       'place Fridge door',
       'notes Big tub',
@@ -183,6 +216,7 @@ describe('PantryPage', () => {
     await configure();
     const fixture = TestBed.createComponent(PantryPage);
     fixture.detectChanges();
+    flushUnits();
 
     // The list request is still in flight: nothing flushed yet.
     expect(root(fixture).querySelector('.pantry-status mat-spinner')).toBeTruthy();
@@ -198,6 +232,7 @@ describe('PantryPage', () => {
     await configure();
     const fixture = TestBed.createComponent(PantryPage);
     fixture.detectChanges();
+    flushUnits();
 
     http
       .expectOne('/api/pantry')
@@ -300,7 +335,7 @@ describe('PantryPage', () => {
 
     // The form starts on the line's own unit: the answer for most adjustments.
     expect(fixture.componentInstance.adjustForm.controls.unitCode.value).toBe('GRAM');
-    expect(text(root(fixture).querySelector('.adjust-current'))).toBe('In stock: 244 g');
+    expect(text(root(fixture).querySelector('.adjust-current'))).toBe('In stock: 244 Gram');
 
     type(fixture, '.amount-field input', '-44.5');
     click(fixture, 'button.apply-adjustment');
@@ -313,7 +348,7 @@ describe('PantryPage', () => {
 
     expect(root(fixture).querySelector('.adjust-panel')).toBeNull();
     expect(text(root(fixture).querySelector('.item-amount'))).toBe('199.5');
-    expect(text(root(fixture).querySelector('.item-unit'))).toBe('g');
+    expect(text(root(fixture).querySelector('.item-unit'))).toBe('Gram');
     expect(snackBar.open).toHaveBeenCalledWith('Quantity updated', 'OK', { duration: 3000 });
   });
 
@@ -444,7 +479,7 @@ describe('PantryPage', () => {
       'Manual',
     ]);
     expect(text(root(fixture).querySelector('.history-note'))).toContain(
-      'Movements in g, oldest first',
+      'Movements in Gram, oldest first',
     );
   });
 
@@ -511,5 +546,95 @@ describe('PantryPage', () => {
       ...root(fixture).querySelector('.pantry-item')!.querySelectorAll('.item-actions button'),
     ];
     expect(afterwards.some((button) => (button as HTMLButtonElement).disabled)).toBe(false);
+  });
+
+  it('opens the add dialog from the header and reloads the list with what was stored', async () => {
+    const fixture = await render([MILK]);
+
+    click(fixture, 'button.open-add-item');
+
+    expect(TestBed.inject(MatDialog).open).toHaveBeenCalledTimes(1);
+
+    const stored: PantryItem = {
+      ...MILK,
+      id: 10,
+      fdcId: 171265,
+      name: 'Milk, whole',
+      quantity: 488,
+      unitCode: 'GRAM',
+    };
+    dialogClosed.next({ kind: 'created', item: stored });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The list is asked for again instead of the new line being inserted here:
+    // its order and its category grouping are the server's to decide.
+    const reload = http.expectOne('/api/pantry');
+    expect(reload.request.method).toBe('GET');
+    reload.flush([stored, MILK]);
+    fixture.detectChanges();
+
+    expect(nodes(fixture, '.item-name').map((node) => text(node))).toEqual([
+      'Milk, whole',
+      'Milk, whole',
+    ]);
+    // The notice reports what the backend stored, not what was typed: 2 pints were
+    // normalized to 488 g, so that is the figure the user is given back.
+    expect(snackBar.open).toHaveBeenCalledWith('Milk, whole added as 488 Gram', 'OK', {
+      duration: 3000,
+    });
+  });
+
+  it('does nothing when the dialog is dismissed without adding anything', async () => {
+    const fixture = await render();
+
+    click(fixture, 'button.open-add-item');
+    dialogClosed.next(undefined);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // No reload, no notice, no panel: nothing happened.
+    expect(http.match(() => true)).toEqual([]);
+    expect(snackBar.open).not.toHaveBeenCalled();
+    expect(root(fixture).querySelector('.item-panel')).toBeNull();
+  });
+
+  it('takes the user to the quantity of the line that already holds the food', async () => {
+    const fixture = await render();
+
+    click(fixture, 'button.open-add-item');
+    dialogClosed.next({ kind: 'existing', fdcId: 172180, message: CONFLICT });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The conflict names the food by fdcId, and the line is already on screen, so
+    // the adjustment of that very line is what opens: no navigation, no search.
+    expect(fixture.componentInstance.adjustForm.controls.unitCode.value).toBe('UNIT');
+    expect(root(fixture).querySelector('.adjust-panel')).toBeTruthy();
+    expect(text(root(fixture).querySelector('.adjust-current'))).toBe('In stock: 2 Unit');
+    expect(snackBar.open).toHaveBeenCalledWith(
+      'Yogurt, plain is already stored: add to its quantity instead.',
+      'OK',
+      { duration: 3000 },
+    );
+  });
+
+  it('reloads and explains when the conflicting food is not in the pantry on screen', async () => {
+    const fixture = await render([MILK]);
+
+    click(fixture, 'button.open-add-item');
+    dialogClosed.next({ kind: 'existing', fdcId: 999, message: CONFLICT });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The stale list cannot be trusted: it is the one thing that disagreed with the
+    // backend, so it is asked for again instead of being patched locally.
+    const reload = http.expectOne('/api/pantry');
+    expect(reload.request.method).toBe('GET');
+    reload.flush([MILK, YOGURT]);
+    fixture.detectChanges();
+
+    expect(nodes(fixture, '.item-name').length).toBe(2);
+    expect(snackBar.open).toHaveBeenCalledWith(CONFLICT, 'OK', { duration: 8000 });
   });
 });
