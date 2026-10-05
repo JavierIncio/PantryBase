@@ -1,10 +1,22 @@
 <header class="pantry-header">
   <div class="pantry-heading">
     <h1>My pantry</h1>
-    @if (!loading() && !loadError() && itemCount() > 0) {
+    @if (totals(); as summary) {
       <p class="pantry-summary">
-        {{ itemCount() }} {{ itemCount() === 1 ? 'item' : 'items' }} in {{ categoryCount() }}
-        {{ categoryCount() === 1 ? 'category' : 'categories' }}
+        {{ summary.totalItems }} {{ summary.totalItems === 1 ? 'item' : 'items' }}
+        @if (summary.zeroItems > 0) {
+          <span class="pantry-summary-zero">· {{ summary.zeroItems }} at zero</span>
+        }
+      </p>
+    } @else if (summaryPending()) {
+      <p class="pantry-summary-pending"><mat-spinner diameter="16" /></p>
+    }
+    @if (summaryError(); as message) {
+      <p class="pantry-summary-error">
+        <span>{{ message }}</span>
+        <button mat-button type="button" class="retry-summary" (click)="loadSummary()">
+          Retry
+        </button>
       </p>
     }
   </div>

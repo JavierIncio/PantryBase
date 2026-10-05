@@ -1,3 +1,5 @@
+import { UnitCategory } from '../catalog/catalog.models';
+
 /**
  * Pantry inventory data models exposed by the `/api/pantry` endpoints
  * (roadmap H3).
@@ -8,8 +10,9 @@
  * client once the springdoc spec is wired into the build.
  *
  * Response records drop the `Response` suffix the backend uses
- * (`PantryItemResponse` becomes {@link PantryItem}), the same way
- * `profile.models.ts` names `UserPreferencesResponse`.
+ * (`PantryItemResponse` becomes {@link PantryItem}, `PantrySummaryResponse`
+ * becomes {@link PantrySummary}), the same way `profile.models.ts` names
+ * `UserPreferencesResponse`.
  */
 
 /**
@@ -106,4 +109,62 @@ export interface ConsumptionEntry {
   readonly deltaQuantity: number;
   readonly origin: ConsumptionOrigin;
   readonly createdAt: string;
+}
+
+/**
+ * How many lines the inventory holds, counted by the server in
+ * `GET /api/pantry/summary`.
+ *
+ * `totalItems` is the sum of {@link byCategory} by construction and not a second
+ * count of the same thing: two queries for one number can disagree and the client
+ * would have no way to tell which one to believe. It is therefore printed as the
+ * server states it and never recomputed from the lines already on screen.
+ *
+ * `zeroItems` counts lines at exactly zero and those lines are inside
+ * `totalItems`. Running out of the last of something is an ordinary event the
+ * schema allows on purpose, so a total that quietly dropped them would report
+ * fewer things than the list shows; publishing the figure hands the decision to
+ * the user instead of hiding it in an omission.
+ *
+ * Both breakdowns are empty when the pantry is, which is an answer and not a
+ * failure.
+ */
+export interface PantrySummary {
+  /** Lines in the pantry, the ones at zero included. */
+  readonly totalItems: number;
+  /** How many of {@link totalItems} are at exactly zero. */
+  readonly zeroItems: number;
+  /**
+   * Lines per ingredient category, largest first.
+   *
+   * The order is the server's presentation decision and is never re-sorted by
+   * the client: a second sort here could only disagree with the one the API
+   * already applied.
+   */
+  readonly byCategory: CategoryShare[];
+  /** Lines per kind of storage unit, in the server's order as well. */
+  readonly byUnitType: UnitShare[];
+}
+
+/** How many lines fall under one ingredient category. */
+export interface CategoryShare {
+  /**
+   * The provider's category, and never `null`: a food that arrived without one is
+   * reported by the server under a fallback name, so a view never has to invent
+   * a heading — and two views would invent different ones.
+   */
+  readonly category: string;
+  readonly items: number;
+}
+
+/**
+ * How many lines are kept in each kind of unit.
+ *
+ * `category` is the catalog's own {@link UnitCategory} rather than a set of unit
+ * codes, so the reader does not have to hold the mapping from `GRAM`/`KG`/`LB` to
+ * "weight" in order to render the split.
+ */
+export interface UnitShare {
+  readonly category: UnitCategory;
+  readonly items: number;
 }

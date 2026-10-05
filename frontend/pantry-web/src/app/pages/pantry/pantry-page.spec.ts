@@ -5,7 +5,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { Subject } from 'rxjs';
 import { Unit } from '../../core/catalog/catalog.models';
-import { ConsumptionEntry, PantryItem } from '../../core/pantry/pantry.models';
+import { ConsumptionEntry, PantryItem, PantrySummary } from '../../core/pantry/pantry.models';
 import { AddPantryItemResult } from './add-pantry-item-dialog';
 import { PantryPage } from './pantry-page';
 
@@ -76,6 +76,35 @@ const UNITS: Unit[] = [
 const CONFLICT =
   'Pantry already contains ingredient fdcId 171265: adjust the existing line instead';
 
+/**
+ * Totals of a pantry bigger than the three fixture lines, so a test can tell the
+ * server's count from the length of the list on screen.
+ */
+const SUMMARY: PantrySummary = {
+  totalItems: 34,
+  zeroItems: 3,
+  byCategory: [
+    { category: 'Dairy and Egg Products', items: 20 },
+    { category: 'Legumes', items: 14 },
+  ],
+  byUnitType: [
+    { category: 'WEIGHT', items: 20 },
+    { category: 'VOLUME', items: 9 },
+    { category: 'COUNT', items: 5 },
+  ],
+};
+
+/** The same totals with nothing at zero, so the zero clause has nothing to say. */
+const SUMMARY_NO_ZEROS: PantrySummary = { ...SUMMARY, totalItems: 34, zeroItems: 0 };
+
+/** What the API answers for a pantry that holds nothing. */
+const SUMMARY_EMPTY: PantrySummary = {
+  totalItems: 0,
+  zeroItems: 0,
+  byCategory: [],
+  byUnitType: [],
+};
+
 describe('PantryPage', () => {
   let http: HttpTestingController;
   let snackBar: { open: ReturnType<typeof vi.fn> };
@@ -106,13 +135,37 @@ describe('PantryPage', () => {
     http.expectOne('/api/units').flush(UNITS);
   };
 
-  /** Creates the page and answers the initial list request with `items`. */
-  const render = async (items: PantryItem[] = [MILK, YOGURT, LENTILS]) => {
+  /**
+   * Answers the header's totals.
+   *
+   * A helper because the page asks for the aggregate on every reload, so most
+   * tests have to settle it more than once; leaving one in the queue is what the
+   * `afterEach` check below exists to catch.
+   */
+  const flushSummary = (summary: PantrySummary = SUMMARY): void => {
+    http.expectOne('/api/pantry/summary').flush(summary);
+  };
+
+  /**
+   * Creates the page and answers the initial requests.
+   *
+   * The totals are answered from `SUMMARY` rather than from the items on purpose:
+   * the two are independent reads of the same pantry and a test must not be able
+   * to pass by counting the list. A `null` summary leaves the aggregate in flight,
+   * which is how a test reaches the pending and failed states of the header.
+   */
+  const render = async (
+    items: PantryItem[] = [MILK, YOGURT, LENTILS],
+    summary: PantrySummary | null = SUMMARY,
+  ) => {
     await configure();
     const fixture = TestBed.createComponent(PantryPage);
     fixture.detectChanges();
     flushUnits();
     http.expectOne('/api/pantry').flush(items);
+    if (summary !== null) {
+      flushSummary(summary);
+    }
     fixture.detectChanges();
     return fixture;
   };
@@ -182,7 +235,9 @@ describe('PantryPage', () => {
       'Yogurt, plain',
       'Lentils, raw',
     ]);
-    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('3 items in 2 categories');
+    // The count is the server's, so the fixture says 34 lines and the header says
+    // 34: proving the header never counts the three rows it happens to be showing.
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('34 items · 3 at zero');
   });
 
   it('shows the quantity of every line with the unit named as the catalog names it', async () => {
@@ -205,11 +260,28 @@ describe('PantryPage', () => {
   });
 
   it('shows the empty state instead of an empty list', async () => {
-    const fixture = await render([]);
+    const fixture = await render([], SUMMARY_EMPTY);
 
     expect(text(root(fixture).querySelector('.pantry-empty'))).toContain('Your pantry is empty');
     expect(nodes(fixture, '.pantry-category').length).toBe(0);
+    // The card already explains it: a header line saying "0 items" on top of it
+    // would only say the same thing less clearly.
     expect(root(fixture).querySelector('.pantry-summary')).toBeNull();
+  });
+
+  it('leaves the zero count out when there is nothing at zero', async () => {
+    const fixture = await render(undefined, SUMMARY_NO_ZEROS);
+
+    // "34 items · 0 at zero" is noise: a zero would be the absence of news, and it
+    // would sit next to a number that is worth reading.
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('34 items');
+    expect(root(fixture).querySelector('.pantry-summary-zero')).toBeNull();
+  });
+
+  it('counts a single line in the singular', async () => {
+    const fixture = await render([MILK], { ...SUMMARY, totalItems: 1, zeroItems: 0 });
+
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('1 item');
   });
 
   it('keeps a spinner up while the pantry is still loading', async () => {
@@ -220,12 +292,25 @@ describe('PantryPage', () => {
 
     // The list request is still in flight: nothing flushed yet.
     expect(root(fixture).querySelector('.pantry-status mat-spinner')).toBeTruthy();
+    // The totals are in flight too, and the header stays quiet rather than showing
+    // a second spinner next to the page's own.
+    expect(root(fixture).querySelector('.pantry-summary-pending')).toBeNull();
 
     http.expectOne('/api/pantry').flush([MILK]);
     fixture.detectChanges();
 
     expect(root(fixture).querySelector('.pantry-status')).toBeNull();
     expect(nodes(fixture, '.pantry-item').length).toBe(1);
+
+    // The page is settled now, so the header shows that the totals are the only
+    // thing left to arrive.
+    expect(root(fixture).querySelector('.pantry-summary-pending mat-spinner')).toBeTruthy();
+
+    flushSummary();
+    fixture.detectChanges();
+
+    expect(root(fixture).querySelector('.pantry-summary-pending')).toBeNull();
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('34 items · 3 at zero');
   });
 
   it('shows the backend message when the load fails and retries on demand', async () => {
@@ -237,6 +322,7 @@ describe('PantryPage', () => {
     http
       .expectOne('/api/pantry')
       .flush(errorResponse(500, 'Database is down'), { status: 500, statusText: 'Server Error' });
+    flushSummary();
     fixture.detectChanges();
 
     expect(text(root(fixture).querySelector('.pantry-error-message'))).toBe('Database is down');
@@ -244,11 +330,54 @@ describe('PantryPage', () => {
     expect(root(fixture).querySelector('.pantry-empty')).toBeNull();
 
     click(fixture, 'button.retry-pantry');
+    // A retry of the view asks for both, not just for the lines.
     http.expectOne('/api/pantry').flush([MILK]);
+    flushSummary();
     fixture.detectChanges();
 
     expect(root(fixture).querySelector('.pantry-error')).toBeNull();
     expect(nodes(fixture, '.pantry-item').length).toBe(1);
+  });
+
+  it('keeps the list when the totals fail, and says so in the header', async () => {
+    const fixture = await render([MILK, YOGURT, LENTILS], null);
+
+    http
+      .expectOne('/api/pantry/summary')
+      .flush(errorResponse(500, 'Aggregate is down'), { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    // The header reports its own failure with the API's own message, and the
+    // page-level error of the list is nowhere to be seen: three lines are stored and
+    // the user came to see them.
+    expect(text(root(fixture).querySelector('.pantry-summary-error'))).toContain(
+      'Aggregate is down',
+    );
+    expect(root(fixture).querySelector('.pantry-error')).toBeNull();
+    // No figures at all: the header has nothing it may print, and it says so
+    // instead of guessing from the lines below.
+    expect(root(fixture).querySelector('.pantry-summary')).toBeNull();
+    expect(nodes(fixture, '.pantry-item').length).toBe(3);
+  });
+
+  it('asks again for the totals when the user retries them', async () => {
+    const fixture = await render([], null);
+
+    http
+      .expectOne('/api/pantry/summary')
+      .flush(errorResponse(500, 'Aggregate is down'), { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    expect(root(fixture).querySelector('.pantry-summary-error')).toBeTruthy();
+
+    click(fixture, 'button.retry-summary');
+    // Retrying the header asks for the aggregate only: the lines are already on
+    // screen and re-reading them would put the page's own states at risk for
+    // nothing.
+    http.expectOne('/api/pantry/summary').flush(SUMMARY);
+    fixture.detectChanges();
+
+    expect(root(fixture).querySelector('.pantry-summary-error')).toBeNull();
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('34 items · 3 at zero');
   });
 
   it('prefills the inline editor from the line and saves both fields', async () => {
@@ -269,6 +398,9 @@ describe('PantryPage', () => {
     expect(root(fixture).querySelector('.edit-panel')).toBeNull();
     expect(text(root(fixture).querySelector('.item-detail'))).toBe('place Top shelf');
     expect(snackBar.open).toHaveBeenCalledWith('Item updated', 'OK', { duration: 3000 });
+    // A location and a note are not counted anywhere: this write cannot move a
+    // published figure, so it does not spend a request on re-reading them.
+    expect(http.match('/api/pantry/summary')).toEqual([]);
   });
 
   it('encodes an emptied location and note as null, which is how the API clears them', async () => {
@@ -350,6 +482,15 @@ describe('PantryPage', () => {
     expect(text(root(fixture).querySelector('.item-amount'))).toBe('199.5');
     expect(text(root(fixture).querySelector('.item-unit'))).toBe('Gram');
     expect(snackBar.open).toHaveBeenCalledWith('Quantity updated', 'OK', { duration: 3000 });
+
+    // A movement can push a line to zero or lift it from there, and that count is
+    // printed in the header, so the totals are asked for again. They stay on screen
+    // meanwhile: they were the server's answer a moment ago.
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('34 items · 3 at zero');
+    http.expectOne('/api/pantry/summary').flush({ ...SUMMARY, zeroItems: 4 });
+    fixture.detectChanges();
+
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('34 items · 4 at zero');
   });
 
   it('refuses a zero adjustment without calling the API', async () => {
@@ -407,6 +548,8 @@ describe('PantryPage', () => {
     const reload = http.expectOne('/api/pantry');
     expect(reload.request.method).toBe('GET');
     reload.flush([YOGURT, LENTILS]);
+    // A reload of the view re-reads the header's totals along with it.
+    flushSummary();
     fixture.detectChanges();
 
     expect(nodes(fixture, '.item-name').map((node) => text(node))).toEqual([
@@ -434,6 +577,7 @@ describe('PantryPage', () => {
       'Lentils, raw',
     ]);
     expect(snackBar.open).toHaveBeenCalledWith('Item removed', 'OK', { duration: 3000 });
+    flushSummary();
   });
 
   it('drops the category block when its last line is removed', async () => {
@@ -444,7 +588,12 @@ describe('PantryPage', () => {
     fixture.detectChanges();
 
     expect(nodes(fixture, '.pantry-category').length).toBe(1);
-    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('1 item in 1 category');
+    // The totals are re-read, not decremented here: one less line is a fact the
+    // server counts, and this page keeps no arithmetic of its own.
+    flushSummary({ ...SUMMARY, totalItems: 33, zeroItems: 2 });
+    fixture.detectChanges();
+
+    expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('33 items · 2 at zero');
   });
 
   it('cancels a pending deletion without touching the API', async () => {
@@ -572,6 +721,8 @@ describe('PantryPage', () => {
     const reload = http.expectOne('/api/pantry');
     expect(reload.request.method).toBe('GET');
     reload.flush([stored, MILK]);
+    // The header's totals move with it: a line was added.
+    flushSummary({ ...SUMMARY, totalItems: 35 });
     fixture.detectChanges();
 
     expect(nodes(fixture, '.item-name').map((node) => text(node))).toEqual([
@@ -632,6 +783,7 @@ describe('PantryPage', () => {
     const reload = http.expectOne('/api/pantry');
     expect(reload.request.method).toBe('GET');
     reload.flush([MILK, YOGURT]);
+    flushSummary();
     fixture.detectChanges();
 
     expect(nodes(fixture, '.item-name').length).toBe(2);

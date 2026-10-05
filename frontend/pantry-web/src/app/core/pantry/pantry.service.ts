@@ -6,6 +6,7 @@ import {
   ConsumptionEntry,
   CreatePantryItemRequest,
   PantryItem,
+  PantrySummary,
   UpdatePantryItemRequest,
 } from './pantry.models';
 
@@ -77,5 +78,23 @@ export class PantryService {
   /** Movements that explain a line's quantity, oldest first. */
   listEntries(itemId: number): Observable<ConsumptionEntry[]> {
     return this.http.get<ConsumptionEntry[]>(`/api/pantry/${itemId}/entries`);
+  }
+
+  /**
+   * Size of the whole inventory, as the server counts it.
+   *
+   * A separate endpoint from {@link listItems} even though it counts the same
+   * lines: this is one aggregate query on the server side instead of one row per
+   * line, so a pantry of any size costs here exactly what its totals are worth.
+   * Neither answer replaces the other — the list is what the user manipulates and
+   * the summary is what a header says about it — so a view that wants both asks
+   * for both, in parallel, and can fail one without losing the other.
+   *
+   * The breakdowns travel with the totals so that no view has to fold a list it
+   * did not fetch into an aggregate, and the client keeps both of them as the
+   * server ordered them.
+   */
+  getSummary(): Observable<PantrySummary> {
+    return this.http.get<PantrySummary>('/api/pantry/summary');
   }
 }

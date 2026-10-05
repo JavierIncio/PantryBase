@@ -39,6 +39,7 @@ import {
   ConsumptionEntry,
   ConsumptionOrigin,
   PantryItem,
+  PantrySummary,
   UpdatePantryItemRequest,
 } from '../../core/pantry/pantry.models';
 import { PantryService } from '../../core/pantry/pantry.service';
@@ -121,6 +122,14 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
  * The list is the whole view, so a failed load is a page-level error with a
  * retry rather than an empty inventory that silently looks like an empty pantry.
  *
+ * The counts in the header are the server's (`GET /api/pantry/summary`) and this
+ * view prints them instead of counting the lines again: one inventory counted
+ * twice is free to disagree with itself. A failed aggregate is a small line with
+ * a retry, never the page's error — a user who came to see what is stored must
+ * not lose it over a header — and the figures already on screen survive a re-read
+ * that fails. No breakdown is drawn here: the list groups the same lines by
+ * category a few centimetres below, so a chart of them would be a copy.
+ *
  * A 404 means the line is gone (or never was this user's) and there is nothing
  * local to correct: every write that gets one closes its panel and reloads the
  * list, because the server's version is the only one that can still be true. A
@@ -166,12 +175,53 @@ export class PantryPage implements OnInit {
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
 
+  /**
+   * Totals of the inventory as the server counted them, `null` until the first
+   * answer arrives.
+   *
+   * Deliberately not derived from {@link items}: the header would then be a
+   * second count of lines the server already counted, and two counts of one fact
+   * are free to disagree. The list keeps its own length for what only the list
+   * needs (an empty state); the header prints what the API says.
+   *
+   * Held across reloads instead of cleared: the figures on screen were true when
+   * they arrived, so a re-read that is still in flight has nothing to correct.
+   */
+  protected readonly summary = signal<PantrySummary | null>(null);
+  protected readonly summaryLoading = signal(false);
+  protected readonly summaryError = signal<string | null>(null);
+
   /** Category blocks of the list, derived so a write never re-sorts anything. */
   protected readonly sections = computed(() => groupByCategory(this.items()));
-  protected readonly itemCount = computed(() => this.items().length);
-  protected readonly categoryCount = computed(() => this.sections().length);
   protected readonly isEmpty = computed(
     () => !this.loading() && this.loadError() === null && this.items().length === 0,
+  );
+
+  /**
+   * The totals worth printing in the header.
+   *
+   * Null for an empty pantry because the page then shows a card explaining that
+   * it is empty: a header line reading "0 items" above it would say the same
+   * thing twice and less clearly.
+   */
+  protected readonly totals = computed(() => {
+    const summary = this.summary();
+    return summary !== null && summary.totalItems > 0 ? summary : null;
+  });
+
+  /**
+   * True while the totals are still unknown and nothing else takes their place.
+   *
+   * The page's own spinner already says the view is loading, so a second one in
+   * the header would only compete with it, and a list that failed to load takes
+   * the whole body with it.
+   */
+  protected readonly summaryPending = computed(
+    () =>
+      this.summary() === null &&
+      this.summaryLoading() &&
+      !this.loading() &&
+      this.loadError() === null,
   );
 
   /**
@@ -244,13 +294,20 @@ export class PantryPage implements OnInit {
   }
 
   /**
-   * Loads the pantry.
+   * Loads the pantry and the totals of its header.
    *
-   * The response replaces the list outright rather than being merged: the
-   * server is the only authority on what exists, and a merge would keep showing
-   * a line that was deleted while the page was open.
+   * The two requests are issued together and settled separately. Neither answer is
+   * needed to ask for the other, so there is nothing to sequence; and an aggregate
+   * that fails must not take the list down with it, which is exactly what folding
+   * them into one `forkJoin` would do — so they are two subscriptions with two
+   * sets of state instead.
+   *
+   * The list response replaces the local lines outright rather than being merged:
+   * the server is the only authority on what exists, and a merge would keep
+   * showing a line that was deleted while the page was open.
    */
   protected load(): void {
+    this.loadSummary();
     this.loading.set(true);
     this.loadError.set(null);
     this.pantry.listItems().subscribe({
@@ -261,6 +318,34 @@ export class PantryPage implements OnInit {
       error: (error: HttpErrorResponse) => {
         this.loading.set(false);
         this.loadError.set(toErrorResponse(error).message || 'Unable to load your pantry.');
+      },
+    });
+  }
+
+  /**
+   * Reads the totals printed in the header.
+   *
+   * The figures already on screen stay there while the request travels and after a
+   * failure: they were the server's answer when they arrived, and a number that
+   * disappears is worse news than one that is briefly behind. Only the first
+   * attempt has nothing to fall back on, which is when the pending and error
+   * states are the ones on screen.
+   *
+   * Called on every reload of the view, because the totals are part of it, and not
+   * only on entry: a header that keeps saying "34 items" under a list of 35 is
+   * lying about the only thing it exists to say.
+   */
+  protected loadSummary(): void {
+    this.summaryLoading.set(true);
+    this.summaryError.set(null);
+    this.pantry.getSummary().subscribe({
+      next: (summary) => {
+        this.summary.set(summary);
+        this.summaryLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.summaryLoading.set(false);
+        this.summaryError.set(toErrorResponse(error).message || 'Unable to count your pantry.');
       },
     });
   }
@@ -415,6 +500,8 @@ export class PantryPage implements OnInit {
         this.savingItemId.set(null);
         this.replaceItem(updated);
         this.closePanelOf(item.id);
+        // Nothing else is asked for: neither the location nor the note is counted
+        // anywhere, so this write cannot move a published figure.
         this.notify('Item updated');
       },
       error: (error: HttpErrorResponse) => this.failWrite(error, 'Unable to update this item.'),
@@ -446,6 +533,9 @@ export class PantryPage implements OnInit {
         this.savingItemId.set(null);
         this.replaceItem(updated);
         this.closePanelOf(item.id);
+        // A signed movement can push a line to zero or lift it from there, and that
+        // count is published in the header, so it is asked for again.
+        this.loadSummary();
         this.notify('Quantity updated');
       },
       error: (error: HttpErrorResponse) => this.failWrite(error, 'Unable to adjust the quantity.'),
@@ -478,6 +568,9 @@ export class PantryPage implements OnInit {
         this.confirmingDeleteId.set(null);
         this.closePanelOf(item.id);
         this.items.update((items) => items.filter((candidate) => candidate.id !== item.id));
+        // A removed line is one line fewer in the header's count, and the categories
+        // it was the only member of are gone from the server's breakdown too.
+        this.loadSummary();
         this.notify('Item removed');
       },
       error: (error: HttpErrorResponse) => {

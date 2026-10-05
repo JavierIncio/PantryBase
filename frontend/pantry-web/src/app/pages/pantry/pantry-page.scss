@@ -18,6 +18,35 @@
     margin: 0;
     color: var(--mat-sys-on-surface-variant);
   }
+
+  // The header colours its own text as a whole, so a rule that has to beat it
+  // lives in here: nesting is what raises it above the `p` selector above.
+  //
+  // The pending and error lines carry no `pantry-summary` class of their own: that
+  // one names the figures the API counted, and a state of those figures should not
+  // be able to pass for them.
+  //
+  // The zero count is the one figure worth interrupting for — it is what the user
+  // would act on — and the error colour is the palette's only alert tone. It is
+  // the only coloured element of the header, so it cannot read as decoration.
+  .pantry-summary-zero {
+    color: var(--mat-sys-error);
+  }
+
+  // Sized to the line it replaces, so the header does not jump when the totals
+  // land or fail.
+  .pantry-summary-pending {
+    display: flex;
+    align-items: center;
+    min-height: 1.25rem;
+  }
+
+  .pantry-summary-error {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--mat-sys-error);
+  }
 }
 
 // The title and the summary stack, with the add button beside them.

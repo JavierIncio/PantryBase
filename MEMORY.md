@@ -6,9 +6,9 @@
 
 ## Dónde estamos
 
-**Hito en curso: H3 (inventario) cerrado y verificado.** H0, H1 y H2 también. **Lo único que queda de H3 son las métricas.**
+**Hito en curso: H3 (inventario) cerrado y verificado.** H0, H1 y H2 también. **No queda ninguna casilla abierta de H3: las métricas lo consumieron.**
 
-Estado verificado: **backend 233 tests verdes**, gate de JaCoCo superado con `.\mvnw.cmd -o verify`. **Frontend 158 tests verdes** con `npm test` y `npm run build` sin avisos.
+Estado verificado: **backend 242 tests verdes**, gate de JaCoCo superado con `.\mvnw.cmd -o verify`. **Frontend 165 tests verdes** con `npm test` y `npm run build` sin avisos.
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -22,7 +22,10 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H3-2 Ajuste y auditoría:** `POST /api/pantry/{id}/adjustments` (cantidad con signo, en cualquier unidad, convertida a la de la línea) y `GET /api/pantry/{id}/entries`. El alta escribe también su asiento. `InsufficientStockException` → `409` solo si el resultado es negativo; ajuste de `0` → `400`. `OptimisticLockingFailureException` → `409`.
 - **H3-3 Frontend «Mi despensa»:** `core/pantry/pantry.service.ts` y `pages/pantry/pantry-page.*`, con los cinco endpoints tipados, lista agrupada por categoría, edición inline, ajuste con signo, borrado con confirmación e historial. 28 tests con Vitest. **El frontend lo hizo el subagente `frontend`; `pantry` no lo toca.**
 - **Medidas en el detalle de ingrediente:** `GET /api/catalog/ingredients/{fdcId}` añade `measures` (`{unitCode, gramPerUnit}`, ordenada por código, `[]` si el USDA no pesó ninguna). Sin endpoint nuevo, porque el detalle es la llamada que las captura.
-- **H3-4 Alta rápida (frontend):** diálogo sobre la lista con `core/catalog/` (`catalog.service`, `unit.service`, `unit-groups` como función pura). **Eliminado el mapa local de unidades**: las etiquetas salen de `GET /api/units` mediante `UnitService`, que carga una vez por sesión y deja el código desconocido tal cual. **El frontend lo hizo el subagente `frontend`; `pantry` no lo toca.**
+- **Alta rápida desde el catálogo:** diálogo sobre la lista con `core/catalog/` (`catalog.service`, `unit.service`, `unit-groups` como función pura). **Eliminado el mapa local de unidades**: las etiquetas salen de `GET /api/units` mediante `UnitService`, que carga una vez por sesión y deja el código desconocido tal cual. **El frontend lo hizo el subagente `frontend`; `pantry` no lo toca.**
+- **Métricas (`GET /api/pantry/summary`):** `totalItems`, `zeroItems`, `byCategory`, `byUnitType`. **Una sola query `GROUP BY i.category, u.category`** (el primero del proyecto) y los desgloses se pliegan en Java, porque **dos queries de conteo pueden discrepar** y el cliente no sabría cuál creer; por eso el total es la suma del desglose. **El cero cuenta en el total y se publica aparte**: si no, el total sería menor que las secciones visibles.
+- **Decisión de producto que sigue abierta y NO se decidió aquí:** si al llegar a cero la línea se borra sola o se queda para que el usuario decida. No se ha tocado. Encaja con la decisión ya tomada de que el cero sea representable y con que borrar hace inalcanzable el historial de la línea.
+- **Un solo texto en castellano en toda la API:** `"Sin categoría"`, que el servidor usa para una categoría ausente (`ingredients.category` es texto libre del USDA y admite nulos). Emitir `null` obligaría a cada vista a inventar un encabezado. Compromiso a revisar si la app gana un segundo idioma.
 
 ## Decisiones ya tomadas de H3 (no volver a abrir sin motivo)
 
@@ -38,7 +41,7 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Próximos pasos
 
-1. **Métricas de inventario** (tamaño y reparto por categoría): es lo único que queda de H3.
+1. **H4 (recetas y filtrado por disponibilidad)** es el siguiente hito: la recomendación por despensa es el diferencial del producto y el motor de unidades que ya existe se reutiliza tal cual. Empezar por la integración con **TheMealDB**, que es otro proveedor externo con su propia forma de respuesta: **replicar desde el primer endpoint la regla de `FdcCachePolicy` (TTL) y usar fixtures literales de respuesta real**, que es lo que evitó tres correcciones de wire con el USDA.
 2. **H5 tiene una deuda conocida:** `ConsumptionOrigin` pasa a tener dos miembros (`COOKING_SESSION`) y el tipo del frontend es una unión de uno solo, así que el compilador avisará.
 3. **Frontend del catálogo:** el conversor de unidades sigue sin pantalla (el buscador ya existe dentro del alta rápida).
 4. **Verificar el login de Google** contra un cliente real de OAuth2; hasta ahora solo se ha probado el camino con contraseña.

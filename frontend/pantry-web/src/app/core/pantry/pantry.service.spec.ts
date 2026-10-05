@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
-import { ConsumptionEntry, PantryItem } from './pantry.models';
+import { ConsumptionEntry, PantryItem, PantrySummary } from './pantry.models';
 import { PantryService } from './pantry.service';
 
 const ITEM: PantryItem = {
@@ -22,6 +22,22 @@ const ENTRIES: ConsumptionEntry[] = [
   { id: 1, deltaQuantity: 244, origin: 'MANUAL', createdAt: '2026-10-01T10:00:00Z' },
   { id: 2, deltaQuantity: -44.5, origin: 'MANUAL', createdAt: '2026-10-03T18:30:00Z' },
 ];
+
+const SUMMARY: PantrySummary = {
+  totalItems: 34,
+  zeroItems: 3,
+  // Largest first, then alphabetical: the order the server chose, not one this
+  // client is allowed to have a say in.
+  byCategory: [
+    { category: 'Grains', items: 12 },
+    { category: 'Sin categoría', items: 1 },
+  ],
+  byUnitType: [
+    { category: 'WEIGHT', items: 20 },
+    { category: 'VOLUME', items: 9 },
+    { category: 'COUNT', items: 5 },
+  ],
+};
 
 describe('PantryService', () => {
   let service: PantryService;
@@ -108,6 +124,61 @@ describe('PantryService', () => {
     req.flush(ENTRIES);
 
     await expect(result).resolves.toEqual(ENTRIES);
+  });
+
+  it('getSummary GETs the aggregate and hands the totals back exactly as counted', async () => {
+    const result = firstValueFrom(service.getSummary());
+
+    // Its own path: /api/pantry is the list, and one string prefix is not one
+    // endpoint. The breakdown arrives with the totals so no view has to fold a list
+    // it did not fetch into an aggregate.
+    const req = http.expectOne('/api/pantry/summary');
+    expect(req.request.method).toBe('GET');
+    req.flush(SUMMARY);
+
+    await expect(result).resolves.toEqual(SUMMARY);
+  });
+
+  it('getSummary answers an empty pantry with zeros and no breakdown', async () => {
+    const result = firstValueFrom(service.getSummary());
+
+    http.expectOne('/api/pantry/summary').flush({
+      totalItems: 0,
+      zeroItems: 0,
+      byCategory: [],
+      byUnitType: [],
+    });
+
+    // Not a 404 and not an error: an inventory with nothing in it is a fact the
+    // caller renders, so the empty shapes must survive the trip untouched.
+    await expect(result).resolves.toEqual({
+      totalItems: 0,
+      zeroItems: 0,
+      byCategory: [],
+      byUnitType: [],
+    });
+  });
+
+  it('getSummary rejects an unauthenticated read with the message the API sent', async () => {
+    const result = firstValueFrom(service.getSummary());
+
+    http.expectOne('/api/pantry/summary').flush(
+      {
+        timestamp: '2026-10-05T12:00:00Z',
+        status: 401,
+        error: 'Unauthorized',
+        message: 'Full authentication is required to access this resource',
+        path: '/api/pantry/summary',
+      },
+      { status: 401, statusText: 'Unauthorized' },
+    );
+
+    // The aggregate gets no special treatment on the way out: the JWT interceptor
+    // and toErrorResponse already turn it into the one shape every caller reads.
+    await expect(result).rejects.toMatchObject({
+      status: 401,
+      error: { message: 'Full authentication is required to access this resource' },
+    });
   });
 
   it('surfaces the ErrorResponse body so the caller can read its message', async () => {
