@@ -2,11 +2,11 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **5 de octubre de 2026** (H3-1, H3-2 y H3-3 cerrados; medidas del ingrediente en el detalle, implementadas y verificadas, sin commitear).
+> Máximo 100 líneas. Última actualización: **5 de octubre de 2026** (H3-1, H3-2 y H3-3 cerrados, y las medidas del ingrediente ya dentro del detalle).
 
 ## Dónde estamos
 
-**Hito en curso: H3 (inventario).** H0, H1 y H2 están cerrados y verificados. **H3-1, H3-2 y H3-3 están implementados, verificados y commiteados.**
+**Hito en curso: H3 (inventario).** H0, H1 y H2 están cerrados y verificados. **H3-1, H3-2 y H3-3 están implementados, verificados y commiteados**, y el backend que necesita el alta rápida también.
 
 Estado verificado: **backend 233 tests verdes** (215 al cerrar H3-1 + 15 de H3-2 + 3 de medidas), gate de JaCoCo superado con `.\mvnw.cmd -o verify`. **Frontend 116 tests verdes** con `npm test` y `npm run build` sin avisos.
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
