@@ -498,6 +498,8 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | **El `POST` lleva `fdcId`, nunca el id interno** | Es el contrato deliberado: el cliente solo ve ids del proveedor en el catálogo, y esa elección es la que permite responder `409` y `404` con un mensaje accionable. |
 | **Contadores de secuencia en las dos lecturas** | El template ya deshabilita el botón de buscar mientras busca y los resultados mientras se lee un detalle, así que hoy no hay forma de solaparlas. Los contadores están para que **los métodos no dependan de esa disposición**: `add()` ya refusaba un segundo clic en código y no en el botón, y estas dos lecturas eran la excepción. |
 
+**Presupuesto de bundle:** `angular.json` avisa a partir de 650 kB de bundle inicial y falla a 1 MB. El aviso subió desde 600 kB al cerrar el alta rápida, que dejó el inicial en 600,06 kB. Los dos datos que lo justifican: la subida real fue de 3 kB y **no es código de la funcionalidad**, que va entero en el *chunk* perezoso de `pantry-page` (de 21 a 65 kB); el bundle inicial es en realidad 7 kB *más pequeño* y lo que creció fue *vendor* reubicado. Un umbral que salta por 60 bytes trains a ignorar los avisos, y a 650 kB siguen quedando 350 kB de margen antes del fallo.
+
 
 
 ---
