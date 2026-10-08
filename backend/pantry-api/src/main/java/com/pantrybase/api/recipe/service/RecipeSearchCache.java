@@ -29,6 +29,7 @@ import java.util.HexFormat;
 public class RecipeSearchCache {
 
     private static final String KEY_PREFIX = "catalog:themdb:search:";
+    private static final String KEY_PREFIX_INGREDIENT = "catalog:themdb:ingredient:";
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -43,7 +44,28 @@ public class RecipeSearchCache {
     }
 
     public Optional<List<TheMealDbClient.MealSummary>> get(RecipeSearchRequest request) {
-        String key = key(request);
+        return get(key(request));
+    }
+
+    public void put(RecipeSearchRequest request, List<TheMealDbClient.MealSummary> hits) {
+        put(key(request), hits);
+    }
+
+    /**
+     * Cached {@code filter.php} answers keyed by the ingredient word, separate from the
+     * name-search keys on purpose: {@code search.php?i=} is not the same question as
+     * {@code filter.php?i=}, and combining the two under one key could serve the wrong
+     * answer for the same word.
+     */
+    public Optional<List<TheMealDbClient.MealSummary>> getByIngredient(String word) {
+        return get(KEY_PREFIX_INGREDIENT + digest(word.trim().toLowerCase()));
+    }
+
+    public void putByIngredient(String word, List<TheMealDbClient.MealSummary> hits) {
+        put(KEY_PREFIX_INGREDIENT + digest(word.trim().toLowerCase()), hits);
+    }
+
+    private Optional<List<TheMealDbClient.MealSummary>> get(String key) {
         try {
             String payload = redis.opsForValue().get(key);
             if (payload == null) return Optional.empty();
@@ -54,8 +76,7 @@ public class RecipeSearchCache {
         }
     }
 
-    public void put(RecipeSearchRequest request, List<TheMealDbClient.MealSummary> hits) {
-        String key = key(request);
+    private void put(String key, List<TheMealDbClient.MealSummary> hits) {
         try {
             redis.opsForValue().set(key, objectMapper.writeValueAsString(hits), ttl);
         } catch (Exception ignored) {}

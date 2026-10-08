@@ -9,12 +9,7 @@ import {
 } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButton } from '@angular/material/button';
-import {
-  MatCard,
-  MatCardContent,
-  MatCardHeader,
-  MatCardTitle,
-} from '@angular/material/card';
+import { MatCard, MatCardContent, MatCardHeader, MatCardTitle } from '@angular/material/card';
 import { MatChip, MatChipSet } from '@angular/material/chips';
 import { MatFormField, MatLabel } from '@angular/material/form-field';
 import { MatIcon } from '@angular/material/icon';
@@ -22,14 +17,11 @@ import { MatInput } from '@angular/material/input';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSlideToggle, MatSlideToggleChange } from '@angular/material/slide-toggle';
+import { MatToolbar } from '@angular/material/toolbar';
 import { RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 import { toErrorResponse } from '../../core/auth/auth.models';
-import {
-  RecipeSearchQuery,
-  RecipeSource,
-  RecipeSummary,
-} from '../../core/recipes/recipes.models';
+import { RecipeSearchQuery, RecipeSource, RecipeSummary } from '../../core/recipes/recipes.models';
 import {
   coverageClass,
   coveragePercent,
@@ -37,6 +29,7 @@ import {
   passesThreshold,
 } from '../../core/recipes/recipe-matching';
 import { RecipesService } from '../../core/recipes/recipes.service';
+import { ProfileService } from '../../core/user/profile.service';
 
 /** How the two recipe origins are named in the UI. */
 const SOURCE_LABELS: Record<RecipeSource, string> = {
@@ -118,6 +111,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 export class RecipesPage implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly recipesService = inject(RecipesService);
+  private readonly profileService = inject(ProfileService);
 
   /**
    * The search box.
@@ -155,6 +149,14 @@ export class RecipesPage implements OnInit {
 
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
+
+  /** Indicates whether the current results come from recommend or search. */
+  protected readonly mode = signal<'search' | 'suggest'>('search');
+
+  /** Suggest-specific state. */
+  protected readonly suggestLoading = signal(false);
+  protected readonly suggestError = signal<string | null>(null);
+  protected readonly suggestEmpty = signal(false);
 
   /**
    * The cards on screen: the searched rows, filtered by the slider and ordered
@@ -204,7 +206,28 @@ export class RecipesPage implements OnInit {
       .pipe(debounceTime(SEARCH_DEBOUNCE_MS), distinctUntilChanged())
       .subscribe(() => this.load());
     this.filters.controls.threshold.valueChanges.subscribe((value) => this.threshold.set(value));
+    this.loadPreferences();
     this.load();
+  }
+
+  private loadPreferences(): void {
+    this.profileService.getPreferences().subscribe({
+      next: (preferences) => {
+        const threshold = preferences.coverageThreshold;
+        this.strict.set(preferences.filterMode === 'STRICT');
+        if (threshold >= 0 && threshold <= 100) {
+          this.threshold.set(threshold);
+          this.filters.controls.threshold.setValue(threshold, { emitEvent: false });
+        }
+        if (preferences.filterMode === 'STRICT') {
+          this.filters.controls.threshold.setValue(100, { emitEvent: false });
+          this.threshold.set(100);
+        }
+      },
+      error: () => {
+        // If the profile fails to load, keep defaults as-is.
+      },
+    });
   }
 
   /**
@@ -229,10 +252,14 @@ export class RecipesPage implements OnInit {
       ...(name !== '' ? { name } : {}),
       ...(this.strict() ? { strict: true } : {}),
       ...(this.allergenSafe() ? { allergenSafe: true } : {}),
+      threshold: 0,
     };
 
+    this.mode.set('search');
     this.loading.set(true);
     this.loadError.set(null);
+    this.suggestEmpty.set(false);
+    this.suggestError.set(null);
     this.recipesService.search(query).subscribe({
       next: (recipes) => {
         if (seq !== this.searchSeq) {
@@ -249,6 +276,43 @@ export class RecipesPage implements OnInit {
         this.loadError.set(toErrorResponse(error).message || 'Unable to load recipes.');
       },
     });
+  }
+
+  protected suggest(): void {
+    const seq = ++this.searchSeq;
+    this.mode.set('suggest');
+    this.suggestLoading.set(true);
+    this.suggestError.set(null);
+    this.suggestEmpty.set(false);
+    this.loadError.set(null);
+    this.loading.set(false);
+
+    this.recipesService
+      .recommend({
+        strict: this.strict() ? true : false,
+        allergenSafe: this.allergenSafe() ? true : false,
+      })
+      .subscribe({
+        next: (recipes) => {
+          if (seq !== this.searchSeq) {
+            return;
+          }
+          this.recipes.set(recipes);
+          this.suggestLoading.set(false);
+          this.suggestEmpty.set(recipes.length === 0);
+        },
+        error: (error: HttpErrorResponse) => {
+          if (seq !== this.searchSeq) {
+            return;
+          }
+          this.suggestLoading.set(false);
+          this.suggestError.set(toErrorResponse(error).message || 'Unable to load suggestions.');
+        },
+      });
+  }
+
+  protected retrySuggest(): void {
+    this.suggest();
   }
 
   /**
@@ -270,6 +334,10 @@ export class RecipesPage implements OnInit {
   /** Flips the allergen-safe filter and re-searches, so excluded recipes leave. */
   protected onAllergenSafeChange(change: MatSlideToggleChange): void {
     this.allergenSafe.set(change.checked);
+    if (this.mode() === 'suggest') {
+      this.suggest();
+      return;
+    }
     this.load();
   }
 

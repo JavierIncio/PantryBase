@@ -62,7 +62,9 @@ export interface IngredientCoverageRow {
   /**
    * Coverage of this ingredient, or `null` when the payload carries no row for
    * it: a missing row is not a failure of the recipe, and the line is still
-   * shown with the pantry side left as "unknown" rather than dropped.
+   * shown with the pantry side left as "unknown" rather than dropped. An
+   * unmatched line (`matched: false`) can only ever land here — it has no
+   * catalog id for the backend to measure.
    */
   readonly coverage: IngredientCoverage | null;
 }
@@ -73,7 +75,8 @@ export interface IngredientCoverageRow {
  * Only the ingredients list owns an order (`position`); the coverage list is a
  * lookup by ingredient, so rendering it in its own order would silently jumble
  * the recipe. The join keeps every ingredient line and attaches the coverage
- * that belongs to it.
+ * that belongs to it — the full list, so a provider line the catalog never
+ * understood is rendered too, just without a coverage row.
  *
  * A coverage entry without an ingredient line is dropped — there is nothing to
  * attach it to — and an ingredient that appears more than once in a recipe
@@ -87,7 +90,9 @@ export function pairCoverage(
   const byId = new Map(coverage.map((row) => [row.ingredientId, row]));
   return ingredients.map((ingredient) => ({
     ingredient,
-    coverage: byId.get(ingredient.ingredientId) ?? null,
+    // An unmatched line has a null id; the coverage keys are never null, so
+    // short-circuiting keeps the lookup typed over real catalog ids only.
+    coverage: ingredient.ingredientId === null ? null : (byId.get(ingredient.ingredientId) ?? null),
   }));
 }
 

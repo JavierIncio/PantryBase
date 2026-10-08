@@ -46,6 +46,27 @@ export class RecipesService {
   }
 
   /**
+   * Recommends recipes based on the user's pantry.
+   *
+   * Calls `GET /api/recipes/recommend` with the given params. The server forces
+   * threshold to 0 internally, so the client slider refines the returned set.
+   */
+  recommend(
+    params: { strict?: boolean; allergenSafe?: boolean } = {},
+  ): Observable<RecipeSummary[]> {
+    let httpParams = new HttpParams();
+    if (params.strict === true) {
+      httpParams = httpParams.set('strict', 'true');
+    }
+    if (params.allergenSafe === true) {
+      httpParams = httpParams.set('allergenSafe', 'true');
+    }
+    return httpParams.keys().length > 0
+      ? this.http.get<RecipeSummary[]>('/api/recipes/recommend', { params: httpParams })
+      : this.http.get<RecipeSummary[]>('/api/recipes/recommend');
+  }
+
+  /**
    * Reads one recipe in full, coverage included.
    *
    * The answer is the only source of the ingredient lines and their pantry

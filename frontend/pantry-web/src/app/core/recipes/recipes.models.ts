@@ -78,7 +78,10 @@ export interface RecipeSummary {
  * coverage has no `position` of its own, so pairing them is a join by
  * `ingredientId` (see {@link pairCoverage} in `recipe-matching.ts`). Iterating
  * `coverage` would lose the recipe's order; iterating `ingredients` without the
- * join would lose how much of each is available.
+ * join would lose how much of each is available. Coverage only carries the
+ * lines that resolved to the catalog (`matched: true`): an uncatalogued line
+ * has nothing to measure, so the join must tolerate its missing row while the
+ * line itself still counts in the recipe's `matchScore` denominator.
  */
 export interface RecipeDetail {
   readonly id: number;
@@ -113,20 +116,32 @@ export interface RecipeDetail {
  * is the figure a pantry comparison can use. The client renders the canonical
  * amount — mixing original wording into a coverage comparison would compare
  * "1 cup" with a gram count.
+ *
+ * `matched` says whether the line resolved to a catalog ingredient. The
+ * backend persists every provider line, understood or not, because the
+ * coverage denominator is the real recipe: an unmatched line
+ * (`matched: false`) keeps the provider's own wording in `ingredientName` and
+ * sends a null `ingredientId` with null quantities, unit codes and category —
+ * there is no amount, no category and no catalog link to show for it, and the
+ * UI must not invent any.
  */
 export interface RecipeIngredient {
-  /** Catalog ingredient this line resolves to. */
-  readonly ingredientId: number;
+  /** Catalog ingredient this line resolves to; null when `matched` is false. */
+  readonly ingredientId: number | null;
+  /** Catalog name for a matched line; the provider's wording otherwise. */
   readonly ingredientName: string;
-  readonly ingredientCategory: string;
+  /** Catalog category of the ingredient; null for an unmatched line. */
+  readonly ingredientCategory: string | null;
   /** Amount as the provider wrote it, in the provider's unit. */
-  readonly originalAmount: number;
-  readonly originalUnitCode: string;
+  readonly originalAmount: number | null;
+  readonly originalUnitCode: string | null;
   /** Amount normalized to a catalog unit, in `canonicalUnitCode`. */
-  readonly canonicalAmount: number;
-  readonly canonicalUnitCode: string;
+  readonly canonicalAmount: number | null;
+  readonly canonicalUnitCode: string | null;
   /** Unit category of the canonical unit (`WEIGHT`, `VOLUME`, `COUNT`). */
-  readonly canonicalUnitCategory: string;
+  readonly canonicalUnitCategory: string | null;
+  /** Whether the line maps to a catalog ingredient; drives its rendering. */
+  readonly matched: boolean;
   /** Line order inside the recipe; what `coverage` is missing. */
   readonly position: number;
 }
@@ -154,7 +169,8 @@ export interface RecipeNutrients {
  * true when the pantry holds at least that, with no partial credit.
  *
  * The list deliberately carries no `position`: it is joined back to the
- * ingredient lines by `ingredientId`, never rendered on its own.
+ * ingredient lines by `ingredientId`, never rendered on its own. Only matched
+ * lines appear here — an unmatched line has no catalog id to compare.
  */
 export interface IngredientCoverage {
   readonly ingredientId: number;

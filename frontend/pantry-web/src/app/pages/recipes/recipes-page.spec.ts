@@ -81,7 +81,11 @@ describe('RecipesPage', () => {
     await configure();
     const fixture = TestBed.createComponent(RecipesPage);
     fixture.detectChanges();
-    http.expectOne('/api/recipes').flush(recipes);
+    const prefsReq = http.expectOne('/api/users/preferences');
+    prefsReq.flush({ filterMode: 'LAX', coverageThreshold: 70, diet: 'BALANCED' });
+    const recipesReq = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+    expect(recipesReq.request.params.get('threshold')).toBe('0');
+    recipesReq.flush(recipes);
     fixture.detectChanges();
     return fixture;
   };
@@ -104,7 +108,7 @@ describe('RecipesPage', () => {
 
   /** Answers the next search — the debounce and the toggles both end in one. */
   const answerSearch = (fixture: ComponentFixture<RecipesPage>, recipes: RecipeSummary[]): void => {
-    http.expectOne('/api/recipes').flush(recipes);
+    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes')).flush(recipes);
     fixture.detectChanges();
   };
 
@@ -214,7 +218,15 @@ describe('RecipesPage', () => {
     await configure();
     const fixture = TestBed.createComponent(RecipesPage);
     fixture.detectChanges();
-    answerSearch(fixture, [PASTA, STEW, SALAD]);
+    http.expectOne('/api/users/preferences').flush({
+      filterMode: 'LAX',
+      coverageThreshold: 70,
+      diet: 'BALANCED',
+    });
+    http
+      .expectOne((req) => req.urlWithParams.startsWith('/api/recipes'))
+      .flush([PASTA, STEW, SALAD]);
+    fixture.detectChanges();
 
     vi.useFakeTimers();
     try {
@@ -263,7 +275,9 @@ describe('RecipesPage', () => {
       fixture.detectChanges();
       const reqs = searchReqs(fixture);
       expect(reqs.length).toBe(1);
-      expect(reqs[0].request.params.keys()).toEqual([]);
+      const params = reqs[0].request.params;
+      expect(params.get('threshold')).toBe('0');
+      expect(params.keys().filter((k) => k !== 'threshold')).toEqual([]);
       reqs[0].flush([PASTA, STEW, SALAD]);
       fixture.detectChanges();
     } finally {
@@ -282,8 +296,10 @@ describe('RecipesPage', () => {
     click(fixture, '.toggle-strict button');
 
     const req = expectSearch();
-    expect(req.request.params.keys()).toEqual(['strict']);
+    const keys = req.request.params.keys().sort();
+    expect(keys).toEqual(['strict', 'threshold']);
     expect(req.request.params.get('strict')).toBe('true');
+    expect(req.request.params.get('threshold')).toBe('0');
     req.flush([PASTA]);
     fixture.detectChanges();
 
@@ -297,7 +313,9 @@ describe('RecipesPage', () => {
     // Off again: the bar unlocks where strict left it, never reset to 70.
     click(fixture, '.toggle-strict button');
     const plain = expectSearch();
-    expect(plain.request.params.keys()).toEqual([]);
+    const plainKeys = plain.request.params.keys();
+    expect(plainKeys).toEqual(['threshold']);
+    expect(plain.request.params.get('threshold')).toBe('0');
     plain.flush([PASTA, STEW, SALAD]);
     fixture.detectChanges();
 
@@ -315,6 +333,7 @@ describe('RecipesPage', () => {
     // The allergen filter reads the user's exclusions, which only the server
     // holds, so it has to travel and the page re-searches.
     expect(req.request.params.get('allergenSafe')).toBe('true');
+    expect(req.request.params.get('threshold')).toBe('0');
     req.flush([PASTA, STEW]);
     fixture.detectChanges();
 
@@ -322,7 +341,7 @@ describe('RecipesPage', () => {
   });
 
   it('drops the answer of a search the user has already moved past', async () => {
-    const fixture = await render();
+    const fixture = await render([PASTA, STEW, SALAD]);
 
     // Two searches in flight: strict first, then allergen-safe.
     click(fixture, '.toggle-strict button');
@@ -349,7 +368,14 @@ describe('RecipesPage', () => {
     const fixture = TestBed.createComponent(RecipesPage);
     fixture.detectChanges();
 
-    http.expectOne('/api/recipes').flush(errorResponse(500, 'Recipe engine is down'), {
+    http.expectOne('/api/users/preferences').flush({
+      filterMode: 'LAX',
+      coverageThreshold: 70,
+      diet: 'BALANCED',
+    });
+
+    const failedReq = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+    failedReq.flush(errorResponse(500, 'Recipe engine is down'), {
       status: 500,
       statusText: 'Server Error',
     });
@@ -362,7 +388,9 @@ describe('RecipesPage', () => {
     expect(root(fixture).querySelector('.recipes-empty')).toBeNull();
 
     click(fixture, 'button.retry-recipes');
-    answerSearch(fixture, [PASTA]);
+    const retryReq = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+    retryReq.flush([PASTA]);
+    fixture.detectChanges();
 
     expect(root(fixture).querySelector('.recipes-error')).toBeNull();
     expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara']);
@@ -384,5 +412,135 @@ describe('RecipesPage', () => {
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate.mock.calls[0][0]).toEqual(urlTree);
     expect(navigate.mock.calls[0][1]).toMatchObject({ skipLocationChange: false });
+  });
+
+  it('initializes slider and strict from user preferences', async () => {
+    await configure();
+    const fixture = TestBed.createComponent(RecipesPage);
+    fixture.detectChanges();
+    http.expectOne('/api/users/preferences').flush({
+      filterMode: 'STRICT',
+      coverageThreshold: 85,
+      diet: 'BALANCED',
+    });
+    const recipesReq = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+    recipesReq.flush([PASTA]);
+    fixture.detectChanges();
+
+    expect(text(root(fixture).querySelector('.threshold-value'))).toBe('100%');
+    expect((nodes(fixture, '.threshold-slider input')[0] as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('falls back to defaults when profile fails to load', async () => {
+    await configure();
+    const fixture = TestBed.createComponent(RecipesPage);
+    fixture.detectChanges();
+    http.expectOne('/api/users/preferences').flush(errorResponse(500, 'Error'), {
+      status: 500,
+      statusText: 'Error',
+    });
+    const recipesReq = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+    recipesReq.flush([PASTA, STEW, SALAD]);
+    fixture.detectChanges();
+
+    expect(text(root(fixture).querySelector('.threshold-value'))).toBe('70%');
+    expect((nodes(fixture, '.threshold-slider input')[0] as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('sends threshold=0 in every search request', async () => {
+    await configure();
+    const fixture = TestBed.createComponent(RecipesPage);
+    fixture.detectChanges();
+    http.expectOne('/api/users/preferences').flush({
+      filterMode: 'LAX',
+      coverageThreshold: 70,
+      diet: 'BALANCED',
+    });
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+    expect(req.request.params.get('threshold')).toBe('0');
+    req.flush([PASTA]);
+    fixture.detectChanges();
+    http.verify();
+  });
+
+  it('calls recommend with strict and allergenSafe when Suggest is clicked', async () => {
+    const fixture = await render();
+    click(fixture, '.suggest-recipes');
+
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    expect(req.request.params.get('strict')).toBeNull();
+    expect(req.request.params.get('allergenSafe')).toBeNull();
+    req.flush([PASTA]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara']);
+  });
+
+  it('calls recommend with strict=true when Suggest clicked in strict mode', async () => {
+    const fixture = await render();
+    click(fixture, '.toggle-strict button');
+    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes')).flush([PASTA]);
+    fixture.detectChanges();
+    click(fixture, '.suggest-recipes');
+
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    expect(req.request.params.get('strict')).toBe('true');
+    expect(req.request.params.get('allergenSafe')).toBeNull();
+    req.flush([PASTA]);
+    fixture.detectChanges();
+  });
+
+  it('calls recommend with allergenSafe=true when Suggest clicked', async () => {
+    const fixture = await render();
+    click(fixture, '.toggle-allergen-safe button');
+    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes')).flush([PASTA, STEW]);
+    fixture.detectChanges();
+    click(fixture, '.suggest-recipes');
+
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    expect(req.request.params.get('allergenSafe')).toBe('true');
+    req.flush([STEW]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Beef Stew']);
+  });
+
+  it('shows differentiated empty state when suggest returns empty', async () => {
+    const fixture = await render();
+    click(fixture, '.suggest-recipes');
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    req.flush([]);
+    fixture.detectChanges();
+    expect(text(root(fixture).querySelector('.recipes-empty h2'))).toBe('Nothing to suggest yet');
+    expect(text(root(fixture).querySelector('.recipes-empty'))).toContain(
+      'Nothing to suggest yet — stock some ingredients or nothing matched them.',
+    );
+  });
+
+  it('shows suggest error with retry button', async () => {
+    const fixture = await render();
+    click(fixture, '.suggest-recipes');
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    req.flush(errorResponse(500, 'Suggest failed'), { status: 500, statusText: 'Error' });
+    fixture.detectChanges();
+    expect(text(root(fixture).querySelector('.recipes-error-message'))).toBe('Suggest failed');
+    click(fixture, '.retry-suggest');
+    const retryReq = http.expectOne((req) =>
+      req.urlWithParams.startsWith('/api/recipes/recommend'),
+    );
+    retryReq.flush([PASTA]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara']);
+  });
+
+  it('allergenSafe toggle re-executes suggest when in suggest mode', async () => {
+    const fixture = await render();
+    click(fixture, '.suggest-recipes');
+    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend')).flush([PASTA]);
+    fixture.detectChanges();
+    click(fixture, '.toggle-allergen-safe button');
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    expect(req.request.params.get('allergenSafe')).toBe('true');
+    req.flush([STEW]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Beef Stew']);
   });
 });

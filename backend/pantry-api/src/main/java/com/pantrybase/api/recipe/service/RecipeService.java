@@ -33,8 +33,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Owns the recipe domain: search (with cache + TheMealDB fallback), materialisation,
- * coverage against the user's pantry, and user-created recipes.
+ * Owns the recipe domain: search and recommendation (with cache + TheMealDB fallback),
+ * materialisation, coverage against the user's pantry, and user-created recipes.
  *
  * <p>Coverage rule (H4 decision): an ingredient is either FULLY covered (available >= needed)
  * or NOT covered. No partial credit. matchScore = fraction of ingredients fully covered.</p>
@@ -54,6 +54,9 @@ public class RecipeService {
     private static final BigDecimal KG_FACTOR = new BigDecimal("1000");
     private static final BigDecimal OZ_FACTOR = new BigDecimal("28.3495");
     private static final BigDecimal LB_FACTOR = new BigDecimal("453.592");
+
+    private static final int MAX_RECOMMEND_INGREDIENTS = 3;
+    private static final int MAX_RECOMMEND_HITS = 10;
 
     private static final Pattern MEASURE_MIXED = Pattern.compile("^(\\d+)\\s+(\\d+)\\/(\\d+)(.*)$");
     private static final Pattern MEASURE_FRACTION = Pattern.compile("^(\\d+)\\/(\\d+)(.*)$");
@@ -123,30 +126,21 @@ public class RecipeService {
      * @return list of summaries with matchScore and missingCount
      */
     public List<RecipeSummaryDto> search(Long userId, RecipeSearchRequest request) {
-        boolean strict = Boolean.TRUE.equals(request.strict());
-        int threshold = request.threshold() != null ? request.threshold() : (strict ? 100 : 50);
-        double thresholdRatio = threshold / 100.0;
-
-        // 1. Load user pantry once
         Map<Long, BigDecimal> pantryAvailable = loadPantryCanonical(userId);
-
-        // 2. Load allergen exclusions
         Set<String> excludedAllergens = getExcludedAllergens(userId);
 
-        // 3. Candidates in priority order, keyed by id: a recipe reachable through two
-        //    branches (e.g. materialised during this same search) must be scored once.
+        // Candidates in priority order, keyed by id: a recipe reachable through two
+        // branches (e.g. materialised during this same search) must be scored once.
         Map<Long, Recipe> candidates = new LinkedHashMap<>();
         boolean hasName = request.name() != null && !request.name().isBlank();
 
-        // 3a. USER recipes (always first)
+        // USER recipes always first, then already-materialised THE_MEAL_DB rows.
         addCandidates(candidates, request, SOURCE_USER, hasName);
-
-        // 3b. THE_MEAL_DB already materialised
         addCandidates(candidates, request, SOURCE_MEALDB, hasName);
 
-        // 3c. Fresh TheMealDB search only if a name query was given; hits are
-        //     materialised into the local store and then re-read through the same
-        //     source-scoped queries as 3a/3b, so new rows join without a duplicate.
+        // Fresh TheMealDB search only if a name query was given; hits are materialised
+        // into the local store and then re-read through the same source-scoped queries
+        // as above, so new rows join without a duplicate.
         if (hasName) {
             List<TheMealDbClient.MealSummary> fresh = searchCache.get(request)
                     .orElseGet(() -> {
@@ -162,15 +156,91 @@ public class RecipeService {
             addCandidates(candidates, request, SOURCE_MEALDB, hasName);
         }
 
-        // 4. Filter allergens if requested
-        Collection<Recipe> filtered = candidates.values();
+        return scoreAndFilter(candidates.values(), request, pantryAvailable, excludedAllergens);
+    }
+
+    /**
+     * Suggests recipes the user could cook next, driven by what the pantry already holds.
+     *
+     * <p>Up to {@value MAX_RECOMMEND_INGREDIENTS} stocked ingredients each drive one
+     * {@code filter.php} search, their distinct hits capped at {@value MAX_RECOMMEND_HITS}.
+     * Hits are materialised by the same pipeline as {@link #search} and scored with the
+     * same coverage rules, but the threshold is forced to zero: this endpoint opens a
+     * starting point, so the whole provider spread should reach the client and let its
+     * slider refine it, instead of the server cutting most rows before the page renders.
+     * {@code strict} and {@code allergenSafe} still apply — the user's profile is the
+     * filter source of truth when the page first loads (H4 decision).</p>
+     *
+     * <p>Each pantry ingredient is reduced to the plain first token of its catalog name
+     * ("Chicken, broilers or fryers" → "chicken"). The provider keeps its own singular
+     * spellings, so the word is not routed through {@link #tokens}: that pipeline trims
+     * a trailing "s", and "oats" would become "oat" and miss TheMealDB's ingredient. The
+     * word is a heuristic, not a curated alias table — that debt stays tracked in the
+     * roadmap.</p>
+     */
+    public List<RecipeSummaryDto> recommend(Long userId, RecipeSearchRequest request) {
+        Map<Long, BigDecimal> pantryAvailable = loadPantryCanonical(userId);
+        Set<String> excludedAllergens = getExcludedAllergens(userId);
+
+        List<String> ingredientWords = pantryRepo.findAllWithIngredientByUserId(userId).stream()
+                .filter(row -> ((com.pantrybase.api.pantry.domain.PantryItem) row[0]).getQuantity().signum() > 0)
+                .map(row -> baseWord(((Ingredient) row[1]).getName()))
+                .filter(Objects::nonNull)
+                .distinct()
+                .limit(MAX_RECOMMEND_INGREDIENTS)
+                .toList();
+
+        // Provider hits keyed by meal id; the word cache has its own namespace so a
+        // repeated suggest does not hit the provider twice.
+        Map<String, TheMealDbClient.MealSummary> hits = new LinkedHashMap<>();
+        for (String word : ingredientWords) {
+            List<TheMealDbClient.MealSummary> found = searchCache.getByIngredient(word)
+                    .orElseGet(() -> {
+                        List<TheMealDbClient.MealSummary> fetched = mealDbClient.filterByIngredient(word);
+                        searchCache.putByIngredient(word, fetched);
+                        return fetched;
+                    });
+            for (TheMealDbClient.MealSummary hit : found) {
+                if (hits.size() >= MAX_RECOMMEND_HITS) break;
+                hits.putIfAbsent(hit.idMeal(), hit);
+            }
+        }
+
+        // Materialise; a hit none of whose ingredients matches is dropped here by the
+        // pipeline itself, because no local row is ever stored for it.
+        Map<Long, Recipe> materialised = new LinkedHashMap<>();
+        for (TheMealDbClient.MealSummary hit : hits.values()) {
+            materializeMealDbRecipe(hit);
+            recipeRepo.findBySourceAndExternalId(SOURCE_MEALDB, hit.idMeal())
+                    .ifPresent(r -> materialised.putIfAbsent(r.getId(), r));
+        }
+
+        RecipeSearchRequest filtered = new RecipeSearchRequest(
+                null, null, request.strict(), 0, request.allergenSafe());
+        return scoreAndFilter(materialised.values(), filtered, pantryAvailable, excludedAllergens);
+    }
+
+    /**
+     * Tail shared by {@link #search} and {@link #recommend}: optionally drops recipes
+     * carrying an excluded allergen, then computes binary coverage against the pantry
+     * and keeps only the rows at or above the request threshold ({@code strict} forces
+     * 100), ordered by descending score then name.
+     */
+    private List<RecipeSummaryDto> scoreAndFilter(Collection<Recipe> candidates,
+                                                  RecipeSearchRequest request,
+                                                  Map<Long, BigDecimal> pantryAvailable,
+                                                  Set<String> excludedAllergens) {
+        boolean strict = Boolean.TRUE.equals(request.strict());
+        int threshold = request.threshold() != null ? request.threshold() : (strict ? 100 : 50);
+        double thresholdRatio = threshold / 100.0;
+
+        Collection<Recipe> filtered = candidates;
         if (Boolean.TRUE.equals(request.allergenSafe()) && !excludedAllergens.isEmpty()) {
             filtered = filtered.stream()
                     .filter(r -> !hasExcludedAllergen(r.getId(), excludedAllergens))
                     .toList();
         }
 
-        // 5. Compute coverage and filter by threshold
         return filtered.stream()
                 .map(r -> toSummaryWithCoverage(r, pantryAvailable))
                 .filter(s -> s.matchScore() != null && s.matchScore() >= (strict ? 1.0 : thresholdRatio))
@@ -226,6 +296,7 @@ public class RecipeService {
             RecipeIngredient ri = new RecipeIngredient();
             ri.setRecipeId(saved.getId());
             ri.setIngredientId(ing.getId());
+            ri.setMatched(true);
             ri.setOriginalAmount(req.amount());
             ri.setOriginalUnitCode(req.unitCode());
             ri.setCanonicalAmount(canonical.amount());
@@ -240,7 +311,7 @@ public class RecipeService {
                     unitRepo.findById(canonical.unitCode())
                             .map(Unit::getCategory)
                             .orElse(null),
-                    req.position()
+                    true, req.position()
             ));
         }
         ingredientRepo.saveAll(ingredients);
@@ -324,7 +395,13 @@ public class RecipeService {
         int covered = 0;
         int missing = 0;
 
+        // Unmatched provider lines sit in the denominator but can never be covered:
+        // a stew whose only understood ingredient is stocked must score 1/20, not 100%.
         for (RecipeIngredient ri : ingredients) {
+            if (ri.getIngredientId() == null) {
+                missing++;
+                continue;
+            }
             BigDecimal available = pantry.getOrDefault(ri.getIngredientId(), BigDecimal.ZERO);
             if (available.compareTo(ri.getCanonicalAmount()) >= 0) {
                 covered++;
@@ -346,6 +423,13 @@ public class RecipeService {
     private RecipeDetailDto toDetailDto(Recipe recipe, Map<Long, BigDecimal> pantry) {
         List<RecipeIngredient> ingredients = ingredientRepo.findByRecipeIdOrderByPositionAsc(recipe.getId());
         List<RecipeIngredientDetailDto> detailIngredients = ingredients.stream().map(ri -> {
+            if (ri.getIngredientId() == null) {
+                // Provider line without a catalog counterpart: show its own wording and
+                // no quantities, and never pretend it can be covered.
+                return new RecipeIngredientDetailDto(
+                        null, ri.getIngredientName(), null,
+                        null, null, null, null, null, false, ri.getPosition());
+            }
             Ingredient ing = catalogIngredientRepo.getReferenceById(ri.getIngredientId());
             return new RecipeIngredientDetailDto(
                     ing.getId(), ing.getName(), ing.getCategory(),
@@ -354,20 +438,25 @@ public class RecipeService {
                     unitRepo.findById(ri.getCanonicalUnitCode())
                             .map(Unit::getCategory)
                             .orElse(null),
-                    ri.getPosition()
+                    true, ri.getPosition()
             );
         }).toList();
 
-        List<IngredientCoverageDto> coverage = ingredients.stream().map(ri -> {
-            BigDecimal available = pantry.getOrDefault(ri.getIngredientId(), BigDecimal.ZERO);
-            return new IngredientCoverageDto(
-                    ri.getIngredientId(),
-                    catalogIngredientRepo.getReferenceById(ri.getIngredientId()).getName(),
-                    ri.getCanonicalAmount(), ri.getCanonicalUnitCode(),
-                    available, ri.getCanonicalUnitCode(),
-                    available.compareTo(ri.getCanonicalAmount()) >= 0
-            );
-        }).toList();
+        // Coverage only exists for matched lines: an unmatched ingredient has nothing to
+        // compare against, so it stays out of the breakdown while still lowering the score
+        // via the denominator above.
+        List<IngredientCoverageDto> coverage = ingredients.stream()
+                .filter(ri -> ri.getIngredientId() != null)
+                .map(ri -> {
+                    BigDecimal available = pantry.getOrDefault(ri.getIngredientId(), BigDecimal.ZERO);
+                    return new IngredientCoverageDto(
+                            ri.getIngredientId(),
+                            catalogIngredientRepo.getReferenceById(ri.getIngredientId()).getName(),
+                            ri.getCanonicalAmount(), ri.getCanonicalUnitCode(),
+                            available, ri.getCanonicalUnitCode(),
+                            available.compareTo(ri.getCanonicalAmount()) >= 0
+                    );
+                }).toList();
 
         int covered = (int) coverage.stream().filter(IngredientCoverageDto::fullyCovered).count();
         double score = ingredients.isEmpty() ? 0.0 : (double) covered / ingredients.size();
@@ -411,10 +500,12 @@ public class RecipeService {
      * write there would flush against a read-only connection and fail, so the template
      * suspends that transaction and commits its own.</p>
      *
-     * <p>Provider ingredients are matched to the catalog by token containment; pairs with
-     * an unparsable measure are skipped, and a hit none of whose ingredients match is not
-     * stored at all — coverage computed over an empty line set would claim a recipe is
-     * fully feasible when nothing about it was checked.</p>
+     * <p>Provider lines are matched to the catalog by token containment. Lines that
+     * match nothing — no catalog row or an unparsable measure — are stored anyway with
+     * {@code matched=false} and the provider wording, so the coverage denominator is the
+     * real recipe and an under-understood plate can never claim 100 %. Only a hit where
+     * not a single line matches is not stored at all: coverage computed over an empty
+     * line set would claim feasibility when nothing about it was checked.</p>
      *
      * <p>Idempotency is best-effort: the read check plus the unique
      * {@code (source, external_id)} constraint, the constraint catching the concurrent
@@ -431,24 +522,26 @@ public class RecipeService {
         }
         TheMealDbClient.MealDetail detail = detailOpt.get();
 
-        Map<Long, RecipeIngredient> matched = matchAndConvert(detail.ingredients());
-        if (matched.isEmpty()) {
+        List<RecipeIngredient> lines = toRecipeLines(detail.ingredients());
+        boolean anyMatched = lines.stream().anyMatch(line -> Boolean.TRUE.equals(line.getMatched()));
+        if (!anyMatched) {
             log.info("Skipping TheMealDB recipe {} ({}) — no ingredient matched the catalog",
                     hit.strMeal(), hit.idMeal());
             return;
         }
 
         try {
-            writeTx.executeWithoutResult(status -> persistMealDbRecipe(detail, matched));
+            writeTx.executeWithoutResult(status -> persistMealDbRecipe(detail, lines));
             log.info("Materialised TheMealDB recipe {} ({}) — {}/{} ingredients matched",
-                    hit.strMeal(), hit.idMeal(), matched.size(), detail.ingredients().size());
+                    hit.strMeal(), hit.idMeal(), lines.stream().filter(l -> Boolean.TRUE.equals(l.getMatched())).count(),
+                    detail.ingredients().size());
         } catch (DataIntegrityViolationException e) {
             log.info("TheMealDB recipe {} ({}) lost a materialisation race; a concurrent "
                     + "search already stored it", hit.strMeal(), hit.idMeal());
         }
     }
 
-    private void persistMealDbRecipe(TheMealDbClient.MealDetail detail, Map<Long, RecipeIngredient> matched) {
+    private void persistMealDbRecipe(TheMealDbClient.MealDetail detail, List<RecipeIngredient> lines) {
         if (recipeRepo.existsBySourceAndExternalId(SOURCE_MEALDB, detail.idMeal())) return;
 
         Recipe recipe = new Recipe();
@@ -468,60 +561,78 @@ public class RecipeService {
         recipe.setUpdatedAt(now);
         Recipe saved = recipeRepo.save(recipe);
 
-        List<RecipeIngredient> lines = List.copyOf(matched.values());
         lines.forEach(line -> line.setRecipeId(saved.getId()));
         ingredientRepo.saveAll(lines);
 
         deriveAndStoreAllergens(saved.getId(),
-                lines.stream().map(RecipeIngredient::getIngredientId).toList());
+                lines.stream().map(RecipeIngredient::getIngredientId)
+                        .filter(Objects::nonNull)
+                        .toList());
 
         computeNutrients(saved.getId(), lines, saved.getServings());
     }
 
     /**
-     * Maps provider ingredient/measure pairs to canonical recipe lines.
+     * Builds the full line set for one meal, matched and unmatched together.
      *
-     * <p>Result is keyed by catalog ingredient id: the schema refuses two lines for the
-     * same ingredient and a meal sometimes repeats one, so a repeated pair adds its
-     * canonical amount instead — only while the canonical unit matches, because merging
-     * grams with millilitres would fabricate a quantity.</p>
-     *
-     * <p>A pair is dropped when no catalog name contains all of its words, or when the
-     * measure carries no writable quantity (decorative tokens such as "to taste").</p>
+     * <p>Matched pairs are converted to canonical lines and merged by catalog id (a
+     * repeated pair adds its canonical amount, only while the canonical unit matches —
+     * merging grams with millilitres would fabricate a quantity). Pairs that match
+     * nothing, either because no catalog row contains their words or because their
+     * measure carries no writable quantity, are still returned as lines with
+     * {@code matched=false} and the provider wording, keeping the coverage denominator
+     * honest.</p>
      */
-    private Map<Long, RecipeIngredient> matchAndConvert(List<TheMealDbClient.IngredientMeasure> pairs) {
-        Map<Long, RecipeIngredient> lines = new LinkedHashMap<>();
+    private List<RecipeIngredient> toRecipeLines(List<TheMealDbClient.IngredientMeasure> pairs) {
+        Map<Long, RecipeIngredient> matched = new LinkedHashMap<>();
+        List<RecipeIngredient> uncovered = new ArrayList<>();
         for (int position = 0; position < pairs.size(); position++) {
             TheMealDbClient.IngredientMeasure pair = pairs.get(position);
             Ingredient catalog = matchIngredient(pair.ingredient());
             if (catalog == null) {
                 log.debug("No catalog ingredient matched '{}' from meal", pair.ingredient());
+                uncovered.add(unmatchedLine(pair.ingredient(), position));
                 continue;
             }
             ParsedMeasure measure = parseMeasure(pair.measure());
             if (measure == null) {
                 log.debug("Measure '{}' for '{}' carries no writable quantity", pair.measure(), pair.ingredient());
+                uncovered.add(unmatchedLine(pair.ingredient(), position));
                 continue;
             }
             QuantityInfo canonical = unitConverter.toStorageUnit(measure.amount(), measure.unitCode(), catalog.getId());
 
-            RecipeIngredient line = lines.get(catalog.getId());
+            RecipeIngredient line = matched.get(catalog.getId());
             if (line == null) {
                 line = new RecipeIngredient();
                 line.setIngredientId(catalog.getId());
+                line.setMatched(true);
                 line.setOriginalAmount(measure.amount());
                 line.setOriginalUnitCode(measure.unitCode());
                 line.setCanonicalAmount(canonical.amount());
                 line.setCanonicalUnitCode(canonical.unitCode());
                 line.setPosition(position);
-                lines.put(catalog.getId(), line);
+                matched.put(catalog.getId(), line);
             } else if (line.getCanonicalUnitCode().equals(canonical.unitCode())) {
                 line.setCanonicalAmount(line.getCanonicalAmount().add(canonical.amount()));
             } else {
                 log.debug("Skipping repeated '{}' whose canonical unit differs", pair.ingredient());
+                uncovered.add(unmatchedLine(pair.ingredient(), position));
             }
         }
-        return lines;
+        List<RecipeIngredient> all = new ArrayList<>(matched.size() + uncovered.size());
+        all.addAll(matched.values());
+        all.addAll(uncovered);
+        return all;
+    }
+
+    /** A provider line with no catalog counterpart: keeps its wording and cannot be covered. */
+    private static RecipeIngredient unmatchedLine(String providerName, int position) {
+        RecipeIngredient line = new RecipeIngredient();
+        line.setIngredientName(providerName);
+        line.setMatched(false);
+        line.setPosition(position);
+        return line;
     }
 
     /**
@@ -557,6 +668,24 @@ public class RecipeService {
         return token.endsWith("s") && token.length() > 3
                 ? token.substring(0, token.length() - 1)
                 : token;
+    }
+
+    /**
+     * The word that best represents a catalog ingredient to TheMealDB's ingredient filter.
+     *
+     * <p>USDA names are verbose but nearly always lead with the everyday food word
+     * TheMealDB lists as an ingredient: split before the first comma, then take the first
+     * non-stop word. Deliberately not {@link #tokens}: that pipeline singularises, and the
+     * provider spells some ingredients with a plural ("Oats", "Elderberries") that only
+     * the unmodified word matches.</p>
+     */
+    private static String baseWord(String ingredientName) {
+        String head = ingredientName.split(",", 2)[0];
+        return TOKEN.matcher(head.toLowerCase(Locale.ROOT)).results()
+                .map(MatchResult::group)
+                .filter(token -> !TOKEN_STOPWORDS.contains(token))
+                .findFirst()
+                .orElse(null);
     }
 
     /** A provider measure decomposed into a writable amount and a local unit code. */
@@ -656,7 +785,9 @@ public class RecipeService {
      */
     private RecipeNutrientsDto computeNutrients(Long recipeId, List<RecipeIngredient> ingredients, Integer servings) {
         Map<Long, Ingredient> nutrientsById = catalogIngredientRepo.findAllById(
-                        ingredients.stream().map(RecipeIngredient::getIngredientId).toList())
+                        ingredients.stream().map(RecipeIngredient::getIngredientId)
+                                .filter(Objects::nonNull)
+                                .toList())
                 .stream()
                 .collect(Collectors.toMap(Ingredient::getId, i -> i));
 
@@ -700,12 +831,15 @@ public class RecipeService {
     }
 
     /**
-     * Weight equivalent of one recipe line. {@code ML} and {@code UNIT} yield
-     * {@code null}: a volume landed on millilitres only because no mass exists for it,
-     * and a count has no mass by definition.
+     * Weight equivalent of one recipe line. {@code null}, {@code ML} and {@code UNIT}
+     * yield {@code null}: an unmatched provider line has no quantity at all, a volume
+     * landed on millilitres only because no mass exists for it, and a count has no mass
+     * by definition.
      */
     private static BigDecimal gramsOf(RecipeIngredient line) {
-        return switch (line.getCanonicalUnitCode()) {
+        String unit = line.getCanonicalUnitCode();
+        if (unit == null) return null;
+        return switch (unit) {
             case "GRAM" -> line.getCanonicalAmount();
             case "KG" -> line.getCanonicalAmount().multiply(KG_FACTOR);
             case "OZ" -> line.getCanonicalAmount().multiply(OZ_FACTOR);

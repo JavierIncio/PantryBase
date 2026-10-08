@@ -51,6 +51,12 @@
         </div>
       </div>
 
+      <div class="actions-row">
+        <button mat-stroked-button type="button" class="suggest-recipes" (click)="suggest()">
+          Suggest
+        </button>
+      </div>
+
       @if (strict()) {
         <p class="strict-hint">
           Strict mode shows only fully covered recipes (100%): the coverage slider is locked.
@@ -60,7 +66,24 @@
   </mat-card-content>
 </mat-card>
 
-@if (loading()) {
+@if (mode() === 'suggest' && suggestLoading()) {
+  <div class="recipes-status"><mat-spinner diameter="40" /></div>
+} @else if (mode() === 'suggest' && suggestError(); as message) {
+  <div class="recipes-status recipes-error">
+    <p class="recipes-error-message">{{ message }}</p>
+    <button mat-stroked-button type="button" class="retry-suggest" (click)="retrySuggest()">
+      Retry
+    </button>
+  </div>
+} @else if (mode() === 'suggest' && suggestEmpty()) {
+  <mat-card class="recipes-empty">
+    <mat-card-content>
+      <mat-icon class="recipes-empty-icon" aria-hidden="true">menu_book</mat-icon>
+      <h2>Nothing to suggest yet</h2>
+      <p>Nothing to suggest yet — stock some ingredients or nothing matched them.</p>
+    </mat-card-content>
+  </mat-card>
+} @else if (loading()) {
   <div class="recipes-status"><mat-spinner diameter="40" /></div>
 } @else if (loadError(); as message) {
   <div class="recipes-status recipes-error">

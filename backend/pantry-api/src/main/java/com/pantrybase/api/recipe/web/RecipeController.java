@@ -56,6 +56,20 @@ public class RecipeController {
     }
 
     /**
+     * Suggests recipes driven by what the caller's pantry already holds.
+     *
+     * <p>Shares the search filters ({@code strict}, {@code allergenSafe}) and returns the
+     * same summary shape, so the recipes page reuses one grid. The route is declared
+     * before {@code /{recipeId}}; a literal segment always wins over a path variable, and
+     * "recommend" could never parse as a numeric id anyway.</p>
+     */
+    @GetMapping("/recommend")
+    public List<RecipeSummaryDto> recommend(@AuthenticationPrincipal Long userId,
+                                            RecipeSearchRequest request) {
+        return recipeService.recommend(userId, request);
+    }
+
+    /**
      * Returns one recipe with its per-ingredient coverage breakdown.
      *
      * <p>404 rather than an empty body for an unknown id: the client renders a route for

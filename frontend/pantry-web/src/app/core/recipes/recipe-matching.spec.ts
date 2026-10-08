@@ -88,6 +88,7 @@ describe('pairCoverage', () => {
     canonicalAmount: 2,
     canonicalUnitCode: 'UNIT',
     canonicalUnitCategory: 'COUNT',
+    matched: true,
     position: 0,
   };
   const flour: RecipeIngredient = {
@@ -99,6 +100,7 @@ describe('pairCoverage', () => {
     canonicalAmount: 150,
     canonicalUnitCode: 'GRAM',
     canonicalUnitCategory: 'WEIGHT',
+    matched: true,
     position: 1,
   };
 
@@ -125,6 +127,20 @@ describe('pairCoverage', () => {
 
     expect(rows[0].coverage?.ingredientId).toBe(10);
     expect(rows[1].coverage).toBeNull();
+  });
+
+  it('never pairs an unmatched line, which has no id the coverage could match', () => {
+    const uncatalogued: RecipeIngredient = {
+      ...egg,
+      ingredientId: null,
+      ingredientName: 'Apples',
+      matched: false,
+      position: 2,
+    };
+
+    const rows = pairCoverage([uncatalogued], [covered(10)]);
+
+    expect(rows[0].coverage).toBeNull();
   });
 
   it('drops a coverage entry without an ingredient line to attach to', () => {

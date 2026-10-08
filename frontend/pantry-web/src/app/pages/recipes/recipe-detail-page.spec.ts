@@ -42,6 +42,7 @@ const DETAIL: RecipeDetail = {
       canonicalAmount: 2,
       canonicalUnitCode: 'UNIT',
       canonicalUnitCategory: 'COUNT',
+      matched: true,
       position: 1,
     },
     {
@@ -53,6 +54,7 @@ const DETAIL: RecipeDetail = {
       canonicalAmount: 200,
       canonicalUnitCode: 'GRAM',
       canonicalUnitCategory: 'WEIGHT',
+      matched: true,
       position: 2,
     },
     {
@@ -64,6 +66,7 @@ const DETAIL: RecipeDetail = {
       canonicalAmount: 1,
       canonicalUnitCode: 'GRAM',
       canonicalUnitCategory: 'WEIGHT',
+      matched: true,
       position: 3,
     },
   ],
@@ -90,6 +93,33 @@ const DETAIL: RecipeDetail = {
   nutrients: { energyKcal: 500, proteinG: 20, fatG: 11.5, carbsG: 40 },
   allergenCodes: ['EGG', 'MILK'],
   matchScore: 1,
+};
+
+/**
+ * A recipe the catalog only half understands: "Bicarbonate Of Soda" matched no
+ * catalog row, so it travels exactly as the provider wrote it — no id, no
+ * quantities, no category — while the score keeps it in the denominator.
+ */
+const PARTIALLY_MATCHED: RecipeDetail = {
+  ...DETAIL,
+  id: 3,
+  name: 'Apple Crumble',
+  matchScore: 0.25,
+  ingredients: [
+    ...DETAIL.ingredients,
+    {
+      ingredientId: null,
+      ingredientName: 'Bicarbonate Of Soda',
+      ingredientCategory: null,
+      originalAmount: null,
+      originalUnitCode: null,
+      canonicalAmount: null,
+      canonicalUnitCode: null,
+      canonicalUnitCategory: null,
+      matched: false,
+      position: 4,
+    },
+  ],
 };
 
 /**
@@ -225,6 +255,42 @@ describe('RecipeDetailPage', () => {
     expect(text(root(fixture).querySelector('.ingredient-gap'))).toBe('0.5 short');
     expect(nodes(fixture, '.ingredient-row.ingredient-covered').length).toBe(1);
     expect(text(nodes(fixture, '.ingredient-row.ingredient-covered')[0])).toContain('Eggs');
+    // Every line is catalogued, so the card owes the user no footnote.
+    expect(root(fixture).querySelector('.ingredients-footnote')).toBeNull();
+  });
+
+  it('marks an uncatalogued line with the provider wording in a muted style', async () => {
+    const fixture = await render(PARTIALLY_MATCHED);
+
+    // The join keeps every line of the recipe, catalogued or not.
+    expect(nodes(fixture, '.ingredient-name').map((node) => text(node))).toEqual([
+      'Eggs',
+      'Flour',
+      'Salt',
+      'Bicarbonate Of Soda',
+    ]);
+    const uncatalogued = nodes(fixture, '.ingredient-row.ingredient-unmatched');
+    expect(uncatalogued).toHaveLength(1);
+    expect(text(uncatalogued[0].querySelector('.ingredient-name-unmatched'))).toBe(
+      'Bicarbonate Of Soda',
+    );
+    expect(text(uncatalogued[0].querySelector('.ingredient-unmatched-tag'))).toBe('Not in catalog');
+    // The legend is why those lines show up in the score as missing.
+    expect(text(root(fixture).querySelector('.ingredients-footnote'))).toContain(
+      'count as missing in the coverage percentage',
+    );
+  });
+
+  it('shows no quantity and no link for an uncatalogued line', async () => {
+    const fixture = await render(PARTIALLY_MATCHED);
+
+    const uncatalogued = nodes(fixture, '.ingredient-row.ingredient-unmatched')[0];
+    expect(uncatalogued.querySelector('.ingredient-amount')).toBeNull();
+    expect(uncatalogued.querySelector('.ingredient-gap')).toBeNull();
+    expect(uncatalogued.querySelectorAll('a')).toHaveLength(0);
+    expect(text(uncatalogued)).not.toContain('need');
+    // The catalogued lines around it keep their amounts.
+    expect(nodes(fixture, '.ingredient-row .ingredient-amount')).toHaveLength(3);
   });
 
   it('draws only the nutrients the provider actually measured', async () => {
@@ -303,12 +369,10 @@ describe('RecipeDetailPage', () => {
     fixture.detectChanges();
     flushUnits();
 
-    http
-      .expectOne('/api/recipes/1')
-      .flush(errorResponse(500, 'Recipe engine is down'), {
-        status: 500,
-        statusText: 'Server Error',
-      });
+    http.expectOne('/api/recipes/1').flush(errorResponse(500, 'Recipe engine is down'), {
+      status: 500,
+      statusText: 'Server Error',
+    });
     fixture.detectChanges();
 
     expect(text(root(fixture).querySelector('.detail-error-message'))).toBe(

@@ -65,8 +65,12 @@ const categoryArea = (category: string, area: string): string | null => {
  * pantry has for it. A covered line is drawn with its check; a line the pantry
  * only partially holds is drawn with a warning and both figures (needed vs.
  * available), because the whole point of the breakdown is that the user can
- * see exactly how far the gap is. Unit codes become text through the unit
- * catalog, never through a local table.
+ * see exactly how far the gap is. A line the catalog never understood
+ * (`matched: false`) is drawn apart — provider wording in muted type, a
+ * "Not in catalog" label and no quantities at all — plus a footnote saying
+ * those lines are why the coverage percentage falls: they cannot be measured
+ * against the pantry, so they count as missing. Unit codes become text
+ * through the unit catalog, never through a local table.
  */
 @Component({
   selector: 'app-recipe-detail-page',
@@ -108,6 +112,14 @@ export class RecipeDetailPage implements OnInit {
     return recipe ? pairCoverage(recipe.ingredients, recipe.coverage) : [];
   });
 
+  /**
+   * Whether any line escaped the catalog, i.e. whether the card owes the user
+   * the footnote about the coverage percentage.
+   */
+  protected readonly hasUnmatched = computed(() =>
+    this.rows().some((row) => !row.ingredient.matched),
+  );
+
   ngOnInit(): void {
     // The amounts of the ingredient lines are labelled from the unit catalog;
     // loading it is a no-op when another page already did this session.
@@ -148,11 +160,20 @@ export class RecipeDetailPage implements OnInit {
     });
   }
 
-  /** The amount the recipe asks for, canonically, with its unit named. */
-  protected neededText(row: IngredientCoverageRow): string {
+  /**
+   * The amount the recipe asks for, canonically, with its unit named.
+   *
+   * `null` only when the line carries no quantity at all — an unmatched
+   * provider line — and the template draws those apart instead of calling
+   * this, so a matched line always answers with figures.
+   */
+  protected neededText(row: IngredientCoverageRow): string | null {
     const coverage = row.coverage;
     const amount = coverage?.neededAmount ?? row.ingredient.canonicalAmount;
     const unitCode = coverage?.neededUnitCode ?? row.ingredient.canonicalUnitCode;
+    if (amount === null || unitCode === null) {
+      return null;
+    }
     return `${formatAmount(amount)} ${this.units.label(unitCode)}`;
   }
 

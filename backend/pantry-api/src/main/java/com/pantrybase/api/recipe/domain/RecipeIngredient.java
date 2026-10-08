@@ -16,6 +16,12 @@ import java.math.BigDecimal;
  *
  * <p>The canonical pair is produced by {@link com.pantrybase.api.catalog.domain.UnitConverter#toStorageUnit}
  * at materialisation time, so coverage can compare apples to apples.</p>
+ *
+ * <p>A provider line that matches nothing in the catalog is still persisted, with
+ * {@code matched=false}, a null catalog id and the provider wording in
+ * {@link #ingredientName}. Keeping it makes the coverage denominator the real recipe
+ * rather than the subset the catalog happened to understand: a stew of twenty
+ * ingredients with one matching line must score 1/20, never 100%.</p>
  */
 @Entity
 @Table(
@@ -36,19 +42,25 @@ public class RecipeIngredient {
     @Column(name = "recipe_id", nullable = false)
     private Long recipeId;
 
-    @Column(name = "ingredient_id", nullable = false)
+    @Column(name = "ingredient_id")
     private Long ingredientId;
 
-    @Column(name = "original_amount", nullable = false, precision = 14, scale = 6)
+    @Column(name = "ingredient_name", length = 255)
+    private String ingredientName;
+
+    @Column(name = "matched", nullable = false)
+    private Boolean matched;
+
+    @Column(name = "original_amount", precision = 14, scale = 6)
     private BigDecimal originalAmount;
 
-    @Column(name = "original_unit_code", nullable = false, length = 16)
+    @Column(name = "original_unit_code", length = 16)
     private String originalUnitCode;
 
-    @Column(name = "canonical_amount", nullable = false, precision = 14, scale = 6)
+    @Column(name = "canonical_amount", precision = 14, scale = 6)
     private BigDecimal canonicalAmount;
 
-    @Column(name = "canonical_unit_code", nullable = false, length = 16)
+    @Column(name = "canonical_unit_code", length = 16)
     private String canonicalUnitCode;
 
     @Column(name = "position", nullable = false)
@@ -64,6 +76,12 @@ public class RecipeIngredient {
 
     public Long getIngredientId() { return ingredientId; }
     public void setIngredientId(Long ingredientId) { this.ingredientId = ingredientId; }
+
+    public String getIngredientName() { return ingredientName; }
+    public void setIngredientName(String ingredientName) { this.ingredientName = ingredientName; }
+
+    public Boolean getMatched() { return matched; }
+    public void setMatched(Boolean matched) { this.matched = matched; }
 
     public BigDecimal getOriginalAmount() { return originalAmount; }
     public void setOriginalAmount(BigDecimal originalAmount) { this.originalAmount = originalAmount; }

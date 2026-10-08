@@ -98,9 +98,12 @@
           <li
             class="ingredient-row"
             [class.ingredient-covered]="row.coverage?.fullyCovered === true"
+            [class.ingredient-unmatched]="!row.ingredient.matched"
           >
             <mat-icon class="ingredient-state-icon" aria-hidden="true">
-              @if (row.coverage?.fullyCovered) {
+              @if (!row.ingredient.matched) {
+                link_off
+              } @else if (row.coverage?.fullyCovered) {
                 check_circle
               } @else if (row.coverage) {
                 warning
@@ -109,20 +112,35 @@
               }
             </mat-icon>
             <div class="ingredient-info">
-              <span class="ingredient-name">{{ row.ingredient.ingredientName }}</span>
-              <span class="ingredient-amount">
-                need {{ neededText(row) }} · have {{ availableText(row) }}
+              <span
+                class="ingredient-name"
+                [class.ingredient-name-unmatched]="!row.ingredient.matched"
+              >
+                {{ row.ingredient.ingredientName }}
               </span>
-              @if (row.coverage !== null && !row.coverage.fullyCovered) {
-                <span class="ingredient-gap">
-                  {{ formatAmount(row.coverage.neededAmount - row.coverage.availableAmount) }}
-                  short
+              @if (row.ingredient.matched) {
+                <span class="ingredient-amount">
+                  need {{ neededText(row) }} · have {{ availableText(row) }}
                 </span>
+                @if (row.coverage !== null && !row.coverage.fullyCovered) {
+                  <span class="ingredient-gap">
+                    {{ formatAmount(row.coverage.neededAmount - row.coverage.availableAmount) }}
+                    short
+                  </span>
+                }
+              } @else {
+                <span class="detail-badge ingredient-unmatched-tag">Not in catalog</span>
               }
             </div>
           </li>
         }
       </ul>
+      @if (hasUnmatched()) {
+        <span class="ingredient-amount ingredients-footnote">
+          These lines are not in our catalog, so their amounts cannot be measured against your
+          pantry — they count as missing in the coverage percentage.
+        </span>
+      }
     </mat-card-content>
   </mat-card>
 

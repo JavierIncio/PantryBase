@@ -14,6 +14,7 @@ import com.pantrybase.api.recipe.dto.CreateRecipeIngredientRequest;
 import com.pantrybase.api.recipe.dto.CreateRecipeRequest;
 import com.pantrybase.api.recipe.dto.IngredientCoverageDto;
 import com.pantrybase.api.recipe.dto.RecipeDetailDto;
+import com.pantrybase.api.recipe.dto.RecipeIngredientDetailDto;
 import com.pantrybase.api.recipe.dto.RecipeSummaryDto;
 import com.pantrybase.api.recipe.repository.AllergenMappingRepository;
 import com.pantrybase.api.recipe.repository.RecipeAllergenRepository;
@@ -41,6 +42,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -317,6 +320,168 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52971")).isEmpty();
     }
 
+    // ============ RECOMMEND ============
+
+    @Test
+    void search_partialMatchPersistsAllLines_soPartialRecipesNeverScoreFull() {
+        HttpHeaders headers = authenticate();
+        // The catalog understands only flour (as quinoa flour) and egg, like a user whose
+        // synced data is thin; apples, sugar, salt and the rest have no row to match.
+        Ingredient quinoa = ingredient("Quinoa Flour", "Grain");
+        Ingredient egg = ingredient("Egg, whole, raw", "Egg");
+        stock(quinoa, "300");
+        stock(egg, "100");
+
+        when(mealDbClient.searchByName("apple pie")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "53575", "Apple Pie", "Dessert", null,
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("53575")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "53575", "Apple Pie", "Dessert", null, "Bake it.",
+                        null, null, null,
+                        List.of(
+                                new TheMealDbClient.IngredientMeasure("Apples", "4"),
+                                new TheMealDbClient.IngredientMeasure("Eggs", "2"),
+                                new TheMealDbClient.IngredientMeasure("Sugar", "125 ml"),
+                                new TheMealDbClient.IngredientMeasure("Flour", "200 g"),
+                                new TheMealDbClient.IngredientMeasure("Salt", "0.5 tsp"),
+                                new TheMealDbClient.IngredientMeasure("Bicarbonate Of Soda", "1 tsp"),
+                                new TheMealDbClient.IngredientMeasure("Sour Milk", "250 ml")),
+                        null, "8")));
+
+        ResponseEntity<List<RecipeSummaryDto>> response = search(headers, "?name=apple+pie&threshold=0");
+        assertThat(response.getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .singleElement()
+                .satisfies(summary -> {
+                    // The two understood lines are stocked, but seven real ingredients were
+                    // measured: 5 unmatched lines still count as missing, never 100%.
+                    assertThat(summary.missingCount()).isEqualTo(5);
+                    assertThat(summary.matchScore()).isNotEqualTo(1.0);
+                });
+
+        Recipe materialised = recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "53575").orElseThrow();
+        List<RecipeIngredient> lines = recipeIngredientRepository.findByRecipeIdOrderByPositionAsc(materialised.getId());
+        assertThat(lines).hasSize(7);
+        long matched = lines.stream().filter(l -> Boolean.TRUE.equals(l.getMatched())).count();
+        assertThat(matched).isEqualTo(2);
+        lines.stream().filter(l -> !Boolean.TRUE.equals(l.getMatched())).forEach(l -> {
+            assertThat(l.getIngredientId()).isNull();
+            assertThat(l.getIngredientName()).isNotBlank();
+            assertThat(l.getCanonicalUnitCode()).isNull();
+        });
+
+        // The detail exposes the same truth: full line list, coverage only for matched.
+        ResponseEntity<RecipeDetailDto> detail = detail(headers, materialised.getId());
+        assertThat(detail.getBody().ingredients()).hasSize(7);
+        assertThat(detail.getBody().ingredients().stream()
+                .filter(RecipeIngredientDetailDto::matched).count()).isEqualTo(2);
+        assertThat(detail.getBody().coverage()).hasSize(2);
+        assertThat(detail.getBody().matchScore()).isEqualTo(2.0 / 7.0);
+    }
+
+    // ============ RECOMMEND ============
+
+    @Test
+    void recommend_drivesProviderSearchFromPantryAndScoresHits() {
+        HttpHeaders headers = authenticate();
+        Ingredient chicken = ingredient("Chicken", "Poultry");
+        Ingredient lemon = ingredient("Lemon", "Fruit");
+        stock(chicken, "300");
+        stock(lemon, "100");
+
+        // Lemon matches nothing on the provider, chicken does; the word is the first
+        // token of the catalog name ("Lemon" → "lemon", "Chicken" → "chicken").
+        when(mealDbClient.filterByIngredient("lemon")).thenReturn(List.of());
+        when(mealDbClient.filterByIngredient("chicken")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "54001", "Lemon Chicken", "Chicken", "British",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("54001")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "54001", "Lemon Chicken", "Chicken", "British", "Roast it brown.",
+                        null, null, null,
+                        List.of(
+                                new TheMealDbClient.IngredientMeasure("Lemon", "1"),
+                                new TheMealDbClient.IngredientMeasure("Chicken", "300g")),
+                        null, "4")));
+
+        ResponseEntity<List<RecipeSummaryDto>> response = recommend(headers, "");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .singleElement()
+                .satisfies(summary -> {
+                    assertThat(summary.name()).isEqualTo("Lemon Chicken");
+                    assertThat(summary.matchScore()).isEqualTo(1.0);
+                    assertThat(summary.missingCount()).isEqualTo(0);
+                });
+
+        verify(mealDbClient, times(1)).filterByIngredient("chicken");
+        verify(mealDbClient, times(1)).filterByIngredient("lemon");
+        verify(mealDbClient, times(1)).lookupById("54001");
+        assertThat(recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "54001")).isPresent();
+    }
+
+    @Test
+    void recommend_emptyPantryReturnsEmptyWithoutTouchingProvider() {
+        HttpHeaders headers = authenticate();
+
+        ResponseEntity<List<RecipeSummaryDto>> response = recommend(headers, "");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEmpty();
+        verify(mealDbClient, never()).filterByIngredient(anyString());
+    }
+
+    @Test
+    void recommend_ingredientsWithoutProviderHitsReturnEmpty() {
+        HttpHeaders headers = authenticate();
+        stock(ingredient("Broccoli", "Vegetable"), "400");
+        stock(ingredient("Pasta", "Grain"), "250");
+
+        when(mealDbClient.filterByIngredient("broccoli")).thenReturn(List.of());
+        when(mealDbClient.filterByIngredient("pasta")).thenReturn(List.of());
+
+        assertThat(recommend(headers, "").getBody()).isEmpty();
+        verify(mealDbClient, times(1)).filterByIngredient("broccoli");
+        verify(mealDbClient, times(1)).filterByIngredient("pasta");
+    }
+
+    @Test
+    void recommend_secondCallIsServedFromTheWordCache() {
+        HttpHeaders headers = authenticate();
+        Ingredient oats = ingredient("Oats", "Grain");
+        Ingredient honey = ingredient("Honey", "Sweet");
+        stock(oats, "80");
+        stock(honey, "30");
+
+        when(mealDbClient.filterByIngredient("oats")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "54002", "Oat Porridge", "Breakfast", "British",
+                        null, null, null, null, null)));
+        when(mealDbClient.filterByIngredient("honey")).thenReturn(List.of());
+        when(mealDbClient.lookupById("54002")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "54002", "Oat Porridge", "Breakfast", "British", "Simmer and sweeten.",
+                        null, null, null,
+                        List.of(new TheMealDbClient.IngredientMeasure("Oats", "80g")),
+                        null, "2")));
+
+        recommend(headers, "");
+        ResponseEntity<List<RecipeSummaryDto>> second = recommend(headers, "");
+
+        assertThat(second.getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .singleElement()
+                .satisfies(summary -> assertThat(summary.name()).isEqualTo("Oat Porridge"));
+
+        // The word cache answers the second call and materialisation is idempotent, so
+        // neither the provider search nor the lookup runs twice.
+        verify(mealDbClient, times(1)).filterByIngredient("oats");
+        verify(mealDbClient, times(1)).lookupById("54002");
+    }
+
     // ============ DETAIL ============
 
     @Test
@@ -445,6 +610,12 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
                 });
     }
 
+    private ResponseEntity<List<RecipeSummaryDto>> recommend(HttpHeaders headers, String query) {
+        return rest.exchange(RECIPES + "/recommend" + query, HttpMethod.GET,
+                new HttpEntity<>(headers), new ParameterizedTypeReference<>() {
+                });
+    }
+
     private ResponseEntity<RecipeDetailDto> detail(HttpHeaders headers, long recipeId) {
         return rest.exchange(RECIPES + "/" + recipeId, HttpMethod.GET,
                 new HttpEntity<>(headers), RecipeDetailDto.class);
@@ -494,6 +665,7 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         RecipeIngredient line = new RecipeIngredient();
         line.setRecipeId(recipe.getId());
         line.setIngredientId(ingredient.getId());
+        line.setMatched(true);
         line.setOriginalAmount(new BigDecimal(grams));
         line.setOriginalUnitCode("GRAM");
         line.setCanonicalAmount(new BigDecimal(grams));

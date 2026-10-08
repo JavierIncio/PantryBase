@@ -111,12 +111,14 @@
   color: var(--mat-sys-on-surface-variant);
   font: var(--mat-sys-label-medium);
   font-variant-numeric: tabular-nums;
+}
 
-  mat-icon {
-    width: 1rem;
-    height: 1rem;
-    font-size: 1rem;
-  }
+// Header badges and source links draw their icon at the same label size.
+.detail-badge mat-icon,
+.recipe-source-link mat-icon {
+  width: 1rem;
+  height: 1rem;
+  font-size: 1rem;
 }
 
 // Green for full coverage and amber for partial, the same hues the grid uses
@@ -151,12 +153,6 @@
   gap: 0.25rem;
   color: var(--mat-sys-primary);
   font: var(--mat-sys-label-large);
-
-  mat-icon {
-    width: 1rem;
-    height: 1rem;
-    font-size: 1rem;
-  }
 }
 
 .instructions-card,
@@ -199,12 +195,14 @@
 }
 
 // The icon is the instant read; the color only reinforces it, never replaces
-// it (the same rule as the pantry ledger).
+// it (the same rule as the pantry ledger). An uncatalogued line is a catalog
+// gap, not a pantry shortage, so it is left out of the amber and keeps the
+// neutral tone of the base rule below.
 .ingredient-covered .ingredient-state-icon {
   color: #2e7d32;
 }
 
-.ingredient-row:not(.ingredient-covered) .ingredient-state-icon {
+.ingredient-row:not(.ingredient-covered):not(.ingredient-unmatched) .ingredient-state-icon {
   color: #b26a00;
 }
 
@@ -225,6 +223,15 @@
 
 .ingredient-name {
   font: var(--mat-sys-title-small);
+}
+
+// An uncatalogued line quotes the provider: muted and italic so it reads as
+// someone else's wording, not as one of our own catalog ingredients. Its
+// "Not in catalog" label is a plain `.detail-badge` and the legend under the
+// list a plain `.ingredient-amount`, so neither needs a rule here.
+.ingredient-name-unmatched {
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
 }
 
 .ingredient-amount {
