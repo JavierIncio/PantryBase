@@ -36,6 +36,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -480,6 +481,80 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         // neither the provider search nor the lookup runs twice.
         verify(mealDbClient, times(1)).filterByIngredient("oats");
         verify(mealDbClient, times(1)).lookupById("54002");
+    }
+
+    @Test
+    void recommend_givesEveryPantryWordAFairShareOfTheHitSet() {
+        HttpHeaders headers = authenticate();
+        Ingredient egg = ingredient("Egg", "Egg");
+        Ingredient bacon = ingredient("Bacon", "Meat");
+        stock(egg, "5000");
+        stock(bacon, "300");
+
+        // Alone, "egg" returns more meals than the hit set allows, yet the "bacon" word
+        // must still be felt: slots are claimed word by word, not by the biggest
+        // provider list first.
+        List<TheMealDbClient.MealSummary> eggMeals = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            String id = String.valueOf(54010 + i);
+            eggMeals.add(new TheMealDbClient.MealSummary(
+                    id, "Egg Meal " + i, "Side", "British",
+                    null, null, null, null, null));
+            when(mealDbClient.lookupById(id)).thenReturn(Optional.of(
+                    new TheMealDbClient.MealDetail(
+                            id, "Egg Meal " + i, "Side", "British",
+                            "Boil it.", null, null, null,
+                            List.of(new TheMealDbClient.IngredientMeasure("Egg", "100g")),
+                            null, "1")));
+        }
+        when(mealDbClient.filterByIngredient("egg")).thenReturn(eggMeals);
+        when(mealDbClient.filterByIngredient("bacon")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "54099", "Bacon Meal", "Chicken", "British",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("54099")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "54099", "Bacon Meal", "Chicken", "British",
+                        "Roast it.", null, null, null,
+                        List.of(new TheMealDbClient.IngredientMeasure("Bacon", "200g")),
+                        null, "4")));
+
+        List<RecipeSummaryDto> body = recommend(headers, "").getBody();
+        assertThat(body)
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .hasSize(13);
+        assertThat(body)
+                .filteredOn(summary -> summary.name().equals("Bacon Meal"))
+                .singleElement()
+                .satisfies(summary -> assertThat(summary.matchScore()).isEqualTo(1.0));
+    }
+
+    @Test
+    void recommend_neverReturnsMoreThanTheHitSetCap() {
+        HttpHeaders headers = authenticate();
+        Ingredient tofu = ingredient("Tofu", "Pulse");
+        stock(tofu, "3000");
+
+        // One provider list dwarfs the hit set; the response must still be capped at
+        // MAX_RECOMMEND_HITS instead of materialising every match.
+        List<TheMealDbClient.MealSummary> tofuMeals = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            String id = String.valueOf(54100 + i);
+            tofuMeals.add(new TheMealDbClient.MealSummary(
+                    id, "Tofu Meal " + i, "Vegetarian", "British",
+                    null, null, null, null, null));
+            when(mealDbClient.lookupById(id)).thenReturn(Optional.of(
+                    new TheMealDbClient.MealDetail(
+                            id, "Tofu Meal " + i, "Vegetarian", "British",
+                            "Stir-fry it.", null, null, null,
+                            List.of(new TheMealDbClient.IngredientMeasure("Tofu", "120g")),
+                            null, "1")));
+        }
+        when(mealDbClient.filterByIngredient("tofu")).thenReturn(tofuMeals);
+
+        assertThat(recommend(headers, "").getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .hasSize(24);
     }
 
     // ============ DETAIL ============

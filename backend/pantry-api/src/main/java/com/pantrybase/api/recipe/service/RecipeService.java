@@ -55,8 +55,8 @@ public class RecipeService {
     private static final BigDecimal OZ_FACTOR = new BigDecimal("28.3495");
     private static final BigDecimal LB_FACTOR = new BigDecimal("453.592");
 
-    private static final int MAX_RECOMMEND_INGREDIENTS = 3;
-    private static final int MAX_RECOMMEND_HITS = 10;
+    private static final int MAX_RECOMMEND_INGREDIENTS = 8;
+    private static final int MAX_RECOMMEND_HITS = 24;
 
     private static final Pattern MEASURE_MIXED = Pattern.compile("^(\\d+)\\s+(\\d+)\\/(\\d+)(.*)$");
     private static final Pattern MEASURE_FRACTION = Pattern.compile("^(\\d+)\\/(\\d+)(.*)$");
@@ -162,8 +162,12 @@ public class RecipeService {
     /**
      * Suggests recipes the user could cook next, driven by what the pantry already holds.
      *
-     * <p>Up to {@value MAX_RECOMMEND_INGREDIENTS} stocked ingredients each drive one
-     * {@code filter.php} search, their distinct hits capped at {@value MAX_RECOMMEND_HITS}.
+     * <p>Up to {@value MAX_RECOMMEND_INGREDIENTS} stocked ingredients — the most-stocked
+     * first — each drive one {@code filter.php} search. Their distinct hits fill the
+     * {@value MAX_RECOMMEND_HITS}-row set by fair share: every pantry word claims one
+     * slot per round before any word gets a second, so the biggest provider list cannot
+     * starve the rest of the pantry; slots left by short provider lists are topped up
+     * afterwards, still in pantry-word order.
      * Hits are materialised by the same pipeline as {@link #search} and scored with the
      * same coverage rules, but the threshold is forced to zero: this endpoint opens a
      * starting point, so the whole provider spread should reach the client and let its
@@ -184,23 +188,47 @@ public class RecipeService {
 
         List<String> ingredientWords = pantryRepo.findAllWithIngredientByUserId(userId).stream()
                 .filter(row -> ((com.pantrybase.api.pantry.domain.PantryItem) row[0]).getQuantity().signum() > 0)
+                .sorted(Comparator.comparing(
+                        row -> ((com.pantrybase.api.pantry.domain.PantryItem) row[0]).getQuantity(),
+                        Comparator.reverseOrder()))
                 .map(row -> baseWord(((Ingredient) row[1]).getName()))
                 .filter(Objects::nonNull)
                 .distinct()
                 .limit(MAX_RECOMMEND_INGREDIENTS)
                 .toList();
 
-        // Provider hits keyed by meal id; the word cache has its own namespace so a
+        if (ingredientWords.isEmpty()) {
+            return List.of();
+        }
+
+        // Provider lists per pantry word; the word cache has its own namespace so a
         // repeated suggest does not hit the provider twice.
-        Map<String, TheMealDbClient.MealSummary> hits = new LinkedHashMap<>();
+        List<List<TheMealDbClient.MealSummary>> perWord = new ArrayList<>();
         for (String word : ingredientWords) {
-            List<TheMealDbClient.MealSummary> found = searchCache.getByIngredient(word)
+            perWord.add(searchCache.getByIngredient(word)
                     .orElseGet(() -> {
                         List<TheMealDbClient.MealSummary> fetched = mealDbClient.filterByIngredient(word);
                         searchCache.putByIngredient(word, fetched);
                         return fetched;
-                    });
-            for (TheMealDbClient.MealSummary hit : found) {
+                    }));
+        }
+
+        // Fair share: every pantry word claims one distinct hit per round, so the largest
+        // provider list cannot monopolise the set and each stocked ingredient is felt in
+        // the result. Short lists leave slots unfilled; the top-up pass gives every
+        // remaining hit of every word a chance, still in pantry-word order.
+        Map<String, TheMealDbClient.MealSummary> hits = new LinkedHashMap<>();
+        int budgetPerWord = Math.max(1, MAX_RECOMMEND_HITS / perWord.size());
+        for (int round = 0; round < budgetPerWord && hits.size() < MAX_RECOMMEND_HITS; round++) {
+            for (List<TheMealDbClient.MealSummary> wordHits : perWord) {
+                if (hits.size() >= MAX_RECOMMEND_HITS) break;
+                for (TheMealDbClient.MealSummary hit : wordHits) {
+                    if (hits.putIfAbsent(hit.idMeal(), hit) == null) break;
+                }
+            }
+        }
+        for (List<TheMealDbClient.MealSummary> wordHits : perWord) {
+            for (TheMealDbClient.MealSummary hit : wordHits) {
                 if (hits.size() >= MAX_RECOMMEND_HITS) break;
                 hits.putIfAbsent(hit.idMeal(), hit);
             }
