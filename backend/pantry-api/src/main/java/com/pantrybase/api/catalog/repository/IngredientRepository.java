@@ -6,10 +6,21 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface IngredientRepository extends JpaRepository<Ingredient, Long> {
     Optional<Ingredient> findByFdcId(Long fdcId);
+
+    /**
+     * Candidates for provider-name matching, used by TheMealDB materialisation: every
+     * catalog row whose name contains the token. Whether the full provider name is
+     * contained is decided by the caller; a {@code LIKE '%…%'} cannot use an index, but
+     * the catalog is small (a few thousand curated rows) and materialisation happens only
+     * when a fresh provider hit is seen, so a scan per lookup is cheap.
+     */
+    @Query("SELECT i FROM Ingredient i WHERE LOWER(i.name) LIKE LOWER(CONCAT('%', :token, '%'))")
+    List<Ingredient> findIngredientNameContaining(@Param("token") String token);
 
     /**
      * Inserts the ingredient only if no row with the same fdc_id exists.

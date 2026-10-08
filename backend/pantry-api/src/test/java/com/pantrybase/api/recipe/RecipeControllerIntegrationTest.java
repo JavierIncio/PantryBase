@@ -36,10 +36,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -215,6 +218,105 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
                 .satisfies(summary -> assertThat(summary.name()).isEqualTo("Rice Pilaf"));
     }
 
+    @Test
+    void search_materialisesProviderHitsOnNameQuery() {
+        HttpHeaders headers = authenticate();
+        Ingredient flour = ingredient("Wheat Flour", "Grain");
+        Ingredient milk = ingredient("Milk", "Dairy");
+        Ingredient egg = ingredient("Egg, whole, raw", "Egg");
+        allergenRow(egg, "EGG");
+
+        when(mealDbClient.searchByName("Pancakes")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52768", "Pancakes", "Breakfast", "American",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52768")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "52768", "Pancakes", "Breakfast", "American", "Mix and fry.",
+                        null, null, null,
+                        List.of(
+                                new TheMealDbClient.IngredientMeasure("Wheat Flour", "200g"),
+                                new TheMealDbClient.IngredientMeasure("Milk", "1 1/2 cups"),
+                                new TheMealDbClient.IngredientMeasure("Egg, whole", "2")),
+                        null, "4")));
+
+        // First search triggers materialisation; the second shares the Redis cache, so the
+        // provider must be called once and the unique (source, external_id) row kept single.
+        search(headers, "?name=Pancakes&threshold=0");
+        ResponseEntity<List<RecipeSummaryDto>> second = search(headers, "?name=Pancakes&threshold=0");
+
+        verify(mealDbClient, times(1)).searchByName("Pancakes");
+        verify(mealDbClient, times(1)).lookupById("52768");
+        assertThat(second.getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .singleElement()
+                .satisfies(summary -> assertThat(summary.name()).isEqualTo("Pancakes"));
+
+        Recipe materialised = recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52768").orElseThrow();
+        List<RecipeIngredient> lines = recipeIngredientRepository.findByRecipeIdOrderByPositionAsc(materialised.getId());
+        assertThat(lines).hasSize(3);
+
+        RecipeIngredient flourLine = lines.get(0);
+        assertThat(flourLine.getIngredientId()).isEqualTo(flour.getId());
+        assertThat(flourLine.getOriginalUnitCode()).isEqualTo("GRAM");
+        assertThat(flourLine.getCanonicalUnitCode()).isEqualTo("GRAM");
+        assertThat(flourLine.getCanonicalAmount()).isEqualByComparingTo("200");
+
+        RecipeIngredient milkLine = lines.get(1);
+        assertThat(milkLine.getIngredientId()).isEqualTo(milk.getId());
+        assertThat(milkLine.getOriginalUnitCode()).isEqualTo("CUP");
+        assertThat(milkLine.getCanonicalUnitCode()).isEqualTo("ML");
+        assertThat(milkLine.getOriginalAmount()).isEqualByComparingTo("1.5");
+        assertThat(milkLine.getCanonicalAmount()).isEqualByComparingTo("354.882");
+
+        RecipeIngredient eggLine = lines.get(2);
+        assertThat(eggLine.getIngredientId()).isEqualTo(egg.getId());
+        assertThat(eggLine.getOriginalUnitCode()).isEqualTo("UNIT");
+        assertThat(eggLine.getCanonicalUnitCode()).isEqualTo("UNIT");
+        assertThat(eggLine.getOriginalAmount()).isEqualByComparingTo("2");
+        assertThat(eggLine.getCanonicalAmount()).isEqualByComparingTo("2");
+
+        // Nutrients are weighted from the flour line and divided across the servings.
+        ResponseEntity<RecipeDetailDto> detail = detail(headers, materialised.getId());
+        assertThat(detail.getBody().nutrients()).satisfies(n -> {
+            assertThat(n.energyKcal()).isEqualByComparingTo("50");
+            assertThat(n.proteinG()).isEqualByComparingTo("0.5");
+            assertThat(n.fatG()).isEqualByComparingTo("0.5");
+            assertThat(n.carbsG()).isEqualByComparingTo("0.5");
+        });
+        assertThat(detail.getBody().allergenCodes()).containsExactlyInAnyOrder("EGG");
+
+        // The derived allergen takes part in the opt-in filter like any other recipe.
+        excludeFromDiet(headers, "EGG");
+        assertThat(search(headers, "?name=Pancakes&threshold=0&allergenSafe=true").getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .isEmpty();
+    }
+
+    @Test
+    void search_skipsMaterialisationWhenNoIngredientMatches() {
+        HttpHeaders headers = authenticate();
+        // Catalog rows sharing no word with the provider hit remain unmatched.
+        ingredient("Milk", "Dairy");
+        ingredient("Egg, whole, raw", "Egg");
+
+        when(mealDbClient.searchByName("beef")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52971", "Beef Wellington", "Beef", "British",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52971")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "52971", "Beef Wellington", "Beef", "British", "Wrap it.",
+                        null, null, null,
+                        List.of(new TheMealDbClient.IngredientMeasure("Beef Tenderloin", "1 1/2 lb")),
+                        null, "4")));
+
+        search(headers, "?name=beef&threshold=0");
+
+        verify(mealDbClient).lookupById("52971");
+        assertThat(recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52971")).isEmpty();
+    }
+
     // ============ DETAIL ============
 
     @Test
@@ -308,6 +410,31 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
                 RECIPES, HttpMethod.POST, new HttpEntity<>(request, headers), ErrorResponse.class);
 
         assertError(response, HttpStatus.BAD_REQUEST, RECIPES);
+    }
+
+    @Test
+    void create_persistsNutrientsPerServing_soDetailAgrees() {
+        HttpHeaders headers = authenticate();
+        Ingredient egg = ingredient("Egg, whole, raw", "Egg");
+        CreateRecipeRequest request = new CreateRecipeRequest(
+                "Omelette", "Breakfast", "French", "Whisk and fold.",
+                null, null, null, 2, null,
+                List.of(new CreateRecipeIngredientRequest(egg.getId(),
+                        new BigDecimal("100"), "GRAM", 0)));
+
+        ResponseEntity<RecipeDetailDto> created = rest.exchange(
+                RECIPES, HttpMethod.POST, new HttpEntity<>(request, headers), RecipeDetailDto.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody().nutrients()).satisfies(n -> {
+            assertThat(n.energyKcal()).isEqualByComparingTo("50");
+            assertThat(n.proteinG()).isEqualByComparingTo("0.5");
+            assertThat(n.fatG()).isEqualByComparingTo("0.5");
+            assertThat(n.carbsG()).isEqualByComparingTo("0.5");
+        });
+
+        // The same row is served on a later read instead of recomputed on the fly.
+        ResponseEntity<RecipeDetailDto> readBack = detail(headers, created.getBody().id());
+        assertThat(readBack.getBody().nutrients().energyKcal()).isEqualByComparingTo("50");
     }
 
     // ============ HELPERS ============

@@ -9,6 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,8 @@ import java.util.Optional;
  */
 @Component
 public class TheMealDbClient {
+
+    private static final int MAX_INGREDIENT_SLOTS = 20;
 
     private final WebClient webClient;
     private final String baseUrl;
@@ -54,9 +57,18 @@ public class TheMealDbClient {
                 .orElse(Collections.emptyList());
     }
 
-    /** Lookup full meal detail by id. Returns empty on 404/429/5xx. */
+    /**
+     * Lookup full meal detail by id, including the up-to-20 ingredient/measure pairs
+     * TheMealDB spreads across {@code strIngredient1..20}/{@code strMeasure1..20}.
+     *
+     * <p>Those fields are read from the raw JSON map rather than bound to a record:
+     * there is no shared Jackson binding for twenty numbered properties, the search and
+     * filter endpoints drop them, and the detail path is the only consumer — so keeping
+     * the wire form as a map keeps the binding surface small. Returns empty on
+     * 404/429/5xx.</p>
+     */
     public Optional<MealDetail> lookupById(String id) {
-        return get("/lookup.php", Map.of("i", id), MealListResponse.class)
+        return get("/lookup.php", Map.of("i", id), RawMealListResponse.class)
                 .flatMap(r -> r.meals().stream().findFirst())
                 .map(this::toDetail);
     }
@@ -96,19 +108,33 @@ public class TheMealDbClient {
         }
     }
 
-    private MealDetail toDetail(MealSummary s) {
+    private MealDetail toDetail(Map<String, Object> raw) {
+        List<IngredientMeasure> ingredients = new ArrayList<>();
+        for (int slot = 1; slot <= MAX_INGREDIENT_SLOTS; slot++) {
+            String ingredient = asText(raw.get("strIngredient" + slot));
+            String measure = asText(raw.get("strMeasure" + slot));
+            if (ingredient == null) continue;
+            ingredients.add(new IngredientMeasure(ingredient, measure == null ? "" : measure));
+        }
         return new MealDetail(
-                s.idMeal(),
-                s.strMeal(),
-                s.strCategory(),
-                s.strArea(),
-                s.strInstructions(),
-                s.strMealThumb(),
-                s.strYoutube(),
-                s.strTags(),
-                Collections.emptyList(), // ingredients parsed from raw JSON in real impl
-                s.strSource()
+                asText(raw.get("idMeal")),
+                asText(raw.get("strMeal")),
+                asText(raw.get("strCategory")),
+                asText(raw.get("strArea")),
+                asText(raw.get("strInstructions")),
+                asText(raw.get("strMealThumb")),
+                asText(raw.get("strYoutube")),
+                asText(raw.get("strTags")),
+                ingredients,
+                asText(raw.get("strSource")),
+                asText(raw.get("strServings"))
         );
+    }
+
+    private static String asText(Object value) {
+        if (value == null) return null;
+        String text = value.toString().trim();
+        return text.isEmpty() ? null : text;
     }
 
     // --- DTOs (Jackson) ---
@@ -129,6 +155,10 @@ public class TheMealDbClient {
             @JsonProperty("strSource") String strSource
     ) {}
 
+    /** Raw lookup wire form: the numbered ingredient fields live in the meal map. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RawMealListResponse(@JsonProperty("meals") List<Map<String, Object>> meals) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record MealDetail(
             String idMeal,
@@ -140,7 +170,8 @@ public class TheMealDbClient {
             String strYoutube,
             String strTags,
             List<IngredientMeasure> ingredients,
-            String strSource
+            String strSource,
+            String strServings
     ) {}
 
     public record IngredientMeasure(String ingredient, String measure) {}

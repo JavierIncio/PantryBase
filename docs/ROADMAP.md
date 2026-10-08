@@ -105,14 +105,14 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 **Objetivo:** recomendación basada en la despensa (el diferencial del producto).
 
 - [ ] Integración **TheMealDB API** (v1): búsqueda de recetas por nombre e ingrediente (test key pública); recetas materializadas en BBDD con `Recipe.source = THE_MEAL_DB` y refresco por TTL.
-- [ ] Persistencia de `Recipe` + `RecipeIngredient` (cantidades originales del proveedor y canónicas) + nutrientes por ración calculados localmente desde el catálogo USDA (motor de unidades como puente) + marcador de origen `Recipe.source` (`THE_MEAL_DB` o `USER`).
+- [x] Persistencia de `Recipe` + `RecipeIngredient` (cantidades originales del proveedor y canónicas) + nutrientes por ración calculados localmente desde el catálogo USDA (motor de unidades como puente) + marcador de origen `Recipe.source` (`THE_MEAL_DB` o `USER`).
 - [x] Derivación de alérgenos por receta (mapeo interno sobre ingredientes) y filtrado por exclusiones del usuario.
 - [x] Motor de cobertura: ratio = cantidad disponible / cantidad necesaria por ingrediente → **match score** de la receta.
 - [x] Filtrado **estricto** (requiere 100% según umbral de cantidad) y **laxo** (porcentaje de cobertura configurable).
 - [ ] Slider de umbral (0-100%) con recalculado en tiempo real.
 - [ ] Frontend: grid de recetas con badges de cobertura, detalles de receta, enlaces al step completo.
 
-**Backend del bloque (oct 2026):** `RecipeController` opera los tres endpoints (`GET /api/recipes`, `GET /api/recipes/{id}`, `POST /api/recipes`) con el motor de cobertura binario (sin crédito parcial), el filtrado estricto/laxo por `threshold` y `allergenSafe` sobre `user_allergy_exclusions` de `V3`. La búsqueda por nombre consulta TheMealDB con caché TTL en Redis. **Quedan dos esqueletos sin cerrar:** `materializeMealDbRecipe` aún no persiste (solo registra en log, así que los hits frescos del proveedor no llegan a la grid) y `computeNutrients` devuelve `null`; la búsqueda fresca por ingrediente no está cableada (el parámetro `ingredientId` filtra solo filas locales). 254 tests verdes y JaCoCo al 85,9 %. Pendiente: esos dos esqueletos, el slider y la grid (subagente `frontend`).
+**Backend del bloque (oct 2026):** `RecipeController` opera los tres endpoints (`GET /api/recipes`, `GET /api/recipes/{id}`, `POST /api/recipes`) con el motor de cobertura binario (sin crédito parcial), el filtrado estricto/laxo por `threshold` y `allergenSafe` sobre `user_allergy_exclusions` de `V3`. La búsqueda por nombre consulta TheMealDB con caché TTL en Redis y **materializa los hits frescos**: empareja los ingredientes del proveedor con el catálogo por contención de tokens y persiste `Recipe` + líneas canónicas + alérgenos + nutrientes por ración en una transacción `REQUIRES_NEW` (la entrada se hace desde la transacción de solo lectura de `search`). **257 tests verdes y JaCoCo al 86,7 %.** Pendiente del backend: la búsqueda fresca por ingrediente (el parámetro `ingredientId` filtra solo filas locales; `filter.php` y el refresco por TTL quedan fuera del alcance de H4). Pendiente del frontend: el slider y la grid (subagente `frontend`).
 
 **Definition of done:** para un inventario dado, el modo estricto muestra solo recetas factibles y el laxo ordena por score; el slider recalcula sin llamada.
 
