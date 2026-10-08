@@ -109,10 +109,14 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [x] Derivación de alérgenos por receta (mapeo interno sobre ingredientes) y filtrado por exclusiones del usuario.
 - [x] Motor de cobertura: ratio = cantidad disponible / cantidad necesaria por ingrediente → **match score** de la receta.
 - [x] Filtrado **estricto** (requiere 100% según umbral de cantidad) y **laxo** (porcentaje de cobertura configurable).
-- [ ] Slider de umbral (0-100%) con recalculado en tiempo real.
-- [ ] Frontend: grid de recetas con badges de cobertura, detalles de receta, enlaces al step completo.
+- [x] Slider de umbral (0-100%) con recalculado en tiempo real.
+- [x] Frontend: grid de recetas con badges de cobertura, detalles de receta, enlaces al step completo.
 
-**Backend del bloque (oct 2026):** `RecipeController` opera los tres endpoints (`GET /api/recipes`, `GET /api/recipes/{id}`, `POST /api/recipes`) con el motor de cobertura binario (sin crédito parcial), el filtrado estricto/laxo por `threshold` y `allergenSafe` sobre `user_allergy_exclusions` de `V3`. La búsqueda por nombre consulta TheMealDB con caché TTL en Redis y **materializa los hits frescos**: empareja los ingredientes del proveedor con el catálogo por contención de tokens y persiste `Recipe` + líneas canónicas + alérgenos + nutrientes por ración en una transacción `REQUIRES_NEW` (la entrada se hace desde la transacción de solo lectura de `search`). **257 tests verdes y JaCoCo al 86,7 %.** Pendiente del backend: la búsqueda fresca por ingrediente (el parámetro `ingredientId` filtra solo filas locales; `filter.php` y el refresco por TTL quedan fuera del alcance de H4). Pendiente del frontend: el slider y la grid (subagente `frontend`).
+**Backend del bloque (oct 2026):** `RecipeController` opera los tres endpoints (`GET /api/recipes`, `GET /api/recipes/{id}`, `POST /api/recipes`) con el motor de cobertura binario (sin crédito parcial), el filtrado estricto/laxo por `threshold` y `allergenSafe` sobre `user_allergy_exclusions` de `V3`. La búsqueda por nombre consulta TheMealDB con caché TTL en Redis y **materializa los hits frescos**: empareja los ingredientes del proveedor con el catálogo por contención de tokens y persiste `Recipe` + líneas canónicas + alérgenos + nutrientes por ración en una transacción `REQUIRES_NEW` (la entrada se hace desde la transacción de solo lectura de `search`). **257 tests verdes y JaCoCo al 86,7 %.**
+
+**Frontend del bloque (oct 2026):** la página de Recetas (`recipes-page`) con buscador por nombre con debounce, slider de umbral **100 % en cliente** (nunca relanza la búsqueda), toggles de modo estricto (fija el slider al 100) y `allergenSafe`, y una grid de tarjetas con badge de cobertura, faltantes y origen (`USER` / `THE_MEAL_DB`). El detalle (`recipes/:id`) desglosa la cobertura línea a línea (necesario vs. disponible), muestra nutrientes por ración, alérgenos y enlaza al modo cocina. **206 tests de frontend verdes (22 ficheros).**
+
+**Pendiente del bloque:** la búsqueda fresca por ingrediente —`ingredientId` sigue filtrando solo filas locales; `filter.php` y el refresco por TTL quedan fuera del alcance de H4.
 
 **Definition of done:** para un inventario dado, el modo estricto muestra solo recetas factibles y el laxo ordena por score; el slider recalcula sin llamada.
 

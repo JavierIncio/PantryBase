@@ -2,13 +2,13 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **8 de octubre de 2026** (H4 backend: recetas + cobertura + materialización; 257 tests verdes, JaCoCo 86,7 %).
+> Máximo 100 líneas. Última actualización: **8 de octubre de 2026** (H4 backend + frontend de recetas; 257 tests backend, 206 frontend).
 
 ## Dónde estamos
 
-**Hito en curso: H4 (recetas y filtrado por disponibilidad).** Backend H4 cerrado y verde, incluidos la materialización de hits de TheMealDB y los nutrientes por ración. Pendiente de H4: la búsqueda fresca por ingrediente (`ingredientId` filtra solo filas locales) y todo el frontend de recetas. H0–H3 cerrados y documentados.
+**Hito en curso: H4 (recetas y filtrado por disponibilidad).** Backend y frontend de H4 cerrados y verdes (materialización TheMealDB, nutrientes por ración, grid + slider + detalle). Pendiente de H4: la búsqueda fresca por ingrediente (`ingredientId` filtra solo filas locales). H0–H3 cerrados y documentados.
 
-Estado verificado: **backend 257 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **86,7 %**). **Frontend 165 tests verdes** con `npm test` y `npm run build` sin avisos. Ojo: en `target/surefire-reports` hay un informe stale de `PantryMeasureEquivalenceIntegrationTest` (clase eliminada el 05/10); los totales fiables salen de Maven, no de los `.txt` huérfanos.
+Estado verificado: **backend 257 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **86,7 %**). **Frontend 206 tests verdes (22 ficheros)** con `npm test` y `npm run build` sin avisos. Ojo: en `target/surefire-reports` hay un informe stale de `PantryMeasureEquivalenceIntegrationTest` (clase eliminada el 05/10); los totales fiables salen de Maven, no de los `.txt` huérfanos.
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -21,11 +21,13 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H4-a TheMealDB:** `TheMealDbClient` (search/lookup), `RecipeSearchCache` (TTL 24 h en Redis, prefijo `catalog:themdb:`), `RecipeWebClientConfig` (bean `WebClient.Builder`).
 - **H4-b Recetas:** `V13__recipes.sql`, paquete `recipe` completo, `RecipeController` (`GET /api/recipes` con `name`/`ingredientId`/`strict`/`threshold`/`allergenSafe`, `GET /api/recipes/{id}`, `POST /api/recipes`), `RecipeNotFoundException` → 404 en `GlobalExceptionHandler`. Cobertura binaria, alta propia con canónicos vía `toStorageUnit` y derivación de alérgenos (`allergen_mapping`, códigos EU de `V3`). **Materialización TheMealDB cerrada:** `TheMealDbClient.lookupById` parsea `strIngredient1..20`/`strMeasure1..20` (JSON crudo como mapa), emparejado por contención de tokens (plurales reducidos, ganador más corto/alfabético, sin match se omite y si ninguno empareja la receta no se materializa), medida→canónico con `toStorageUnit`, persistencia en transacción `REQUIRES_NEW` vía `TransactionTemplate` (auto-invocación desde `search`, que correría en la tx de solo lectura). **`computeNutrients` persiste la fila** de `recipe_nutrients` (solo líneas con peso canónico; por ración; `null` si nada es ponderable) — el detalle ya no diverge del `POST`. 15 tests de integración (12 previos + 3 nuevos).
 
+- **H4-c Frontend de recetas:** `RecipesService` + modelos a mano, reglas puras en `recipe-matching.ts` (umbral cliente, orden por cobertura, `pairCoverage`), `recipes-page` (buscador con debounce 300 ms, slider 0-100 **cliente** que nunca relanza búsqueda, strict fija el slider a 100, `allergenSafe` re-busca, grid de tarjetas con badge de cobertura/origen) y detalle `recipes/:id` (desglose necesario vs. disponible unido por `ingredientId`, nutrientes por ración, alérgenos, `404` como estado, enlace a `/cooking` para H5). 20 tests nuevos (206 totales).
+
 ## Decisiones ya tomadas (no volver a abrir sin motivo)
 
 - **H3:** cantidad en `GRAM`/`UNIT` (volumen sin densidad → `ML`); una fila por ingrediente; ajuste con signo y asiento obligatorio; negativo `409` y cero permitido; `@Version` del servidor; `PUT` sin campo de cantidad.
 - **H4 cobertura binaria:** un ingrediente cuenta entero o no cuenta (99/100 no cubre); `matchScore = cubiertos/total`; comparación canónica contra canónica (misma `toStorageUnit` que la despensa).
-- **H4 strict vs threshold:** `strict=true` exige `== 1.0`; si no, manda `threshold` (50 por defecto) y el slider recalcula en cliente sobre `matchScore`/`missingCount`, sin llamada.
+- **H4 strict vs threshold:** `strict=true` exige `== 1.0`; si no, manda `threshold` (50 por defecto) y el slider recalcula en cliente sobre `matchScore`/`missingCount`, sin llamada. Al activar estricto el slider salta a 100 y se bloquea (no pueden contradecirse).
 - **H4 prioridad de candidatos:** USER → `THE_MEAL_DB` materializadas → fresca solo si hay `name`; dedup con `LinkedHashMap` + `putIfAbsent`. Sin paginación.
 - **H4 alérgenos opt-in** con `allergenSafe` sobre `user_allergy_exclusions` (V3, sin tabla nueva); `recipe_allergens` se materializa al crear.
 - **H4 materialización: emparejado por contención de tokens** en lugar de fallo ruidoso o alias: palabras del proveedor ⊆ palabra completa del nombre local; caso de empate gana el más corto (determinista). Los no emparejados se descartan; si no empareja ninguno, la receta no se materializa. Deuda anotada: tabla de alias `provider_name → ingredient_id` en el roadmap.
@@ -35,7 +37,7 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Próximos pasos
 
-1. **Cerrar H4:** (a) búsqueda fresca por ingrediente (hoy `ingredientId` filtra solo filas locales), (b) frontend de recetas — grid, badges, slider, detalle — **con el subagente `frontend`**.
+1. **Cerrar H4 (deuda):** búsqueda fresca por ingrediente (hoy `ingredientId` filtra solo filas locales; `filter.php` y refresco por TTL fuera del alcance de H4).
 2. **H5 (modo cocina):** `ConsumptionOrigin` gana `COOKING_SESSION`; el tipo del frontend es unión de uno solo y avisará el compilador.
 3. **H6 (Material theming):** 4-5 paletas SCSS → `:root[data-theme=...]`, selector en preferencias; sin Tailwind ni FontAwesome. Frontend puro.
 4. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.

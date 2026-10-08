@@ -1,0 +1,152 @@
+<header class="recipes-heading">
+  <h1>Recipes</h1>
+  <p>Find dishes your pantry can cover.</p>
+</header>
+
+<mat-card class="search-card">
+  <mat-card-content>
+    <div class="search-row">
+      <mat-form-field class="search-field">
+        <mat-label>Search recipes</mat-label>
+        <input matInput [formControl]="nameControl" placeholder="e.g. pasta" />
+      </mat-form-field>
+
+      <div class="filter-controls">
+        <div class="threshold-group">
+          <form [formGroup]="filters">
+            <div class="threshold-controls">
+              <span class="threshold-label">Coverage</span>
+              <span class="threshold-value">{{ visibleThreshold() }}%</span>
+              <mat-slider
+                class="threshold-slider"
+                [discrete]="true"
+                [showTickMarks]="true"
+                min="0"
+                max="100"
+                step="1"
+                [disabled]="thresholdLocked()"
+              >
+                <input matSliderThumb formControlName="threshold" />
+              </mat-slider>
+            </div>
+          </form>
+          <span class="filter-hint">Filters the grid on screen — no new search.</span>
+        </div>
+
+        <div class="filter-toggles">
+          <mat-slide-toggle
+            [checked]="strict()"
+            (change)="onStrictChange($event)"
+            class="toggle-strict"
+          >
+            Strict mode
+          </mat-slide-toggle>
+          <mat-slide-toggle
+            [checked]="allergenSafe()"
+            (change)="onAllergenSafeChange($event)"
+            class="toggle-allergen-safe"
+          >
+            Allergen-safe
+          </mat-slide-toggle>
+        </div>
+      </div>
+
+      @if (strict()) {
+        <p class="strict-hint">
+          Strict mode shows only fully covered recipes (100%): the coverage slider is locked.
+        </p>
+      }
+    </div>
+  </mat-card-content>
+</mat-card>
+
+@if (loading()) {
+  <div class="recipes-status"><mat-spinner diameter="40" /></div>
+} @else if (loadError(); as message) {
+  <div class="recipes-status recipes-error">
+    <p class="recipes-error-message">{{ message }}</p>
+    <button mat-stroked-button type="button" class="retry-recipes" (click)="load()">Retry</button>
+  </div>
+} @else if (isEmpty()) {
+  <mat-card class="recipes-empty">
+    <mat-card-content>
+      <mat-icon class="recipes-empty-icon" aria-hidden="true">menu_book</mat-icon>
+      @if (hasRecipes()) {
+        <h2>Nothing reaches the bar</h2>
+        <p>
+          These recipes are all below {{ visibleThreshold() }}% of your pantry. Lower the coverage
+          slider or narrow the search to see the ones worth cooking.
+        </p>
+      } @else {
+        <h2>No recipes found</h2>
+        <p>
+          Nothing matches this search yet. Try a different name — recipes appear here as the catalog
+          knows them, with how well your pantry can cover each one.
+        </p>
+      }
+    </mat-card-content>
+  </mat-card>
+} @else {
+  <div class="recipe-grid">
+    @for (recipe of visibleRecipes(); track recipe.id) {
+      <mat-card
+        class="recipe-card"
+        [class]="coverageClass(recipe.matchScore)"
+        [routerLink]="['/recipes', recipe.id]"
+      >
+        @if (recipe.imageUrl; as imageUrl) {
+          <img
+            class="recipe-image"
+            [src]="imageUrl"
+            [alt]="recipe.name"
+            loading="lazy"
+            referrerpolicy="no-referrer"
+          />
+        } @else {
+          <div class="recipe-image recipe-image-fallback">
+            <mat-icon aria-hidden="true">restaurant_menu</mat-icon>
+          </div>
+        }
+
+        <mat-card-header>
+          <mat-card-title>{{ recipe.name }}</mat-card-title>
+        </mat-card-header>
+
+        <mat-card-content>
+          <div class="recipe-badges">
+            <span class="recipe-badge coverage-badge {{ coverageClass(recipe.matchScore) }}">
+              @if (coveragePercent(recipe.matchScore); as percent) {
+                {{ percent }}%
+              } @else {
+                No coverage
+              }
+            </span>
+            <span class="recipe-badge recipe-source">{{ sourceLabel(recipe.source) }}</span>
+            @if (recipe.servings !== null) {
+              <span class="recipe-badge recipe-servings">
+                <mat-icon aria-hidden="true">restaurant</mat-icon>
+                {{ recipe.servings }} {{ recipe.servings === 1 ? 'serving' : 'servings' }}
+              </span>
+            }
+          </div>
+
+          @if (recipe.missingCount !== null && recipe.missingCount > 0) {
+            <p class="recipe-missing">
+              {{ recipe.missingCount }}
+              {{ recipe.missingCount === 1 ? 'ingredient' : 'ingredients' }}
+              short of full coverage
+            </p>
+          }
+
+          @if (recipe.allergenCodes.length > 0) {
+            <mat-chip-set class="recipe-allergens" aria-label="Allergens">
+              @for (code of recipe.allergenCodes; track code) {
+                <mat-chip>{{ code }}</mat-chip>
+              }
+            </mat-chip-set>
+          }
+        </mat-card-content>
+      </mat-card>
+    }
+  </div>
+}

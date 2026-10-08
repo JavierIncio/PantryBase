@@ -1,0 +1,164 @@
+@if (loading()) {
+  <div class="detail-status"><mat-spinner diameter="40" /></div>
+} @else if (loadError(); as message) {
+  <div class="detail-status detail-error">
+    <p class="detail-error-message">{{ message }}</p>
+    <button mat-stroked-button type="button" class="retry-detail" (click)="load()">Retry</button>
+  </div>
+} @else if (notFound()) {
+  <mat-card class="detail-not-found">
+    <mat-card-content>
+      <mat-icon class="detail-not-found-icon" aria-hidden="true">search_off</mat-icon>
+      <h2>Recipe not found</h2>
+      <p>This recipe does not exist or is no longer available.</p>
+      <a mat-flat-button routerLink="/recipes" class="back-to-recipes">Back to recipes</a>
+    </mat-card-content>
+  </mat-card>
+} @else if (recipe(); as recipe) {
+  <header class="detail-heading">
+    <div class="detail-image-wrap">
+      @if (recipe.imageUrl; as imageUrl) {
+        <img
+          class="detail-image"
+          [src]="imageUrl"
+          [alt]="recipe.name"
+          referrerpolicy="no-referrer"
+        />
+      } @else {
+        <div class="detail-image detail-image-fallback">
+          <mat-icon aria-hidden="true">restaurant_menu</mat-icon>
+        </div>
+      }
+    </div>
+
+    <div class="detail-heading-text">
+      <h1>{{ recipe.name }}</h1>
+      @if (categoryArea(recipe.category, recipe.area); as originText) {
+        <p class="detail-origin-text">{{ originText }}</p>
+      }
+      <div class="detail-badges">
+        <span class="detail-badge coverage-badge {{ coverageClass(recipe.matchScore) }}">
+          @if (coveragePercent(recipe.matchScore); as percent) {
+            {{ percent }}% covered
+          } @else {
+            No coverage computed
+          }
+        </span>
+        <span class="detail-badge">{{ sourceLabel(recipe.source) }}</span>
+        @if (recipe.servings !== null) {
+          <span class="detail-badge">
+            <mat-icon aria-hidden="true">restaurant</mat-icon>
+            {{ recipe.servings }} {{ recipe.servings === 1 ? 'serving' : 'servings' }}
+          </span>
+        }
+      </div>
+      @if (recipe.allergenCodes.length > 0) {
+        <mat-chip-set class="detail-allergens" aria-label="Allergens">
+          @for (code of recipe.allergenCodes; track code) {
+            <mat-chip>{{ code }}</mat-chip>
+          }
+        </mat-chip-set>
+      }
+      @if (recipe.videoUrl || recipe.sourceUrl) {
+        <div class="detail-links">
+          @if (recipe.sourceUrl; as sourceUrl) {
+            <a class="recipe-source-link" [href]="sourceUrl" target="_blank" rel="noopener">
+              <mat-icon aria-hidden="true">open_in_new</mat-icon>
+              See original recipe
+            </a>
+          }
+          @if (recipe.videoUrl; as videoUrl) {
+            <a class="recipe-source-link" [href]="videoUrl" target="_blank" rel="noopener">
+              <mat-icon aria-hidden="true">smart_display</mat-icon>
+              Watch video
+            </a>
+          }
+        </div>
+      }
+    </div>
+  </header>
+
+  <mat-card class="instructions-card">
+    <mat-card-header>
+      <mat-card-title>Instructions</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <p class="instructions-text">{{ recipe.instructions }}</p>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card class="ingredients-card">
+    <mat-card-header>
+      <mat-card-title>Ingredients</mat-card-title>
+      <mat-card-subtitle>What your pantry covers, line by line</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <ul class="ingredient-list">
+        @for (row of rows(); track row.ingredient.position) {
+          <li
+            class="ingredient-row"
+            [class.ingredient-covered]="row.coverage?.fullyCovered === true"
+          >
+            <mat-icon class="ingredient-state-icon" aria-hidden="true">
+              @if (row.coverage?.fullyCovered) {
+                check_circle
+              } @else if (row.coverage) {
+                warning
+              } @else {
+                help_outline
+              }
+            </mat-icon>
+            <div class="ingredient-info">
+              <span class="ingredient-name">{{ row.ingredient.ingredientName }}</span>
+              <span class="ingredient-amount">
+                need {{ neededText(row) }} · have {{ availableText(row) }}
+              </span>
+              @if (row.coverage !== null && !row.coverage.fullyCovered) {
+                <span class="ingredient-gap">
+                  {{ formatAmount(row.coverage.neededAmount - row.coverage.availableAmount) }}
+                  short
+                </span>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    </mat-card-content>
+  </mat-card>
+
+  @if (recipe.nutrients; as nutrients) {
+    <mat-card class="nutrients-card">
+      <mat-card-header>
+        <mat-card-title>Nutrition per serving</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="nutrient-grid">
+          <div class="nutrient-cell">
+            <span class="nutrient-value">{{ nutrientText(nutrients.energyKcal) }}</span>
+            <span class="nutrient-name">Energy (kcal)</span>
+          </div>
+          <div class="nutrient-cell">
+            <span class="nutrient-value">{{ nutrientText(nutrients.proteinG) }}</span>
+            <span class="nutrient-name">Protein (g)</span>
+          </div>
+          <div class="nutrient-cell">
+            <span class="nutrient-value">{{ nutrientText(nutrients.fatG) }}</span>
+            <span class="nutrient-name">Fat (g)</span>
+          </div>
+          <div class="nutrient-cell">
+            <span class="nutrient-value">{{ nutrientText(nutrients.carbsG) }}</span>
+            <span class="nutrient-name">Carbs (g)</span>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <div class="detail-actions">
+    <a mat-stroked-button routerLink="/recipes" class="back-to-recipes">Back to recipes</a>
+    <a mat-flat-button routerLink="/cooking" class="start-cooking">
+      <mat-icon aria-hidden="true">soup_kitchen</mat-icon>
+      Start cooking
+    </a>
+  </div>
+}

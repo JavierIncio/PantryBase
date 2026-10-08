@@ -418,7 +418,16 @@ Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_ent
 
 **Nutrientes por ración (`computeNutrients`).** Suma, para cada línea cuyo canónico tenga peso (`GRAM`/`KG`/`OZ`/`LB`), las kcal/proteína/grasa/carbs del ingrediente escaladas a la cantidad —las líneas en `ML` no pesan, precisamente porque llegaron a esa unidad por falta de densidad, y las de `UNIT` tampoco—, divide entre las raciones (o devuelve el total si no hay raciones) y **persiste la fila** en `recipe_nutrients`. El detalle relee esa fila, de modo que lo que devuelve `POST` y lo que sirve `GET /api/recipes/{id}` no pueden divergir. Si ninguna línea es ponderable no persiste nada y devuelve `null`: una fila de ceros presentaría ignorancia como dato.
 
-**Estado:** el backend de H4 está operativo y verificado (257 tests, JaCoCo 86,7 %): la búsqueda por nombre materializa los hits frescos y toda receta —propia o del proveedor— calcula y persiste nutrientes por ración. Queda del backend la búsqueda fresca por ingrediente: `ingredientId` sigue filtrando solo filas locales. El slider y la grid son trabajo del subagente `frontend`.
+**Estado:** el bloque H4 está operativo y verificado: backend (257 tests, JaCoCo 86,7 %) con la búsqueda por nombre materializando hits frescos y nutrientes por ración persistidos, y frontend (206 tests, 22 ficheros). Queda del bloque la búsqueda fresca por ingrediente: `ingredientId` sigue filtrando solo filas locales.
+
+**Frontend de recetas (H4-C).** La pieza nueva es el servicio `RecipesService` —tipa la búsqueda y el detalle en un único sitio, enviando solo los parámetros que llevan valor, porque el backend lee la ausencia como «off»— y las reglas puras de `recipe-matching.ts` (el umbral, el orden y el emparejado), que viven fuera del DOM para poder testearlas sin renderizar, igual que `unit-groups.ts`. Decisiones de la página:
+
+- **El slider es cliente y nunca relanza la búsqueda.** Recalcula sobre las filas que ya trajo la última búsqueda (las ordena por cobertura y descarta las que no pasan la barra); una petición por cada tick del slider respondería preguntas que las filas en pantalla ya responden. Es la misma regla de H4 que el `threshold` del servidor filtra el resto.
+- **Modo estricto y slider no pueden contradecirse.** Estricto significa «solo cubiertas al 100 %», así que al activarlo el slider salta a 100 y se bloquea (el invariante que el perfil ya aplica a sus preferencias); al apagarlo, la barra vuelve a quedar libre en el valor que tenía. Estricto y `allergenSafe` sí re-buscan en el servidor: el primero porque es un filtro del motor (`matchScore == 1`) y el segundo porque las exclusiones no viajan al cliente.
+- **El nombre se busca con debounce de 300 ms**, una petición por pausa de tecleo y no por tecla; el nombre se envía recortado y vacío significa «sin filtro». Una respuesta de una búsqueda superada por otra más nueva se descarta con un contador de secuencia.
+- **La grid son tarjetas con badge de cobertura, faltantes y origen**, cada una enrutando a su detalle. Un `matchScore` `null` no se pinta como 0 % («nadie contó» no es «vacío»), y una receta sin imagen muestra un icono en lugar de una imagen rota.
+- **El detalle une dos listas paralelas por `ingredientId`**: `ingredients` tiene el orden del plato (con `position`) y `coverage` mide esas mismas líneas contra la despensa pero sin orden, así que renderizar `coverage` en su propio orden desordenaría la receta. La unión (`pairCoverage`) conserva cada línea y le cuelga su cobertura. Los códigos de unidad se etiquetan desde `GET /api/units`, nunca de una tabla local.
+- **El `404` del detalle es un estado, no un error**: una receta que no existe (o un `:id` ni siquiera entero) muestra una tarjeta «Recipe not found» con vuelta a la grid, y el resto de fallos una página con reintento. El botón «Start cooking» enlaza a `/cooking`, cuya pantalla real llega en H5.
 
 ---
 
@@ -515,6 +524,9 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | Páginas de autenticación | `src/app/pages/auth/` |
 | Vista «Mi despensa» | `src/app/pages/pantry/pantry-page.{ts,html,scss}` |
 | Diálogo de alta desde el catálogo | `src/app/pages/pantry/add-pantry-item-dialog.{ts,html,scss}` |
+| Servicio y reglas de recetas | `src/app/core/recipes/` (`recipes.service.ts`, `recipes.models.ts`, `recipe-matching.ts`) |
+| Página «Recipes» (grid y filtros) | `src/app/pages/recipes/recipes-page.{ts,html,scss}` |
+| Detalle de receta | `src/app/pages/recipes/recipe-detail-page.{ts,html,scss}` |
 | Proxy de desarrollo | `proxy.conf.json` |
 
 **Las cuatro piezas de la sesión y por qué están separadas:**
@@ -524,7 +536,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 - **`auth.guard`** protege las rutas del producto. Un usuario anónimo no es expulsado sin más: como la cookie de refresco es la única credencial del lado del cliente, el guard intenta **restaurar la sesión** (renovar el token y cargar el perfil) antes de rendirse. Si tampoco funciona, recuerda la URL visitada como `returnUrl` para devolver al usuario allí tras identificarse.
 - **`proxy.conf.json`** redirige `/api` y `/oauth2` al backend durante el desarrollo, de modo que el navegador solo habla con el puerto 4200 y no aparece el problema de CORS.
 
-**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa» y la página «no encontrado» están implementadas. Las áreas `recipes`, `cooking` y `social` existen como rutas pero muestran un marcador de posición pendiente de sus hitos.
+**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle) y la página «no encontrado» están implementadas. Las áreas `cooking` y `social` existen como rutas pero muestran un marcador de posición pendiente de sus hitos. Las decisiones del área de recetas viven en `## 12`.
 
 **La vista «Mi despensa» (H3-3)** es la primera pantalla real del producto, y su pieza nueva es el servicio `PantryService`, que tipa los cinco endpoints en un único sitio para que el componente sea solo presentación. Cuatro decisiones suyas que conviene conocer:
 

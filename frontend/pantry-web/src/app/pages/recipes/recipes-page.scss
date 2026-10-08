@@ -1,0 +1,263 @@
+// Recipes page: a heading, one search/filter card and a responsive grid of
+// recipe cards. The grid is the whole view, so its states (loading, error,
+// empty) replace it instead of decorating it.
+.recipes-heading {
+  margin-bottom: 1.25rem;
+
+  h1 {
+    margin: 0;
+    font-size: var(--mat-sys-headline-medium-size);
+  }
+
+  p {
+    margin: 0.25rem 0 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.search-card {
+  margin-bottom: 1.5rem;
+
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+.search-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.search-field {
+  width: 100%;
+}
+
+// The filter bar: threshold slider on its own line, the two toggles beside it.
+.filter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem 2rem;
+}
+
+.threshold-group {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+
+// The slider shares its line with its label and value; the form around it only
+// exists to give `formControlName` the FormGroup it binds to (the profile page
+// runs the same pattern on a form per section).
+.threshold-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 1rem;
+  align-items: center;
+
+  .threshold-slider {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+.threshold-label {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-large);
+}
+
+.threshold-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-hint {
+  margin-top: 0.25rem;
+  display: block;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.filter-toggles {
+  display: flex;
+  gap: 1.5rem;
+  padding-bottom: 0.25rem;
+}
+
+.strict-hint {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+// Shared state block for the loading spinner and the load error + retry UI.
+.recipes-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 0;
+}
+
+.recipes-error p {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.recipes-empty {
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 3rem 1.5rem;
+    text-align: center;
+  }
+
+  .recipes-empty-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 48px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  h2 {
+    margin: 0.5rem 0 0;
+    font: var(--mat-sys-title-medium);
+  }
+
+  p {
+    margin: 0;
+    max-width: 34rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+  gap: 1.5rem;
+}
+
+// The card is the whole click target: the Recipe area's one navigation is to
+// the detail, so the entire card leads there and the row of controls inside
+// stays non-interactive.
+.recipe-card {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  mat-card-header {
+    padding-top: 1rem;
+  }
+
+  mat-card-content {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
+
+// Coverage colors, shared with the detail page through `coverageClass`: the
+// badge and the card tint agree because the same modifier drives both. Green
+// and amber are not part of the M3 token set (the theme is azure-based), so
+// they are fixed hues with their own on-colors.
+.recipe-card.coverage-full {
+  --card-coverage-tint: #e6f4ea;
+
+  .coverage-badge.coverage-full {
+    --coverage-badge-bg: #2e7d32;
+    --coverage-badge-fg: #fff;
+  }
+}
+
+.recipe-card.coverage-partial {
+  --card-coverage-tint: #fff4e0;
+
+  .coverage-badge.coverage-partial {
+    --coverage-badge-bg: #b26a00;
+    --coverage-badge-fg: #fff;
+  }
+}
+
+.recipe-card.coverage-none {
+  --card-coverage-tint: var(--mat-sys-surface-container-low);
+
+  .coverage-badge.coverage-none {
+    --coverage-badge-bg: var(--mat-sys-surface-container-highest);
+    --coverage-badge-fg: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.recipe-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  background: var(--card-coverage-tint, var(--mat-sys-surface-container-low));
+}
+
+.recipe-image-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  mat-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 48px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.recipe-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.recipe-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--mat-sys-corner-full);
+  font: var(--mat-sys-label-medium);
+  font-variant-numeric: tabular-nums;
+
+  mat-icon {
+    width: 1rem;
+    height: 1rem;
+    font-size: 1rem;
+  }
+}
+
+.coverage-badge {
+  background: var(--coverage-badge-bg, var(--mat-sys-surface-container-highest));
+  color: var(--coverage-badge-fg, var(--mat-sys-on-surface));
+  font-weight: 600;
+}
+
+.recipe-source {
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.recipe-servings {
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.recipe-missing {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.recipe-allergens {
+  margin-top: auto;
+}

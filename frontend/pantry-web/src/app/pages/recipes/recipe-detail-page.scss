@@ -1,0 +1,274 @@
+// Recipe detail: a header (image + facts), then one card per section — the
+// instructions, the ingredient breakdown and the nutrients. The states of the
+// read (loading / error / not found) replace the whole page the same way the
+// grid's states replace it.
+.detail-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 0;
+}
+
+.detail-error p {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.detail-not-found {
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 3rem 1.5rem;
+    text-align: center;
+  }
+
+  .detail-not-found-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 48px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  h2 {
+    margin: 0.5rem 0 0;
+    font: var(--mat-sys-title-medium);
+  }
+
+  p {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.detail-heading {
+  display: grid;
+  grid-template-columns: minmax(12rem, 22rem) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+  margin-bottom: 1.5rem;
+
+  h1 {
+    margin: 0;
+    font-size: var(--mat-sys-headline-medium-size);
+  }
+
+  .detail-origin-text {
+    margin: 0.25rem 0 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.detail-image-wrap {
+  min-width: 0;
+}
+
+.detail-image {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  border-radius: var(--mat-sys-corner-large);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.detail-image-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  mat-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 48px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.detail-heading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.detail-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--mat-sys-corner-full);
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+  font-variant-numeric: tabular-nums;
+
+  mat-icon {
+    width: 1rem;
+    height: 1rem;
+    font-size: 1rem;
+  }
+}
+
+// Green for full coverage and amber for partial, the same hues the grid uses
+// through `coverageClass`; none stays neutral, because an unknown coverage is
+// a fact to read, not a color.
+.coverage-badge.coverage-full {
+  background: #2e7d32;
+  color: #fff;
+  font-weight: 600;
+}
+
+.coverage-badge.coverage-partial {
+  background: #b26a00;
+  color: #fff;
+  font-weight: 600;
+}
+
+.coverage-badge.coverage-none {
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.detail-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.recipe-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--mat-sys-primary);
+  font: var(--mat-sys-label-large);
+
+  mat-icon {
+    width: 1rem;
+    height: 1rem;
+    font-size: 1rem;
+  }
+}
+
+.instructions-card,
+.ingredients-card,
+.nutrients-card {
+  margin-bottom: 1.5rem;
+
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
+
+// The provider writes one step per line; a <p> would collapse them into a
+// wall of text.
+.instructions-text {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.ingredient-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.ingredient-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+// The icon is the instant read; the color only reinforces it, never replaces
+// it (the same rule as the pantry ledger).
+.ingredient-covered .ingredient-state-icon {
+  color: #2e7d32;
+}
+
+.ingredient-row:not(.ingredient-covered) .ingredient-state-icon {
+  color: #b26a00;
+}
+
+.ingredient-state-icon {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 1.25rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.ingredient-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.ingredient-name {
+  font: var(--mat-sys-title-small);
+}
+
+.ingredient-amount {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.ingredient-gap {
+  color: var(--mat-sys-error);
+  font: var(--mat-sys-label-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.nutrient-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 1rem;
+}
+
+.nutrient-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+
+  .nutrient-value {
+    font: var(--mat-sys-title-large);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .nutrient-name {
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-body-small);
+  }
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+@media (max-width: 599px) {
+  .detail-heading {
+    grid-template-columns: 1fr;
+  }
+}
