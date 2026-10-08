@@ -4,7 +4,7 @@ Documento de referencia que explica **qué hace cada parte de la aplicación y q
 
 No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROADMAP.md` (plan de trabajo). Aquí no se explica *por qué* se eligió una tecnología, sino *cómo funciona* la funcionalidad y dónde vive.
 
-**Estado actual:** hay funcionalidad terminada de H0 a H2 (base del proyecto, autenticación, usuario y catálogo de ingredientes con motor de unidades). Los apartados que describen cada pieza indican si esa funcionalidad existe ya o si está planificada; el resto de áreas de producto todavía no existe y sus páginas web son marcadores de posición.
+**Estado actual:** hay funcionalidad terminada de H0 a H3 (base del proyecto, autenticación, usuario, catálogo de ingredientes con motor de unidades, y despensa) y el backend de H4 (recetas y filtrado por disponibilidad), aún sin interfaz. Los apartados que describen cada pieza indican si esa funcionalidad existe ya o si está planificada; el resto de áreas de producto todavía no existe y sus páginas web son marcadores de posición.
 
 ---
 
@@ -21,15 +21,16 @@ No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROA
 9. [Motor de unidades y densidades](#9-motor-de-unidades-y-densidades)
 10. [Administración de clases de densidad](#10-administración-de-clases-de-densidad)
 11. [Despensa: inventario del usuario (H3-1 y H3-2)](#11-despensa-inventario-del-usuario-h3-1-y-h3-2)
-12. [Rate limiting](#12-rate-limiting)
-13. [Manejo de errores de la API](#13-manejo-de-errores-de-la-api)
-14. [Observabilidad](#14-observabilidad)
-15. [Correo de desarrollo (Mailpit)](#15-correo-de-desarrollo-mailpit)
-16. [Frontend: sesión, guardas y estructura](#16-frontend-sesión-guardas-y-estructura)
-17. [Migraciones de base de datos](#17-migraciones-de-base-de-datos)
-18. [Tests](#18-tests)
-19. [CI/CD e imágenes Docker](#19-cicd-e-imágenes-docker)
-20. [Zona horaria y notas de mantenimiento](#20-zona-horaria-y-notas-de-mantenimiento)
+12. [Recetas: búsqueda y cobertura (H4)](#12-recetas-búsqueda-y-cobertura-h4)
+13. [Rate limiting](#13-rate-limiting)
+14. [Manejo de errores de la API](#14-manejo-de-errores-de-la-api)
+15. [Observabilidad](#15-observabilidad)
+16. [Correo de desarrollo (Mailpit)](#16-correo-de-desarrollo-mailpit)
+17. [Frontend: sesión, guardas y estructura](#17-frontend-sesión-guardas-y-estructura)
+18. [Migraciones de base de datos](#18-migraciones-de-base-de-datos)
+19. [Tests](#19-tests)
+20. [CI/CD e imágenes Docker](#20-cicd-e-imágenes-docker)
+21. [Zona horaria y notas de mantenimiento](#21-zona-horaria-y-notas-de-mantenimiento)
 
 ---
 
@@ -384,7 +385,37 @@ Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_ent
 
 ---
 
-## 12. Rate limiting
+## 12. Recetas: búsqueda y cobertura (H4)
+
+**Qué hace:** recomienda recetas según lo que hay en la despensa: calcula cuántos ingredientes de cada receta están cubiertos, filtra por los alérgenos que el usuario excluye y por un umbral de cobertura, y deja crear recetas propias.
+
+| Pieza | Ruta |
+|---|---|
+| `RecipeController` (`/api/recipes`) | `recipe/web/RecipeController.java` |
+| `RecipeService` (búsqueda, cobertura, alta) | `recipe/service/RecipeService.java` |
+| Cliente TheMealDB y caché de búsqueda | `recipe/service/TheMealDbClient.java`, `recipe/service/RecipeSearchCache.java`, `recipe/service/RecipeWebClientConfig.java` |
+| Entidades | `recipe/domain/` (`Recipe`, `RecipeIngredient`, `RecipeNutrients`, `RecipeAllergen`, `AllergenMapping`) |
+| Repositorios | `recipe/repository/` |
+| DTOs | `recipe/dto/` (`RecipeSearchRequest`, `RecipeSummaryDto`, `RecipeDetailDto`, `IngredientCoverageDto`, `CreateRecipeRequest`, `RecipeNutrientsDto`) |
+| Excepción | `recipe/exception/RecipeNotFoundException.java` (404, resuelta en `GlobalExceptionHandler`) |
+| Tablas | `db/migration/V13__recipes.sql` |
+| Tests | `recipe/RecipeControllerIntegrationTest.java` |
+
+**Endpoints:** `GET /api/recipes` (parámetros `name`, `ingredientId`, `strict`, `threshold` y `allergenSafe`), `GET /api/recipes/{id}` y `POST /api/recipes` (`201`). Todos exigen usuario autenticado y el propietario sale del token, nunca del cuerpo.
+
+**La regla central es la cobertura binaria: un ingrediente o está cubierto entero o no está cubierto.** No hay crédito parcial: 99 g disponibles frente a 100 g necesarios no cuenta como «casi». El motivo es que recortar un gramo de harina no acerca el plato a poder cocinarse, y un score con crédito parcial sugeriría que sí. `matchScore` es simplemente *ingredientes cubiertos / total* (`1.0` cuando los tienen todos), y la comparación es canónica contra canónica: la línea de receta guarda la cantidad convertida con `UnitConverter.toStorageUnit(...)` —el mismo puerto que la despensa, como preveía H3—, así que «2 tazas» y los gramos disponibles se comparan sin conversiones en cada request. El borde está testeado en ambos lados: 200/200 cubre, 99/100 no.
+
+- **`strict` y `threshold` no son lo mismo.** `strict=true` exige `matchScore == 1.0` sin mirar el umbral. Sin estricto, manda `threshold` (50 si no llega): el resultado se filtra servidor con ese umbral, y el slider del frontend recalcula el resto **en cliente** sobre `matchScore`/`missingCount`, sin nueva llamada.
+- **Orden de candidatos, en un solo mapa:** primero recetas `USER`, después las `THE_MEAL_DB` ya materializadas, y solo si la petición trae `name` una búsqueda fresca en TheMealDB (con caché TTL en Redis). El mapa (`LinkedHashMap` + `putIfAbsent`) evita que una receta alcanzable por dos ramas —p. ej. recién materializada— se puntuelle dos veces en la grid.
+- **Los alérgenos son opt-in:** `allergenSafe=true` descarta recetas cuyo `recipe_allergens` intersecta `user_allergy_exclusions` (la tabla que nació en `V3`, no una nueva). Los códigos de receta se derivan del mapa propio `allergen_mapping` —sembrado en `V13` con los códigos EU de `V3`— al crear la receta, porque ni USDA ni TheMealDB prometen alérgenos fiables.
+- **La receta propia (`POST`) valida ingredientes existentes, canoniza cantidades y deriva alérgenos** en la misma transacción; un `ingredientId` desconocido o un nombre en blanco devuelven `400`, y el detalle de una receta inexistente `404`.
+- **Sin paginación, a propósito:** una grid de recetas para una despensa doméstica cabe entera, y paginar obligaría al cliente a reagrupar scores que dependen de la despensa viva.
+
+**Estado:** el backend está operativo y verificado (254 tests, JaCoCo 85,9 %), con dos esqueletos marcados en el código: `materializeMealDbRecipe` aún no persiste la respuesta del proveedor (los hits frescos no llegan a la grid) y `computeNutrients` devuelve `null`. La búsqueda fresca por ingrediente tampoco está cableada: `ingredientId` filtra filas locales. El slider y la grid son trabajo del subagente `frontend`.
+
+---
+
+## 13. Rate limiting
 
 **Qué hace:** protege la API de abuso limitando cuántas peticiones puede hacer un cliente en una ventana de tiempo.
 
@@ -408,7 +439,7 @@ Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-
 
 ---
 
-## 13. Manejo de errores de la API
+## 14. Manejo de errores de la API
 
 **Qué hace:** convierte los errores internos en respuestas HTTP consistentes, con un formato único para toda la API.
 
@@ -434,7 +465,7 @@ Formato de la respuesta de error (`common/dto/ErrorResponse.java`):
 
 ---
 
-## 14. Observabilidad
+## 15. Observabilidad
 
 **Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos.
 
@@ -449,7 +480,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 15. Correo de desarrollo (Mailpit)
+## 16. Correo de desarrollo (Mailpit)
 
 **Qué hace:** captura los correos que envía la aplicación en lugar de mandarlos de verdad, y los muestra en una interfaz web.
 
@@ -459,7 +490,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 16. Frontend: sesión, guardas y estructura
+## 17. Frontend: sesión, guardas y estructura
 
 **Qué hace:** gestiona la sesión en el navegador y decide a qué páginas puede entrar el usuario.
 
@@ -516,7 +547,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 17. Migraciones de base de datos
+## 18. Migraciones de base de datos
 
 **Qué hace:** crea y modifica el esquema de la base de datos de forma versionada y reproducible.
 
@@ -536,12 +567,13 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 | `V10__catalog_ingredient_freshness.sql` | `data_type`, `synced_at` e índice de frescura. |
 | `V11__catalog_density_class_revalidation.sql` | Procedencia de `FLOUR`, `SUGAR` y `OIL`. |
 | `V12__pantry_items.sql` | `pantry_items` (con `version` para bloqueo optimista y `CHECK (quantity >= 0)`) y `consumption_entries` (`delta_quantity` con signo, sin columna de unidad, borrado en cascada). |
+| `V13__recipes.sql` | `recipes`, `recipe_ingredients` (original + canónico), `recipe_nutrients`, `allergen_mapping` (semillas con los códigos EU de `V3`) y `recipe_allergens`. |
 
 **Regla importante:** una migración ya aplicada **no se edita jamás**; se añade una nueva. Editarla dejaría los entornos desincronizados sin que nada avise. Por eso la procedencia de los valores de `FLOUR`/`SUGAR`/`OIL` no se corrigió en `V5` sino que se documentó en `V11`.
 
 ---
 
-## 18. Tests
+## 19. Tests
 
 **Qué se prueba y cómo:**
 
@@ -563,7 +595,7 @@ Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra 
 
 ---
 
-## 19. CI/CD e imágenes Docker
+## 20. CI/CD e imágenes Docker
 
 **Qué hace:** construye, prueba y publica la imagen de la API automáticamente.
 
@@ -580,7 +612,7 @@ La razón es el tamaño y la superficie: la imagen final no incluye Maven, ni el
 
 ---
 
-## 20. Zona horaria y notas de mantenimiento
+## 21. Zona horaria y notas de mantenimiento
 
 - **Zona horaria:** la aplicación trabaja en UTC. `TimeConfig` expone un bean `Clock` en lugar de llamar a `Instant.now()` directamente en el código, lo que permite sustituir el reloj en los tests y comprobar vencimientos de tokens y de caché sin esperar en tiempo real.
 - **Los secretos nunca se versionan:** viven en `infra/.env`, ignorado por git. En `infra/.env.example` solo aparecen los nombres de las variables.

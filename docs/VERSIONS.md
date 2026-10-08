@@ -1,6 +1,6 @@
 # Versiones del proyecto (registro de dependencias)
 
-> **Última verificación:** septiembre 2026.
+> **Última verificación:** octubre 2026.
 > Este fichero es la **fuente única de verdad de versiones**. Cualquier agente o guía DEBE consultarlo antes de sugerir una dependencia, un comando de scaffolding o una imagen Docker, y DEBE actualizarlo en el mismo commit en que cambie una dependencia (regla de cierre de fase).
 
 ## Reglas de gestión de versiones
@@ -43,7 +43,7 @@
 
 ### Dependencias gestionadas por el BOM (no fijar manualmente)
 
-- **Runtime:** Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*` (incluye `spring-boot-starter-security` y `spring-boot-starter-security-oauth2-client`), `spring-security-crypto` (BCrypt).
+- **Runtime:** Micrometer, `micrometer-registry-prometheus`, PostgreSQL JDBC, Hibernate, Lombok (opcional), `spring-boot-starter-*` (incluye `spring-boot-starter-security`, `spring-boot-starter-security-oauth2-client` y `spring-boot-starter-webflux` — `WebClient` para TheMealDB, H4), `spring-security-crypto` (BCrypt).
 - **Test:** `spring-boot-starter-test` (JUnit 5 + AssertJ + Mockito), `spring-boot-resttestclient` y `spring-boot-restclient` (test HTTP), `testcontainers-bom` (fila arriba).
 
 ---

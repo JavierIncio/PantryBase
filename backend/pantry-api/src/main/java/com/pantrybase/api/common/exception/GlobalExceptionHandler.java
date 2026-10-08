@@ -14,6 +14,7 @@ import com.pantrybase.api.pantry.exception.IngredientNotInCatalogException;
 import com.pantrybase.api.pantry.exception.InsufficientStockException;
 import com.pantrybase.api.pantry.exception.PantryItemNotFoundException;
 import com.pantrybase.api.pantry.exception.ZeroAdjustmentException;
+import com.pantrybase.api.recipe.exception.RecipeNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -248,6 +249,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler
     public ResponseEntity<ErrorResponse> handlePantryItemNotFoundException(PantryItemNotFoundException ex,
                                                                            HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
+    }
+
+    /** Maps a missing recipe to 404. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleRecipeNotFoundException(RecipeNotFoundException ex,
+                                                                       HttpServletRequest request) {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
