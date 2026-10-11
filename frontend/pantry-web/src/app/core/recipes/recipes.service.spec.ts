@@ -122,6 +122,39 @@ describe('RecipesService', () => {
     await expect(result).resolves.toEqual([HIT]);
   });
 
+  it('sends ingredientId alone when only an ingredient is selected', async () => {
+    const result = firstValueFrom(service.search({ ingredientId: 12 }));
+
+    const req = expectSearch();
+    expect(req.request.params.keys()).toEqual(['ingredientId']);
+    expect(req.request.params.get('ingredientId')).toBe('12');
+    req.flush([HIT]);
+
+    await expect(result).resolves.toEqual([HIT]);
+  });
+
+  it('sends ingredientId alongside the name, toggles and threshold', async () => {
+    const result = firstValueFrom(
+      service.search({
+        name: 'cabbage',
+        ingredientId: 12,
+        strict: true,
+        allergenSafe: true,
+        threshold: 0,
+      }),
+    );
+
+    const req = expectSearch();
+    expect(req.request.params.get('name')).toBe('cabbage');
+    expect(req.request.params.get('ingredientId')).toBe('12');
+    expect(req.request.params.get('strict')).toBe('true');
+    expect(req.request.params.get('allergenSafe')).toBe('true');
+    expect(req.request.params.get('threshold')).toBe('0');
+    req.flush([HIT]);
+
+    await expect(result).resolves.toEqual([HIT]);
+  });
+
   it('getDetail GETs one recipe by its id', async () => {
     const result = firstValueFrom(service.getDetail(1));
 

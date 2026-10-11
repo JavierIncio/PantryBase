@@ -6,10 +6,54 @@
 <mat-card class="search-card">
   <mat-card-content>
     <div class="search-row">
-      <mat-form-field class="search-field">
-        <mat-label>Search recipes</mat-label>
-        <input matInput [formControl]="nameControl" placeholder="e.g. pasta" />
-      </mat-form-field>
+      <div class="search-fields">
+        <mat-form-field class="search-field">
+          <mat-label>Search recipes</mat-label>
+          <input matInput [formControl]="nameControl" placeholder="e.g. pasta" />
+        </mat-form-field>
+
+        <mat-form-field class="ingredient-field">
+          <mat-label>Ingredient</mat-label>
+          <input
+            matInput
+            [formControl]="ingredientControl"
+            [matAutocomplete]="ingredientAuto"
+            [errorStateMatcher]="ingredientErrorState"
+            placeholder="e.g. chicken"
+            autocomplete="off"
+          />
+          @if (ingredientSearching() || ingredientResolving()) {
+            <mat-spinner matSuffix diameter="18" />
+          } @else if (selectedIngredient()) {
+            <button
+              mat-icon-button
+              matSuffix
+              type="button"
+              class="clear-ingredient"
+              aria-label="Clear ingredient filter"
+              (click)="clearIngredient()"
+            >
+              <mat-icon aria-hidden="true">close</mat-icon>
+            </button>
+          }
+          @if (ingredientError(); as message) {
+            <mat-error>{{ message }}</mat-error>
+          } @else {
+            <mat-hint
+              >Narrows to recipes with this ingredient. Searched in the food catalog.</mat-hint
+            >
+          }
+          <mat-autocomplete
+            #ingredientAuto="matAutocomplete"
+            [displayWith]="displayIngredient"
+            (optionSelected)="onIngredientSelected($event)"
+          >
+            @for (hit of ingredientOptions(); track hit.fdcId) {
+              <mat-option [value]="hit">{{ hit.name }}</mat-option>
+            }
+          </mat-autocomplete>
+        </mat-form-field>
+      </div>
 
       <div class="filter-controls">
         <div class="threshold-group">
@@ -86,9 +130,26 @@
 } @else if (loading()) {
   <div class="recipes-status"><mat-spinner diameter="40" /></div>
 } @else if (loadError(); as message) {
-  <div class="recipes-status recipes-error">
+  <div class="recipes-status recipes-error" [class.ingredient-stale]="ingredientStale()">
+    <mat-icon class="recipes-error-icon" aria-hidden="true">
+      {{ ingredientStale() ? 'search_off' : 'error' }}
+    </mat-icon>
     <p class="recipes-error-message">{{ message }}</p>
-    <button mat-stroked-button type="button" class="retry-recipes" (click)="load()">Retry</button>
+    @if (ingredientStale()) {
+      <p class="recipes-error-hint">
+        That ingredient is no longer in the catalog. Clear it to keep searching.
+      </p>
+      <button
+        mat-stroked-button
+        type="button"
+        class="clear-stale-ingredient"
+        (click)="clearIngredient()"
+      >
+        Clear ingredient filter
+      </button>
+    } @else {
+      <button mat-stroked-button type="button" class="retry-recipes" (click)="load()">Retry</button>
+    }
   </div>
 } @else if (isEmpty()) {
   <mat-card class="recipes-empty">

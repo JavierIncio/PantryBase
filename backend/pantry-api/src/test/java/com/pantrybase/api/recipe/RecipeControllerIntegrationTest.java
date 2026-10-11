@@ -222,6 +222,79 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
                 .satisfies(summary -> assertThat(summary.name()).isEqualTo("Rice Pilaf"));
     }
 
+    // ============ FRESH SEARCH BY INGREDIENT ============
+
+    @Test
+    void search_discoversFreshProviderHitsByIngredient() {
+        HttpHeaders headers = authenticate();
+        Ingredient cabbage = ingredient("Cabbage", "Vegetable");
+        recipe("USER", "Cabbage and Rice");
+        stock(cabbage, "100");
+
+        when(mealDbClient.filterByIngredient("cabbage")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52944", "Cabbage Roll", "Side", "British",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52944")).thenReturn(Optional.of(
+                new TheMealDbClient.MealDetail(
+                        "52944", "Cabbage Roll", "Side", "British", "Roll and fry.",
+                        null, null, null,
+                        List.of(new TheMealDbClient.IngredientMeasure("Cabbage", "100g")),
+                        null, "4")));
+
+        // First call materialises the provider hit; the second is served from the per-word
+        // Redis cache, so each provider endpoint answers once and the row stays single.
+        search(headers, "?ingredientId=" + cabbage.getId());
+        ResponseEntity<List<RecipeSummaryDto>> second =
+                search(headers, "?ingredientId=" + cabbage.getId());
+
+        verify(mealDbClient, times(1)).filterByIngredient("cabbage");
+        verify(mealDbClient, times(1)).lookupById("52944");
+        assertThat(second.getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .singleElement()
+                .satisfies(summary -> {
+                    assertThat(summary.name()).isEqualTo("Cabbage Roll");
+                    assertThat(summary.matchScore()).isEqualTo(1.0);
+                });
+
+        Recipe materialised = recipeRepository
+                .findBySourceAndExternalId("THE_MEAL_DB", "52944").orElseThrow();
+        assertThat(recipeIngredientRepository.findByRecipeIdOrderByPositionAsc(materialised.getId()))
+                .singleElement()
+                .satisfies(ri -> assertThat(ri.getIngredientId()).isEqualTo(cabbage.getId()));
+    }
+
+    @Test
+    void search_unknownIngredientReturns404_withoutCallingProvider() {
+        HttpHeaders headers = authenticate();
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                RECIPES + "?ingredientId=999999999", HttpMethod.GET, new HttpEntity<>(headers),
+                ErrorResponse.class);
+
+        assertError(response, HttpStatus.NOT_FOUND, RECIPES);
+        verify(mealDbClient, never()).filterByIngredient(anyString());
+    }
+
+    @Test
+    void search_byIngredient_withoutProviderHitsStillReturnsLocalRows() {
+        HttpHeaders headers = authenticate();
+        Ingredient quinoa = ingredient("Quinoa", "Grain");
+        Recipe quinoaDish = recipe("USER", "Quinoa Pilaf");
+        line(quinoaDish, quinoa, "100", 0);
+        stock(quinoa, "100");
+        when(mealDbClient.filterByIngredient("quinoa")).thenReturn(List.of());
+
+        ResponseEntity<List<RecipeSummaryDto>> response =
+                search(headers, "?ingredientId=" + quinoa.getId());
+
+        verify(mealDbClient, times(1)).filterByIngredient("quinoa");
+        assertThat(response.getBody())
+                .singleElement()
+                .satisfies(summary -> assertThat(summary.name()).isEqualTo("Quinoa Pilaf"));
+    }
+
     @Test
     void search_materialisesProviderHitsOnNameQuery() {
         HttpHeaders headers = authenticate();

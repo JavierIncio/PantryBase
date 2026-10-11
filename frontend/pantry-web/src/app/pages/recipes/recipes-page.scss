@@ -31,8 +31,28 @@
   gap: 1rem;
 }
 
-.search-field {
-  width: 100%;
+// Name and ingredient boxes share a line on wide screens and stack when there
+// is no room. They are independent filters, so neither owns the row.
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.search-field,
+.ingredient-field {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+// The trailing spinner and clear button must not squeeze the input, so they are
+// sized to their content and the spinner is given a fixed small footprint.
+.ingredient-field {
+  mat-spinner[matSuffix] {
+    width: 18px;
+    height: 18px;
+    margin-right: 0.5rem;
+  }
 }
 
 // The filter bar: threshold slider on its own line, the two toggles beside it.
@@ -103,6 +123,18 @@
 .recipes-error p {
   margin: 0;
   color: var(--mat-sys-error);
+}
+
+// The stale-ingredient state reuses the error block but adds an explanation and
+// the one repair that can succeed (clearing the filter), which a plain retry
+// cannot: the backend would 404 the same request again.
+.recipes-error.ingredient-stale {
+  .recipes-error-hint {
+    max-width: 34rem;
+    text-align: center;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-body-small);
+  }
 }
 
 .recipes-empty {

@@ -2,6 +2,7 @@ package com.pantrybase.api.recipe.service;
 
 import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.catalog.domain.QuantityInfo;
+import com.pantrybase.api.catalog.exception.IngredientNotFoundException;
 import com.pantrybase.api.catalog.domain.Unit;
 import com.pantrybase.api.catalog.domain.UnitConverter;
 import com.pantrybase.api.catalog.repository.IngredientRepository;
@@ -138,9 +139,10 @@ public class RecipeService {
         addCandidates(candidates, request, SOURCE_USER, hasName);
         addCandidates(candidates, request, SOURCE_MEALDB, hasName);
 
-        // Fresh TheMealDB search only if a name query was given; hits are materialised
+        // Fresh TheMealDB search (name query or ingredient filter); hits are materialised
         // into the local store and then re-read through the same source-scoped queries
-        // as above, so new rows join without a duplicate.
+        // as above, so new rows join without a duplicate. The provider is called only for
+        // an explicit filter — an untyped listing stays purely local to stay honest.
         if (hasName) {
             List<TheMealDbClient.MealSummary> fresh = searchCache.get(request)
                     .orElseGet(() -> {
@@ -148,15 +150,53 @@ public class RecipeService {
                         searchCache.put(request, hits);
                         return hits;
                     });
-            fresh.forEach(hit -> {
-                if (!recipeRepo.existsBySourceAndExternalId(SOURCE_MEALDB, hit.idMeal())) {
-                    materializeMealDbRecipe(hit);
-                }
-            });
+            materializeMissingMealDbHits(fresh);
+            addCandidates(candidates, request, SOURCE_MEALDB, hasName);
+        }
+        if (request.ingredientId() != null) {
+            discoverFreshByIngredient(request.ingredientId());
             addCandidates(candidates, request, SOURCE_MEALDB, hasName);
         }
 
         return scoreAndFilter(candidates.values(), request, pantryAvailable, excludedAllergens);
+    }
+
+    /**
+     * Materialises provider hits that are not yet in the local store, so fresh discovery
+     * (by name or by ingredient) joins the candidate set exactly once under the unique
+     * {@code (source, external_id)} row.
+     */
+    private void materializeMissingMealDbHits(List<TheMealDbClient.MealSummary> hits) {
+        hits.forEach(hit -> {
+            if (!recipeRepo.existsBySourceAndExternalId(SOURCE_MEALDB, hit.idMeal())) {
+                materializeMealDbRecipe(hit);
+            }
+        });
+    }
+
+    /**
+     * Discovers fresh TheMealDB rows for an ingredient filter.
+     *
+     * <p>The catalog ingredient name is reduced to its base word for {@code filter.php}
+     * (the same heuristic as the pantry suggest) and served through the same per-word
+     * Redis cache, so filtering right after a suggest is free. An ingredient outside
+     * the catalog maps to 404 via {@link IngredientNotFoundException} rather than a
+     * silent empty listing: a stale client selection must not read as "no recipes".</p>
+     *
+     * @param ingredientId the catalog ingredient the client filtered by
+     * @throws IngredientNotFoundException if the ingredient does not exist
+     */
+    private void discoverFreshByIngredient(Long ingredientId) {
+        String word = catalogIngredientRepo.findById(ingredientId)
+                .map(ingredient -> baseWord(ingredient.getName()))
+                .orElseThrow(() -> new IngredientNotFoundException(ingredientId));
+        List<TheMealDbClient.MealSummary> hits = searchCache.getByIngredient(word)
+                .orElseGet(() -> {
+                    List<TheMealDbClient.MealSummary> fetched = mealDbClient.filterByIngredient(word);
+                    searchCache.putByIngredient(word, fetched);
+                    return fetched;
+                });
+        materializeMissingMealDbHits(hits);
     }
 
     /**

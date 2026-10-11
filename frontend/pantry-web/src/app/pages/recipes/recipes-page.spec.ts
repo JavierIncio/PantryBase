@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { provideRouter } from '@angular/router';
+import { IngredientDetail, IngredientSearchHit } from '../../core/catalog/catalog.models';
 import { RecipeSummary } from '../../core/recipes/recipes.models';
 import { RecipesPage } from './recipes-page';
 
@@ -59,6 +60,43 @@ const errorResponse = (status: number, message: string) => ({
   message,
   path: '/api/recipes',
 });
+
+/** A catalog hit, exactly as `GET /api/catalog/ingredients?query=` answers it. */
+const CABBAGE_HIT: IngredientSearchHit = {
+  fdcId: 170000,
+  name: 'Cabbage',
+  dataType: 'Foundation',
+};
+
+/**
+ * The detail of that hit, which is what exposes the internal id the recipe
+ * endpoint filters by — the hit itself only carries the provider `fdcId`.
+ */
+const CABBAGE: IngredientDetail = {
+  id: 12,
+  fdcId: CABBAGE_HIT.fdcId,
+  name: CABBAGE_HIT.name,
+  dataType: CABBAGE_HIT.dataType,
+  category: 'Vegetables and Vegetable Products',
+  nutrients: { energyKcal: 25, proteinG: 1.28, fatG: 0.1, carbsG: 5.8 },
+  densityClass: null,
+  measures: [],
+};
+
+/** A fully covered provider recipe discovered by the ingredient filter. */
+const CABBAGE_DISH: RecipeSummary = {
+  id: 9,
+  source: 'THE_MEAL_DB',
+  externalId: '52944',
+  name: 'Cabbage Roll',
+  category: 'Side',
+  area: 'British',
+  imageUrl: null,
+  servings: 4,
+  matchScore: 1,
+  missingCount: 0,
+  allergenCodes: [],
+};
 
 describe('RecipesPage', () => {
   let http: HttpTestingController;
@@ -124,6 +162,55 @@ describe('RecipesPage', () => {
     http.match((req) => req.urlWithParams.startsWith('/api/recipes'));
 
   const expectSearch = () => http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+
+  /**
+   * Types into the ingredient box and lets its debounce fire the catalog search.
+   *
+   * The debounce needs fake timers, but the Material autocomplete opens its
+   * panel and shadows its options through real macrotasks, so timers are
+   * restored as soon as the debounce has been advanced.
+   */
+  const typeIngredient = (fixture: ComponentFixture<RecipesPage>, value: string): void => {
+    const input = nodes(fixture, '.ingredient-field input')[0] as HTMLInputElement;
+    input.focus();
+    vi.useFakeTimers();
+    try {
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+    fixture.detectChanges();
+  };
+
+  /**
+   * Drives a full ingredient pick: type, answer the catalog search, click the
+   * option, then answer the detail read that resolves the internal id. The
+   * recipe search this triggers is left for the caller to answer.
+   */
+  const pickIngredient = async (
+    fixture: ComponentFixture<RecipesPage>,
+    hit: IngredientSearchHit,
+    detail: IngredientDetail,
+  ): Promise<void> => {
+    typeIngredient(fixture, hit.name);
+
+    const catalogReq = http.expectOne((req) => req.url === '/api/catalog/ingredients');
+    expect(catalogReq.request.params.get('query')).toBe(hit.name);
+    catalogReq.flush([hit]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const option = document.querySelector('.mat-mdc-autocomplete-panel mat-option') as HTMLElement;
+    option.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    http.expectOne(`/api/catalog/ingredients/${hit.fdcId}`).flush(detail);
+    fixture.detectChanges();
+  };
 
   afterEach(() => {
     // A fixture still alive here is a test that did not clean up its own
@@ -542,5 +629,189 @@ describe('RecipesPage', () => {
     req.flush([STEW]);
     fixture.detectChanges();
     expect(cardNames(fixture)).toEqual(['Beef Stew']);
+  });
+
+  it('searches the food catalog from the ingredient box and selects a hit', async () => {
+    const fixture = await render();
+
+    typeIngredient(fixture, 'cabb');
+
+    const catalogReq = http.expectOne((req) => req.url === '/api/catalog/ingredients');
+    expect(catalogReq.request.params.get('query')).toBe('cabb');
+    catalogReq.flush([CABBAGE_HIT]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const option = document.querySelector('.mat-mdc-autocomplete-panel mat-option') as HTMLElement;
+    expect(text(option)).toBe('Cabbage');
+
+    option.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // The hit's fdcId is not the recipe endpoint's ingredientId; only the detail
+    // read exposes the internal id (and materializes the food).
+    const detailReq = http.expectOne('/api/catalog/ingredients/170000');
+    detailReq.flush(CABBAGE);
+    fixture.detectChanges();
+
+    const search = expectSearch();
+    expect(search.request.params.get('ingredientId')).toBe('12');
+    search.flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Cabbage Roll']);
+  });
+
+  it('sends ingredientId together with name, strict, threshold and allergenSafe', async () => {
+    const fixture = await render();
+    await pickIngredient(fixture, CABBAGE_HIT, CABBAGE);
+
+    // The pick alone narrows the search: no name, no toggles, just the ingredient.
+    const selected = expectSearch();
+    expect(selected.request.params.keys().sort()).toEqual(['ingredientId', 'threshold']);
+    expect(selected.request.params.get('ingredientId')).toBe('12');
+    selected.flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+
+    // The name box is independent and adds its filter on its own debounce.
+    const nameInput = nodes(fixture, '.search-field input')[0] as HTMLInputElement;
+    vi.useFakeTimers();
+    try {
+      nameInput.value = 'roll';
+      nameInput.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(300);
+    } finally {
+      vi.useRealTimers();
+    }
+    fixture.detectChanges();
+
+    const named = expectSearch();
+    expect(named.request.params.get('ingredientId')).toBe('12');
+    expect(named.request.params.get('name')).toBe('roll');
+    named.flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+
+    // Strict travels beside the ingredient, not instead of it.
+    click(fixture, '.toggle-strict button');
+    const strictReq = expectSearch();
+    expect(strictReq.request.params.keys().sort()).toEqual([
+      'ingredientId',
+      'name',
+      'strict',
+      'threshold',
+    ]);
+    strictReq.flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+
+    // Allergen-safe too: every current filter rides along.
+    click(fixture, '.toggle-allergen-safe button');
+    const allergenReq = expectSearch();
+    expect(allergenReq.request.params.keys().sort()).toEqual([
+      'allergenSafe',
+      'ingredientId',
+      'name',
+      'strict',
+      'threshold',
+    ]);
+    allergenReq.flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Cabbage Roll']);
+  });
+
+  it('clears the ingredient with a single search that drops ingredientId', async () => {
+    const fixture = await render();
+    await pickIngredient(fixture, CABBAGE_HIT, CABBAGE);
+    expectSearch().flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+
+    click(fixture, '.clear-ingredient');
+
+    // One clear, one request: the control reset is silent so the reload below is
+    // not doubled by a `valueChanges` search.
+    const searches = searchReqs(fixture);
+    expect(searches.length).toBe(1);
+    expect(searches[0].request.params.has('ingredientId')).toBe(false);
+    expect(searches[0].request.params.get('threshold')).toBe('0');
+    searches[0].flush([PASTA, STEW, SALAD]);
+    fixture.detectChanges();
+
+    expect(cardNames(fixture).length).toBeGreaterThan(0);
+  });
+
+  it('shows a stale-ingredient error on a 404 instead of an empty grid', async () => {
+    const fixture = await render();
+    await pickIngredient(fixture, CABBAGE_HIT, CABBAGE);
+    expectSearch().flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+
+    click(fixture, '.toggle-strict button');
+    expectSearch().flush(errorResponse(404, 'Ingredient 12 not found'), {
+      status: 404,
+      statusText: 'Not Found',
+    });
+    fixture.detectChanges();
+
+    // A 404 about the ingredient is its own error state, not a grid that could
+    // be mistaken for "nothing matched"; its repair is clearing, not retrying.
+    expect(root(fixture).querySelector('.recipes-error.ingredient-stale')).toBeTruthy();
+    expect(text(root(fixture).querySelector('.recipes-error-message'))).toBe(
+      'Ingredient 12 not found',
+    );
+    expect(root(fixture).querySelector('.recipes-empty')).toBeNull();
+    expect(root(fixture).querySelector('button.retry-recipes')).toBeNull();
+    expect(text(root(fixture).querySelector('.recipes-error-hint'))).toContain(
+      'no longer in the catalog',
+    );
+
+    click(fixture, '.clear-stale-ingredient');
+    const repair = expectSearch();
+    expect(repair.request.params.has('ingredientId')).toBe(false);
+    expect(repair.request.params.has('strict')).toBe(true);
+    repair.flush([PASTA]);
+    fixture.detectChanges();
+
+    expect(root(fixture).querySelector('.recipes-error')).toBeNull();
+    expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara']);
+  });
+
+  it('does not send the selected ingredient to the suggest endpoint', async () => {
+    const fixture = await render();
+    await pickIngredient(fixture, CABBAGE_HIT, CABBAGE);
+    expectSearch().flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+
+    click(fixture, '.suggest-recipes');
+
+    // Suggest is driven by the pantry, not by the ingredient box: the filter
+    // stays behind so it cannot narrow a recommendation the user did not scope.
+    const req = http.expectOne((r) => r.urlWithParams.startsWith('/api/recipes/recommend'));
+    expect(req.request.params.has('ingredientId')).toBe(false);
+    expect(req.request.params.keys()).toEqual([]);
+    req.flush([CABBAGE_DISH]);
+    fixture.detectChanges();
+    expect(cardNames(fixture)).toEqual(['Cabbage Roll']);
+  });
+
+  it('shows a catalog failure on the ingredient box and offers no option', async () => {
+    const fixture = await render();
+    typeIngredient(fixture, 'cabb');
+
+    const catalogReq = http.expectOne((req) => req.url === '/api/catalog/ingredients');
+    catalogReq.flush(errorResponse(502, 'USDA rejected the request'), {
+      status: 502,
+      statusText: 'Bad Gateway',
+    });
+    fixture.detectChanges();
+
+    // The failure belongs to the box, not to the grid: it renders as the
+    // field's error and no option is offered under a search that answered
+    // with an error instead of foods.
+    expect(text(root(fixture).querySelector('.ingredient-field mat-error'))).toBe(
+      'USDA rejected the request',
+    );
+    expect(document.querySelector('.mat-mdc-autocomplete-panel mat-option')).toBeNull();
+    // A failed catalog search is not a failed recipe search: the grid is intact.
+    expect(root(fixture).querySelector('.recipes-error')).toBeNull();
   });
 });

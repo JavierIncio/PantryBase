@@ -21,13 +21,17 @@ export type RecipeSource = 'USER' | 'THE_MEAL_DB';
  * `RecipesPage`); `threshold`, `strict` and `allergenSafe` mirror the backend's
  * filter semantics — the grid only uses `strict` and `allergenSafe`, because
  * its own threshold slider is a client-side decision over the rows already
- * fetched; `ingredientId` exists in the contract for callers that browse by a
- * canned ingredient.
+ * fetched. `ingredientId` is the catalog's **internal** ingredient id (not the
+ * provider `fdcId`): the backend resolves it against its own store, discovers
+ * fresh provider recipes for that ingredient and answers 404 when it is
+ * unknown, so a caller must resolve a hit through `CatalogService.getIngredient`
+ * before it can be sent. `name` and `ingredientId` are independent filters and
+ * may travel together or on their own.
  */
 export interface RecipeSearchQuery {
   /** Free-text name filter; a blank value is never sent. */
   readonly name?: string;
-  /** Only recipes that use this catalog ingredient (backend contract H4). */
+  /** Internal catalog ingredient id; the catalog search speaks `fdcId` instead. */
   readonly ingredientId?: number;
   /** Strict mode on the server: only recipes with `matchScore == 1`. */
   readonly strict?: boolean;
