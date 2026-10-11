@@ -171,7 +171,7 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 - [ ] Favoritos (`Favorite`), guardadas (`SavedRecipe`), publicaciones (`PublishedRecipe`).
 - [ ] Historial de recetas realizadas (`RecipeHistory`) alimentado automáticamente al completar sesión.
 - [ ] Vista de perfil con estadísticas (nº recetas, ingredientes más usados).
-- [ ] Publicar receta propia: formulario de receta manual (ingresar/editar ingredientes y pasos) que alimenta el catálogo reutilizando el modelo local de `Recipe` con `source = USER`.
+- [ ] Publicar receta propia: el backend ya existe desde H4-b (`POST /api/recipes`, recetas `source = USER` sobre el mismo modelo y con el mismo formato que TheMealDB — `CreateRecipeRequest` con `ingredients[] {ingredientId, amount, unitCode, position}` y canónicos vía `toStorageUnit`); lo que falta es el **formulario Angular** (ingresar/editar ingredientes y pasos) y el `RecipesService.create(...)` tipando ese DTO.
 
 **Definition of done:** toda la interacción social requiere auth; historial 100% consistente con las sesiones completadas.
 
