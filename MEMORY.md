@@ -6,9 +6,9 @@
 
 ## Dónde estamos
 
-**Hito en curso: H4 (recetas y filtrado por disponibilidad).** Backend y frontend de H4 cerrados y verdes (materialización TheMealDB, nutrientes por ración, grid + slider + detalle, sugerencia por despensa `GET /api/recipes/recommend` y búsqueda fresca por ingrediente con selector de catálogo). Solo queda el refresco por TTL de las materializadas. H0–H3 cerrados y documentados.
+**Hito en curso: H4 (recetas y filtrado por disponibilidad).** Backend y frontend de H4 **cerrados y verdes**: materialización TheMealDB con cobertura honesta, nutrientes por ración, grid + slider + detalle, sugerencia por despensa (`GET /api/recipes/recommend`), búsqueda fresca por ingrediente con selector de catálogo, y refresco por TTL de las materializadas (`refreshed_at` + re-consulta in-place al proveedor). H0–H3 cerrados y documentados.
 
-Estado verificado: **backend 267 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **87,25 %** LINE). **Frontend 226 tests verdes (22 ficheros)** con `npm test` y `npm run build` sin avisos. Ojo: en `target/surefire-reports` hay un informe stale de `PantryMeasureEquivalenceIntegrationTest` (clase eliminada el 05/10); los totales fiables salen de Maven, no de los `.txt` huérfanos.
+Estado verificado: **backend 271 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **87,34 %** LINE). **Frontend 226 tests verdes (22 ficheros)** con `npm test` y `npm run build` sin avisos. Ojo: en `target/surefire-reports` hay un informe stale de `PantryMeasureEquivalenceIntegrationTest` (clase eliminada el 05/10); los totales fiables salen de Maven, no de los `.txt` huérfanos.
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -29,6 +29,8 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 - **H4-g Búsqueda por ingrediente (frontend):** autocomplete del catálogo en la página de recetas (debounce 300 ms) que envía `ingredientId` junto a `name`/`strict`/`threshold`/`allergenSafe`. El `ingredientId` es el **id interno** del catálogo, no el `fdcId`: el hit solo trae `fdcId`/`name`/`dataType`, así que al elegir se lee `GET /api/catalog/ingredients/{fdcId}` para descubrir el id (y materializar la comida). «Clear» desactiva con una sola búsqueda (control silenciado); `/recommend` ignora el ingrediente. Errores del catálogo → `ErrorStateMatcher` en el campo; 404 de ingrediente → estado propio (no un vacío) con botón de limpiar. 8 tests nuevos (218 → 226).
 
+- **H4-h Refresco por TTL de materializadas:** migración `V15__recipe_refresh.sql` (columna `refreshed_at` NOT NULL DEFAULT now()) y `app.recipe.refresh-ttl: 24h`. Las filas `THE_MEAL_DB` rancias se re-consultan al proveedor **in-place** (mismo `Recipe.id`: no se invalidan URLs ni candidatos) al abrir el detalle y en búsquedas filtradas (el listado sin filtrar queda local; sus filas viejas se refrescan al abrirse). `refreshIfStale` re-materea con la misma tubería en `REQUIRES_NEW` (delete+insert de líneas, alérgenos y nutrientes re-derivados). Si el proveedor ya no sirve la receta o no casa ninguna línea, se conserva la copia local y se avanza el sello (evita la lluvia de re-consultas). `deleteByRecipeId` de líneas llevaba `@Query` sin `@Modifying` (nunca usado hasta hoy → 500); arreglado al patrón del repos de alérgenos. Guard `@PrePersist` en `Recipe` por si una ruta construye la entidad sin sello (la columna es NOT NULL y Hibernate escribe el null explícito). 4 tests nuevos (25 → 29 en `RecipeControllerIntegrationTest`; 267 → 271).
+
 ## Decisiones ya tomadas (no volver a abrir sin motivo)
 
 - **H3:** cantidad en `GRAM`/`UNIT` (volumen sin densidad → `ML`); una fila por ingrediente; ajuste con signo y asiento obligatorio; negativo `409` y cero permitido; `@Version` del servidor; `PUT` sin campo de cantidad.
@@ -39,15 +41,15 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H4 materialización: emparejado por contención de tokens** en lugar de fallo ruidoso o alias: palabras del proveedor ⊆ palabra completa del nombre local; caso de empate gana el más corto (determinista). Toda línea se persiste; las no emparejadas con `matched=false` y el nombre del proveedor (ocultarlas inflaría el % — bug resuelto en V14); si no empareja ninguna, la receta no se materializa. Deuda anotada (abierta): guarda de especificidad + tabla de alias `provider_name → ingredient_id` en el roadmap.
 - **H4 escritura desde `search`:** la auto-invocación no pasa por el proxy transaccional y la transacción externa es de solo lectura, así que la persistencia va en un `TransactionTemplate` con `REQUIRES_NEW`; la carrera la arbitra el `UNIQUE (source, external_id)` y se ignora.
 - **H4 recomendación:** el perfil es la fuente del umbral al abrir la página y el slider solo refina en sesión; `/recommend` fuerza `threshold=0` para entregar el rango completo al cliente. La palabra base es heurística (primer token, sin singularizar porque TheMealDB usa plurales), y la caché de `filter.php` tiene su propio prefijo para no confundirse con la de `search.php`. Los candidatos se eligen hasta 8 (cantidad desc) y los 24 hits se reparten **por cuota justa**: ninguna palabra de la despensa puede monopolizar el set.
+- **H4 refresco por TTL:** refresco **in-place** (mismo id de receta) en detalle y búsquedas filtradas, nunca en listados sin filtrar; si el proveedor deja de servir la receta o nada casa tras el refresco, se conserva la copia local y se avanza `refreshed_at` (sin eso, cada búsqueda reintentaría). `@PrePersist` sella `refreshed_at` si una ruta no lo hace (columna NOT NULL + INSERT explícito con null de Hibernate).
 - **Queries JPQL explícitas cuando el destino no es la entidad:** `findAllergenCodesByRecipeId` sin `@Query` devolvía entidades y la conversión a `String` caía en un `500`; los derived finder devuelven entidades.
 - **Los tests usan los endpoints reales** cuando tocan datos con lazy (p. ej. `excludeFromDiet` vía `PUT /api/users/allergy-exclusions`): tocar `User.allergyExclusions` fuera de sesión revienta con `LazyInitializationException`.
 
 ## Próximos pasos
 
-1. **Cerrar H4:** refresco por TTL de las recetas materializadas (lo único pendiente del bloque); el commit de la búsqueda por ingrediente (backend + frontend + docs) queda por confirmar.
-2. **H5 (modo cocina):** `ConsumptionOrigin` gana `COOKING_SESSION`; el tipo del frontend es unión de uno solo y avisará el compilador.
-3. **H6 (Material theming):** 4-5 paletas SCSS → `:root[data-theme=...]`, selector en preferencias; sin Tailwind ni FontAwesome. Frontend puro.
-4. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
+1. **H5 (modo cocina):** `ConsumptionOrigin` gana `COOKING_SESSION`; el tipo del frontend es unión de uno solo y avisará el compilador.
+2. **H6 (Material theming):** 4-5 paletas SCSS → `:root[data-theme=...]`, selector en preferencias; sin Tailwind ni FontAwesome. Frontend puro.
+3. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
 
 ## Cuellos de botella y riesgos
 

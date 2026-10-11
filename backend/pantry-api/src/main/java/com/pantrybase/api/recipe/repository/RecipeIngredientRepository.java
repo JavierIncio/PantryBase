@@ -2,8 +2,10 @@ package com.pantrybase.api.recipe.repository;
 
 import com.pantrybase.api.recipe.domain.RecipeIngredient;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +15,8 @@ public interface RecipeIngredientRepository extends JpaRepository<RecipeIngredie
 
     List<RecipeIngredient> findByRecipeIdOrderByPositionAsc(Long recipeId);
 
+    @Modifying
+    @Transactional
     @Query("DELETE FROM RecipeIngredient ri WHERE ri.recipeId = :recipeId")
     void deleteByRecipeId(@Param("recipeId") Long recipeId);
 

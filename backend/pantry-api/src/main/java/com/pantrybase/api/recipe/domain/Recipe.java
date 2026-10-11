@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
@@ -71,6 +72,9 @@ public class Recipe {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "refreshed_at", nullable = false)
+    private Instant refreshedAt;
+
     // --- enum for source (kept as String in DB, but type-safe here) ---
     public enum Source { THE_MEAL_DB, USER }
 
@@ -119,10 +123,25 @@ public class Recipe {
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 
+    public Instant getRefreshedAt() { return refreshedAt; }
+    public void setRefreshedAt(Instant refreshedAt) { this.refreshedAt = refreshedAt; }
+
     public Source getSourceEnum() {
         return source != null ? Source.valueOf(source) : null;
     }
     public void setSourceEnum(Source s) {
         this.source = s != null ? s.name() : null;
+    }
+
+    /**
+     * {@code refreshed_at} is NOT NULL and Hibernate writes an explicit null unless the
+     * entity fills it, so any code path that constructs a bare {@code Recipe} — tests,
+     * seed data, future features — must not depend on remembering the stamp.
+     */
+    @PrePersist
+    void ensureRefreshedStamp() {
+        if (refreshedAt == null) {
+            refreshedAt = Instant.now();
+        }
     }
 }

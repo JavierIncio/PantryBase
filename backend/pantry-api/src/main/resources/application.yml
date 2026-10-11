@@ -84,3 +84,7 @@ app:
       # que es lo que hace utilizable el catálogo con la cuota de DEMO_KEY (30 req/h).
       cache-ttl: 24h
       max-stale: 30d
+  recipe:
+    # Una receta materializada de TheMealDB se re-consulta al proveedor cuando su
+    # copia local supera esta vida (al abrir el detalle o en búsquedas filtradas).
+    refresh-ttl: 24h

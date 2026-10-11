@@ -35,6 +35,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -293,6 +294,112 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getBody())
                 .singleElement()
                 .satisfies(summary -> assertThat(summary.name()).isEqualTo("Quinoa Pilaf"));
+    }
+
+    // ============ FRESHNESS (TTL REFRESH) ============
+
+    @Test
+    void detail_refreshesStaleProviderRecipe_inPlace() {
+        HttpHeaders headers = authenticate();
+        ingredient("Wheat Flour", "Grain");
+        when(mealDbClient.searchByName("Pancakes")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52768", "Pancakes", "Breakfast", "American",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52768")).thenReturn(Optional.of(pancakeDetail("Pancakes", "4")));
+        search(headers, "?name=Pancakes&threshold=0");
+
+        Recipe stored = recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52768").orElseThrow();
+        Instant staleMark = Instant.now().minus(Duration.ofDays(2));
+        stored.setRefreshedAt(staleMark);
+        recipeRepository.saveAndFlush(stored);
+
+        when(mealDbClient.lookupById("52768"))
+                .thenReturn(Optional.of(pancakeDetail("Fresh Pancakes", "6")));
+        ResponseEntity<RecipeDetailDto> refreshed = detail(headers, stored.getId());
+
+        assertThat(refreshed.getBody().name()).isEqualTo("Fresh Pancakes");
+        assertThat(refreshed.getBody().servings()).isEqualTo(6);
+        assertThat(recipeRepository.findById(stored.getId()).orElseThrow().getRefreshedAt())
+                .isAfter(staleMark);
+        verify(mealDbClient, times(2)).lookupById("52768");
+    }
+
+    @Test
+    void detail_doesNotReRequestRecipeWithinFreshTtl() {
+        HttpHeaders headers = authenticate();
+        ingredient("Wheat Flour", "Grain");
+        when(mealDbClient.searchByName("Pancakes")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52768", "Pancakes", "Breakfast", "American",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52768")).thenReturn(Optional.of(pancakeDetail("Pancakes", "4")));
+        search(headers, "?name=Pancakes&threshold=0");
+
+        long id = recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52768").orElseThrow().getId();
+        detail(headers, id);
+        detail(headers, id);
+
+        verify(mealDbClient, times(1)).lookupById("52768");
+    }
+
+    @Test
+    void search_refreshesStaleProviderRow_onFilteredQuery() {
+        HttpHeaders headers = authenticate();
+        ingredient("Wheat Flour", "Grain");
+        when(mealDbClient.searchByName("Pancakes")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52768", "Pancakes", "Breakfast", "American",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52768")).thenReturn(Optional.of(pancakeDetail("Pancakes", "4")));
+        search(headers, "?name=Pancakes&threshold=0");
+
+        Recipe stored = recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52768").orElseThrow();
+        stored.setRefreshedAt(Instant.now().minus(Duration.ofDays(2)));
+        recipeRepository.saveAndFlush(stored);
+
+        when(mealDbClient.lookupById("52768"))
+                .thenReturn(Optional.of(pancakeDetail("Fresh Pancakes", "6")));
+        ResponseEntity<List<RecipeSummaryDto>> second =
+                search(headers, "?name=Pancakes&threshold=0");
+
+        assertThat(second.getBody())
+                .filteredOn(summary -> summary.source().equals("THE_MEAL_DB"))
+                .singleElement()
+                .satisfies(summary -> assertThat(summary.name()).isEqualTo("Fresh Pancakes"));
+        verify(mealDbClient, times(2)).lookupById("52768");
+    }
+
+    @Test
+    void refresh_keepsLocalCopy_whenProviderNoLongerServesTheRecipe() {
+        HttpHeaders headers = authenticate();
+        ingredient("Wheat Flour", "Grain");
+        when(mealDbClient.searchByName("Pancakes")).thenReturn(List.of(
+                new TheMealDbClient.MealSummary(
+                        "52768", "Pancakes", "Breakfast", "American",
+                        null, null, null, null, null)));
+        when(mealDbClient.lookupById("52768")).thenReturn(Optional.of(pancakeDetail("Pancakes", "4")));
+        search(headers, "?name=Pancakes&threshold=0");
+
+        Recipe stored = recipeRepository.findBySourceAndExternalId("THE_MEAL_DB", "52768").orElseThrow();
+        stored.setRefreshedAt(Instant.now().minus(Duration.ofDays(2)));
+        recipeRepository.saveAndFlush(stored);
+
+        when(mealDbClient.lookupById("52768")).thenReturn(Optional.empty());
+        ResponseEntity<RecipeDetailDto> first = detail(headers, stored.getId());
+        ResponseEntity<RecipeDetailDto> again = detail(headers, stored.getId());
+
+        assertThat(first.getBody().name()).isEqualTo("Pancakes");
+        assertThat(again.getBody().name()).isEqualTo("Pancakes");
+        verify(mealDbClient, times(2)).lookupById("52768");
+    }
+
+    private TheMealDbClient.MealDetail pancakeDetail(String name, String servings) {
+        return new TheMealDbClient.MealDetail(
+                "52768", name, "Breakfast", "American", "Mix and fry.",
+                null, null, null,
+                List.of(new TheMealDbClient.IngredientMeasure("Wheat Flour", "200g")),
+                null, servings);
     }
 
     @Test

@@ -17,6 +17,7 @@ import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -26,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.MatchResult;
@@ -80,6 +82,7 @@ public class RecipeService {
     private final TheMealDbClient mealDbClient;
     private final RecipeSearchCache searchCache;
     private final TransactionTemplate writeTx;
+    private final Duration refreshTtl;
 
     public RecipeService(RecipeRepository recipeRepo,
                          RecipeIngredientRepository ingredientRepo,
@@ -94,7 +97,8 @@ public class RecipeService {
                          UnitConverter unitConverter,
                          TheMealDbClient mealDbClient,
                          RecipeSearchCache searchCache,
-                         PlatformTransactionManager txManager) {
+                         PlatformTransactionManager txManager,
+                         @Value("${app.recipe.refresh-ttl:24h}") Duration refreshTtl) {
         this.recipeRepo = recipeRepo;
         this.ingredientRepo = ingredientRepo;
         this.nutrientsRepo = nutrientsRepo;
@@ -108,6 +112,7 @@ public class RecipeService {
         this.unitConverter = unitConverter;
         this.mealDbClient = mealDbClient;
         this.searchCache = searchCache;
+        this.refreshTtl = refreshTtl;
         this.writeTx = new TransactionTemplate(txManager);
         this.writeTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -158,6 +163,13 @@ public class RecipeService {
             addCandidates(candidates, request, SOURCE_MEALDB, hasName);
         }
 
+        // Filtered searches re-fetch local provider rows that outlived the refresh TTL,
+        // so the set the user is actively probing is kept current. An untyped listing
+        // stays purely local: stale rows there refresh lazily when a recipe is opened.
+        if (hasName || request.ingredientId() != null) {
+            refreshStaleCandidates(candidates);
+        }
+
         return scoreAndFilter(candidates.values(), request, pantryAvailable, excludedAllergens);
     }
 
@@ -172,6 +184,102 @@ public class RecipeService {
                 materializeMealDbRecipe(hit);
             }
         });
+    }
+
+    /**
+     * Re-fetches stale local provider rows in a candidate set ({@code refreshed_at}
+     * older than the configured TTL), leaving fresh and USER rows untouched.
+     */
+    private void refreshStaleCandidates(Map<Long, Recipe> candidates) {
+        candidates.values().forEach(this::refreshIfStale);
+    }
+
+    /**
+     * Re-fetches one THE_MEAL_DB recipe from the provider when its local copy is stale,
+     * replacing the stored row in place so the recipe id, and therefore detail URLs and
+     * candidate keys, stay stable.
+     *
+     * <p>The re-fetch runs {@code lookupById} and rebuilds the line set with the same
+     * matching pipeline as a first materialisation, inside a {@code REQUIRES_NEW} write
+     * (same reasoning as the insert path: this is invoked from the read-only search or
+     * detail transaction). If the provider no longer resolves the id, or the refreshed
+     * lines match nothing, the previous local copy is kept and the freshness stamp
+     * advanced — dropping a recipe from the store because the provider moved on would
+     * break bookmarks, and leaving the stamp stale would re-request it on every search.</p>
+     *
+     * @param recipe the managed recipe instance to refresh when stale
+     */
+    private void refreshIfStale(Recipe recipe) {
+        if (!SOURCE_MEALDB.equals(recipe.getSource())) {
+            return;
+        }
+        if (Instant.now().minus(refreshTtl).isBefore(recipe.getRefreshedAt())) {
+            return;
+        }
+
+        Optional<TheMealDbClient.MealDetail> detailOpt = mealDbClient.lookupById(recipe.getExternalId());
+        if (detailOpt.isEmpty()) {
+            log.info("TheMealDB {} no longer resolvable; keeping the local copy of {}",
+                    recipe.getExternalId(), recipe.getName());
+            touchRefreshedAt(recipe);
+            return;
+        }
+        TheMealDbClient.MealDetail detail = detailOpt.get();
+        List<RecipeIngredient> lines = toRecipeLines(detail.ingredients());
+        boolean anyMatched = lines.stream().anyMatch(line -> Boolean.TRUE.equals(line.getMatched()));
+        if (!anyMatched) {
+            log.info("TheMealDB {} matched nothing after refresh; keeping the local copy of {}",
+                    detail.idMeal(), recipe.getName());
+            touchRefreshedAt(recipe);
+            return;
+        }
+
+        try {
+            writeTx.executeWithoutResult(status -> refreshMealDbRecipe(detail, lines, recipe));
+            log.info("Refreshed TheMealDB recipe {} ({}) — {}/{} ingredients matched",
+                    recipe.getName(), recipe.getExternalId(),
+                    lines.stream().filter(line -> Boolean.TRUE.equals(line.getMatched())).count(),
+                    detail.ingredients().size());
+        } catch (DataIntegrityViolationException e) {
+            log.info("TheMealDB recipe {} refresh raced a concurrent writer; skipping",
+                    recipe.getExternalId());
+        }
+    }
+
+    private void touchRefreshedAt(Recipe recipe) {
+        writeTx.executeWithoutResult(status -> {
+            recipe.setRefreshedAt(Instant.now());
+            recipeRepo.save(recipe);
+        });
+    }
+
+    private void refreshMealDbRecipe(TheMealDbClient.MealDetail detail, List<RecipeIngredient> lines,
+                                    Recipe recipe) {
+        Instant now = Instant.now();
+        recipe.setName(detail.strMeal());
+        recipe.setCategory(detail.strCategory());
+        recipe.setArea(detail.strArea());
+        recipe.setInstructions(detail.strInstructions());
+        recipe.setImageUrl(detail.strMealThumb());
+        recipe.setVideoUrl(detail.strYoutube());
+        recipe.setTags(detail.strTags());
+        recipe.setServings(parseServings(detail.strServings()));
+        recipe.setSourceUrl(detail.strSource());
+        recipe.setUpdatedAt(now);
+        recipe.setRefreshedAt(now);
+        recipeRepo.save(recipe);
+
+        ingredientRepo.deleteByRecipeId(recipe.getId());
+        lines.forEach(line -> line.setRecipeId(recipe.getId()));
+        ingredientRepo.saveAll(lines);
+
+        deriveAndStoreAllergens(recipe.getId(),
+                lines.stream().map(RecipeIngredient::getIngredientId)
+                        .filter(Objects::nonNull)
+                        .toList());
+
+        nutrientsRepo.deleteById(recipe.getId());
+        computeNutrients(recipe.getId(), lines, recipe.getServings());
     }
 
     /**
@@ -320,7 +428,10 @@ public class RecipeService {
     // ============ DETAIL ============
 
     public Optional<RecipeDetailDto> detail(Long userId, long recipeId) {
-        return recipeRepo.findById(recipeId).map(r -> toDetailDto(r, loadPantryCanonical(userId)));
+        return recipeRepo.findById(recipeId).map(r -> {
+            refreshIfStale(r);
+            return toDetailDto(r, loadPantryCanonical(userId));
+        });
     }
 
     // ============ USER RECIPE CREATION ============
@@ -349,8 +460,10 @@ public class RecipeService {
         recipe.setTags(request.tags() != null ? String.join(",", request.tags()) : null);
         recipe.setServings(request.servings());
         recipe.setSourceUrl(request.sourceUrl());
-        recipe.setCreatedAt(Instant.now());
-        recipe.setUpdatedAt(Instant.now());
+        Instant now = Instant.now();
+        recipe.setCreatedAt(now);
+        recipe.setUpdatedAt(now);
+        recipe.setRefreshedAt(now);
         Recipe saved = recipeRepo.save(recipe);
 
         // Ingredients + canonical conversion
@@ -627,6 +740,7 @@ public class RecipeService {
         Instant now = Instant.now();
         recipe.setCreatedAt(now);
         recipe.setUpdatedAt(now);
+        recipe.setRefreshedAt(now);
         Recipe saved = recipeRepo.save(recipe);
 
         lines.forEach(line -> line.setRecipeId(saved.getId()));
