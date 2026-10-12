@@ -1,4 +1,9 @@
-import { IngredientCoverage, RecipeIngredient, RecipeSummary } from './recipes.models';
+import {
+  IngredientCoverage,
+  RecipeDetail,
+  RecipeIngredient,
+  RecipeSummary,
+} from './recipes.models';
 import {
   coverageClass,
   coveragePercent,
@@ -6,6 +11,7 @@ import {
   orderByCoverage,
   pairCoverage,
   passesThreshold,
+  recipeAvailability,
 } from './recipe-matching';
 
 const recipe = (id: number, matchScore: number | null): RecipeSummary => ({
@@ -171,5 +177,109 @@ describe('formatAmount', () => {
     expect(formatAmount(150)).toBe('150');
     expect(formatAmount(244.57000000000002)).toBe('244.57');
     expect(formatAmount(0.1 + 0.2)).toBe('0.3');
+  });
+});
+
+describe('recipeAvailability', () => {
+  const cov = (
+    ingredientId: number,
+    fullyCovered: boolean,
+    availableAmount: number,
+  ): IngredientCoverage => ({
+    ingredientId,
+    ingredientName: `ing-${ingredientId}`,
+    neededAmount: 100,
+    neededUnitCode: 'GRAM',
+    availableAmount,
+    availableUnitCode: 'GRAM',
+    fullyCovered,
+  });
+
+  const unmatched = (position: number): RecipeIngredient => ({
+    ingredientId: null,
+    ingredientName: 'Mystery Powder',
+    ingredientCategory: null,
+    originalAmount: null,
+    originalUnitCode: null,
+    canonicalAmount: null,
+    canonicalUnitCode: null,
+    canonicalUnitCategory: null,
+    matched: false,
+    position,
+  });
+
+  const detail = (
+    coverage: IngredientCoverage[],
+    ingredients: RecipeIngredient[] = [],
+  ): RecipeDetail => ({
+    id: 1,
+    source: 'USER',
+    externalId: null,
+    name: 'Test',
+    category: '',
+    area: '',
+    instructions: '',
+    imageUrl: null,
+    videoUrl: null,
+    tags: [],
+    servings: null,
+    sourceUrl: null,
+    ingredients,
+    nutrients: null,
+    allergenCodes: [],
+    matchScore: null,
+    coverage,
+  });
+
+  it('splits matched lines into covered, low and missing by stock', () => {
+    // 100/100 covered; 40/100 present but short; 0/100 a true absence.
+    const result = recipeAvailability(
+      detail([cov(1, true, 100), cov(2, false, 40), cov(3, false, 0)]),
+    );
+
+    expect(result.covered.map((row) => row.ingredientId)).toEqual([1]);
+    expect(result.low.map((row) => row.ingredientId)).toEqual([2]);
+    expect(result.missing.map((row) => row.ingredientId)).toEqual([3]);
+    expect(result.uncatalogued).toEqual([]);
+    expect(result.hasGaps).toBe(true);
+  });
+
+  it('tells a low line from a missing one by the stock boundary at zero', () => {
+    // Exactly zero available is "missing", any positive leftover is "low": the
+    // two prompt different actions, so the boundary must not blur.
+    const result = recipeAvailability(detail([cov(1, false, 0.0001), cov(2, false, 0)]));
+
+    expect(result.low.map((row) => row.ingredientId)).toEqual([1]);
+    expect(result.missing.map((row) => row.ingredientId)).toEqual([2]);
+  });
+
+  it('never reclassifies a fully covered line even with zero available', () => {
+    // `fullyCovered` is the server's verdict and wins over the amount read.
+    const result = recipeAvailability(detail([cov(1, true, 0)]));
+
+    expect(result.covered).toHaveLength(1);
+    expect(result.low).toHaveLength(0);
+    expect(result.missing).toHaveLength(0);
+    expect(result.hasGaps).toBe(false);
+  });
+
+  it('lists uncatalogued lines and counts them as gaps on their own', () => {
+    const result = recipeAvailability(
+      detail([cov(1, true, 100)], [unmatched(1), { ...unmatched(2), matched: true }]),
+    );
+
+    // Only `matched: false` lines qualify, whatever the coverage says.
+    expect(result.uncatalogued.map((line) => line.ingredientName)).toEqual(['Mystery Powder']);
+    expect(result.hasGaps).toBe(true);
+  });
+
+  it('reports no gaps when every line is covered and catalogued', () => {
+    const result = recipeAvailability(detail([cov(1, true, 100), cov(2, true, 200)]));
+
+    expect(result.covered).toHaveLength(2);
+    expect(result.hasGaps).toBe(false);
+    expect(result.low).toEqual([]);
+    expect(result.missing).toEqual([]);
+    expect(result.uncatalogued).toEqual([]);
   });
 });

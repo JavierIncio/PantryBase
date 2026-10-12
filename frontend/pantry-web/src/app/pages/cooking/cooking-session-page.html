@@ -133,6 +133,14 @@
     </mat-card>
   }
 
+  @if (availability(); as availability) {
+    @if (availability.hasGaps) {
+      <div class="session-availability">
+        <app-recipe-availability-panel [availability]="availability" />
+      </div>
+    }
+  }
+
   <mat-card class="session-steps">
     <mat-card-header>
       <mat-card-title>Steps</mat-card-title>

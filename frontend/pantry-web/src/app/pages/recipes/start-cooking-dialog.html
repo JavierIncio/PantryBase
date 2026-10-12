@@ -1,0 +1,17 @@
+<h2 mat-dialog-title>Not everything is in your pantry</h2>
+
+<mat-dialog-content>
+  <p class="start-cooking-intro">
+    Some ingredients are short, missing or not in the catalog. You can still start cooking — nothing
+    is deducted until you complete the session.
+  </p>
+
+  <app-recipe-availability-panel [availability]="availability" />
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" class="cancel-start-cooking" (click)="cancel()">Cancel</button>
+  <button mat-flat-button type="button" class="confirm-start-cooking" (click)="confirm()">
+    Start anyway
+  </button>
+</mat-dialog-actions>

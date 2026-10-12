@@ -122,8 +122,9 @@
 }
 
 // Green for full coverage and amber for partial, the same hues the grid uses
-// through `coverageClass`; none stays neutral, because an unknown coverage is
-// a fact to read, not a color.
+// through `coverageClass`. A `none` needs no rule: the base `.detail-badge`
+// already paints it neutral, because an unknown coverage is a fact to read,
+// not a color.
 .coverage-badge.coverage-full {
   background: #2e7d32;
   color: #fff;
@@ -134,11 +135,6 @@
   background: #b26a00;
   color: #fff;
   font-weight: 600;
-}
-
-.coverage-badge.coverage-none {
-  background: var(--mat-sys-surface-container-highest);
-  color: var(--mat-sys-on-surface-variant);
 }
 
 .detail-links {
@@ -178,8 +174,6 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
 }
 
 .ingredient-row {
@@ -272,6 +266,12 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+// The pantry check sits directly above the actions so it is read right before
+// the "Start cooking" button it guards.
+.availability-check {
+  margin-bottom: 1rem;
 }
 
 .start-cooking-error {

@@ -1,0 +1,30 @@
+// State cards: the "empty" and "no results" blocks share one anatomy — a big
+// icon, a title, one explanatory line and a single action — so the pattern
+// lives here under neutral class names and each page only adds the card class
+// (`.pantry-empty`, `.pantry-no-results`, …) it needs for its own logic.
+.state-card mat-card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+
+.state-icon {
+  width: 48px;
+  height: 48px;
+  font-size: 48px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.state-title {
+  margin: 0.5rem 0 0;
+  font: var(--mat-sys-title-medium);
+}
+
+.state-body {
+  margin: 0;
+  max-width: 34rem;
+  color: var(--mat-sys-on-surface-variant);
+}

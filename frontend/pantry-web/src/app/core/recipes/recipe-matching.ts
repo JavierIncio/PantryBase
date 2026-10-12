@@ -1,4 +1,9 @@
-import { IngredientCoverage, RecipeIngredient, RecipeSummary } from './recipes.models';
+import {
+  IngredientCoverage,
+  RecipeDetail,
+  RecipeIngredient,
+  RecipeSummary,
+} from './recipes.models';
 
 /**
  * Pure recipe-matching rules shared by the recipes pages.
@@ -122,4 +127,81 @@ export function coverageClass(
  */
 export function formatAmount(value: number): string {
   return String(Math.round(value * 1000) / 1000);
+}
+
+/**
+ * The pantry's state for a recipe, split into the four facts a pre-flight check
+ * cares about.
+ *
+ * The classification is deliberately derived only from what the detail already
+ * carries — no request is made, so the panels that show it cost nothing — and
+ * it separates two things the coverage percentage alone conflates:
+ *
+ * - {@link covered}: matched lines the pantry fully covers (`fullyCovered`);
+ * - {@link low}: matched lines that are present but short of the needed amount
+ *   (`availableAmount > 0`), a "you have some, not enough";
+ * - {@link missing}: matched lines with nothing stored (`availableAmount == 0`),
+ *   a true "you don't have it"; the two are told apart because the user fixes
+ *   them differently (top up versus buy);
+ * - {@link uncatalogued}: recipe lines the catalog never understood
+ *   (`matched: false`), which carry no amount to compare and therefore can
+ *   never be verified — they exist so the check does not promise a coverage it
+ *   cannot measure, the same honesty V14 gave the denominator.
+ *
+ * `hasGaps` is the summary the callers branch on: true when anything at all
+ * stands between the recipe and cooking. The four arrays are always populated
+ * (empty, never null) so a consumer can read them without null checks.
+ */
+export interface RecipeAvailability {
+  /** Matched lines the pantry fully covers. */
+  readonly covered: IngredientCoverage[];
+  /** Matched lines that are present but short of the needed amount. */
+  readonly low: IngredientCoverage[];
+  /** Matched lines with no stock at all. */
+  readonly missing: IngredientCoverage[];
+  /** Recipe lines the catalog could not resolve, so nothing can be verified. */
+  readonly uncatalogued: RecipeIngredient[];
+  /** True when at least one line is low, missing or uncatalogued. */
+  readonly hasGaps: boolean;
+}
+
+/**
+ * Classifies a recipe detail into covered / low / missing / uncatalogued.
+ *
+ * Pure and synchronous: the four lists come from the detail's own `coverage`
+ * and `ingredients`, so the same result is computed on the detail page, in the
+ * start-cooking confirmation and in the cooking session's banner without any of
+ * them asking the server again. The split between {@link RecipeAvailability.low}
+ * and {@link RecipeAvailability.missing} is the one nuance the raw coverage
+ * percentage cannot express, which is why the helper exists.
+ *
+ * Matched lines are read from `coverage` (the only collection that measures
+ * them); a matched line the payload happens to omit from `coverage` is not
+ * guessed at, it simply is not classified. Unmatched lines are read from
+ * `ingredients`, because a line with no catalog id has no coverage row.
+ */
+export function recipeAvailability(detail: RecipeDetail): RecipeAvailability {
+  const covered: IngredientCoverage[] = [];
+  const low: IngredientCoverage[] = [];
+  const missing: IngredientCoverage[] = [];
+
+  for (const coverage of detail.coverage) {
+    if (coverage.fullyCovered) {
+      covered.push(coverage);
+    } else if (coverage.availableAmount > 0) {
+      low.push(coverage);
+    } else {
+      missing.push(coverage);
+    }
+  }
+
+  const uncatalogued = detail.ingredients.filter((ingredient) => !ingredient.matched);
+
+  return {
+    covered,
+    low,
+    missing,
+    uncatalogued,
+    hasGaps: low.length > 0 || missing.length > 0 || uncatalogued.length > 0,
+  };
 }

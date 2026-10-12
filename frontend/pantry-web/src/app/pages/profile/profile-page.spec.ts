@@ -355,6 +355,21 @@ describe('ProfilePage', () => {
     expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('amber');
   });
 
+  it('shows the three preview swatches without a redundant theme name', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER);
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // The selected toggle already names the palette; the preview strip is a
+    // token-driven color sample, so it must carry no text of its own.
+    expect(host.querySelectorAll('.theme-preview .theme-swatch').length).toBe(3);
+    expect(host.querySelector('.theme-preview .theme-name')).toBeNull();
+  });
+
   it('sends the selected theme to the backend and reverts to the stored one on save', async () => {
     await configure();
     await TestBed.compileComponents();

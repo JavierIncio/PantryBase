@@ -1,11 +1,14 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute, Router } from '@angular/router';
 import { provideRouter } from '@angular/router';
+import { Subject } from 'rxjs';
 import { Unit } from '../../core/catalog/catalog.models';
 import { RecipeDetail } from '../../core/recipes/recipes.models';
 import { RecipeDetailPage } from './recipe-detail-page';
+import { StartCookingDialog } from './start-cooking-dialog';
 
 /** The three units the fixture lines use; the endpoint has twelve. */
 const UNITS: Unit[] = [
@@ -145,6 +148,43 @@ const OWN_RECIPE: RecipeDetail = {
   matchScore: null,
 };
 
+/**
+ * A recipe the pantry fully covers: starting it must skip the confirmation and
+ * create the session directly.
+ */
+const FULLY_COVERED: RecipeDetail = {
+  ...DETAIL,
+  coverage: [
+    {
+      ingredientId: 10,
+      ingredientName: 'Eggs',
+      neededAmount: 2,
+      neededUnitCode: 'UNIT',
+      availableAmount: 3,
+      availableUnitCode: 'UNIT',
+      fullyCovered: true,
+    },
+    {
+      ingredientId: 11,
+      ingredientName: 'Flour',
+      neededAmount: 200,
+      neededUnitCode: 'GRAM',
+      availableAmount: 250,
+      availableUnitCode: 'GRAM',
+      fullyCovered: true,
+    },
+    {
+      ingredientId: 12,
+      ingredientName: 'Salt',
+      neededAmount: 1,
+      neededUnitCode: 'GRAM',
+      availableAmount: 10,
+      availableUnitCode: 'GRAM',
+      fullyCovered: true,
+    },
+  ],
+};
+
 /** Backend error body, as `ErrorResponse` serializes it on the wire. */
 const errorResponse = (status: number, message: string) => ({
   timestamp: '2026-10-08T09:00:00Z',
@@ -157,15 +197,22 @@ const errorResponse = (status: number, message: string) => ({
 describe('RecipeDetailPage', () => {
   let http: HttpTestingController;
   let routeId = '1';
+  let dialogOpen: ReturnType<typeof vi.fn>;
+  let startClosed: Subject<boolean | undefined>;
 
   const configure = async (id: string) => {
     routeId = id;
+    // The confirmation is what is under test, not what it renders: opening one
+    // reports the user's answer back to a controllable subject.
+    startClosed = new Subject<boolean | undefined>();
+    dialogOpen = vi.fn().mockReturnValue({ afterClosed: () => startClosed });
     await TestBed.configureTestingModule({
       imports: [RecipeDetailPage],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
+        { provide: MatDialog, useValue: { open: dialogOpen } },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => routeId } } } },
       ],
     }).compileComponents();
@@ -404,7 +451,7 @@ describe('RecipeDetailPage', () => {
     expect(nodes(fixture, 'a.back-to-recipes').length).toBe(1);
   });
 
-  it('starts a cooking session for this recipe and opens it', async () => {
+  it('warns about the gaps and starts the session once confirmed', async () => {
     const fixture = await render();
     const router = TestBed.inject(Router);
     const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
@@ -412,9 +459,62 @@ describe('RecipeDetailPage', () => {
     (root(fixture).querySelector('button.start-cooking') as HTMLButtonElement).click();
     fixture.detectChanges();
 
-    // The session is created here so its id — not the recipe id — names the URL.
+    // Salt is short, so the click asks first instead of creating the session.
+    expect(dialogOpen).toHaveBeenCalledTimes(1);
+    expect(dialogOpen.mock.calls[0][0]).toBe(StartCookingDialog);
+    expect(dialogOpen.mock.calls[0][1].data.hasGaps).toBe(true);
+
+    startClosed.next(true);
+    fixture.detectChanges();
+
+    // "Start anyway" then creates the session, whose id — not the recipe id —
+    // names the URL.
     const req = http.expectOne('/api/cooking/sessions');
     expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ recipeId: 1 });
+    req.flush({
+      id: 7,
+      recipeId: 1,
+      status: 'IN_PROGRESS',
+      startedAt: '2026-10-12T10:00:00Z',
+      completedAt: null,
+      deduction: null,
+    });
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(['/cooking', 7]);
+  });
+
+  it('creates no session when the gaps confirmation is cancelled', async () => {
+    const fixture = await render();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+    (root(fixture).querySelector('button.start-cooking') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(dialogOpen).toHaveBeenCalledTimes(1);
+
+    startClosed.next(false);
+    fixture.detectChanges();
+
+    // Cancelling is a no: no request was made and the recipe stays put.
+    expect(http.match(() => true)).toEqual([]);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(text(root(fixture).querySelector('.detail-heading h1'))).toBe(
+      'Spaghetti alla Carbonara',
+    );
+  });
+
+  it('starts directly, with no friction, when the pantry covers everything', async () => {
+    const fixture = await render(FULLY_COVERED);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    (root(fixture).querySelector('button.start-cooking') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // No gap means no dialog — the check adds friction only when it warns.
+    expect(dialogOpen).not.toHaveBeenCalled();
+    const req = http.expectOne('/api/cooking/sessions');
     expect(req.request.body).toEqual({ recipeId: 1 });
     req.flush({
       id: 7,
@@ -436,6 +536,8 @@ describe('RecipeDetailPage', () => {
 
     (root(fixture).querySelector('button.start-cooking') as HTMLButtonElement).click();
     fixture.detectChanges();
+    startClosed.next(true);
+    fixture.detectChanges();
     http
       .expectOne('/api/cooking/sessions')
       .flush(errorResponse(404, 'Recipe 1 not found'), { status: 404, statusText: 'Not Found' });
@@ -448,5 +550,28 @@ describe('RecipeDetailPage', () => {
       'Spaghetti alla Carbonara',
     );
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('shows the pantry panel with the gaps of the loaded recipe', async () => {
+    const fixture = await render();
+
+    expect(
+      root(fixture).querySelector('.availability-check app-recipe-availability-panel'),
+    ).toBeTruthy();
+    // Salt is present but short, so it lands in the "not enough" group with both
+    // figures, in the recipe's own unit labels.
+    expect(text(root(fixture).querySelector('.availability-group-title'))).toBe('Not enough (1)');
+    expect(text(root(fixture).querySelector('.availability-figures'))).toBe(
+      'need 1 Gram · have 0.5 Gram',
+    );
+  });
+
+  it('shows the positive pantry state when everything is covered', async () => {
+    const fixture = await render(FULLY_COVERED);
+
+    expect(text(root(fixture).querySelector('.availability-clear-head'))).toContain(
+      'You have everything you need for this recipe',
+    );
+    expect(root(fixture).querySelector('.availability-group')).toBeNull();
   });
 });

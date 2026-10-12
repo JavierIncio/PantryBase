@@ -103,6 +103,12 @@
   margin-bottom: 1.5rem;
 }
 
+// Non-blocking reminder above the checklist that some ingredients are short or
+// missing; it never gates the controls, so completing/abandoning stay available.
+.session-availability {
+  margin-bottom: 1.5rem;
+}
+
 .control-actions {
   display: flex;
   flex-wrap: wrap;

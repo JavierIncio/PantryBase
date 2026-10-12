@@ -1,6 +1,10 @@
-// Pantry layout: a header, then one card per category. A row stays a single
-// line until it is opened, so the list can be scanned for "what do I have" and
-// not for "which row is mid-edit".
+// Pantry layout: a header, a filter toolbar, then one card per category. The
+// line itself — row, stepper and action buttons — lives in `PantryItemRow`; this
+// file keeps the page around it: header, filters, category sections, the panels
+// the page projects below each row, and the grid container. The grid view reuses
+// the very same rows and panels; only the card shell and the flex direction
+// change (both owned by the row component).
+
 .pantry-header {
   display: flex;
   flex-wrap: wrap;
@@ -8,55 +12,53 @@
   justify-content: space-between;
   gap: 0.75rem 1rem;
   margin-bottom: 1.5rem;
-
-  h1 {
-    margin: 0;
-    font-size: var(--mat-sys-headline-medium-size);
-  }
-
-  p {
-    margin: 0;
-    color: var(--mat-sys-on-surface-variant);
-  }
-
-  // The header colours its own text as a whole, so a rule that has to beat it
-  // lives in here: nesting is what raises it above the `p` selector above.
-  //
-  // The pending and error lines carry no `pantry-summary` class of their own: that
-  // one names the figures the API counted, and a state of those figures should not
-  // be able to pass for them.
-  //
-  // The zero count is the one figure worth interrupting for — it is what the user
-  // would act on — and the error colour is the palette's only alert tone. It is
-  // the only coloured element of the header, so it cannot read as decoration.
-  .pantry-summary-zero {
-    color: var(--mat-sys-error);
-  }
-
-  // Sized to the line it replaces, so the header does not jump when the totals
-  // land or fail.
-  .pantry-summary-pending {
-    display: flex;
-    align-items: center;
-    min-height: 1.25rem;
-  }
-
-  .pantry-summary-error {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: var(--mat-sys-error);
-  }
+}
+.pantry-header h1,
+.pantry-header p {
+  margin: 0;
+}
+.pantry-header h1 {
+  font-size: var(--mat-sys-headline-medium-size);
+}
+.pantry-header p {
+  color: var(--mat-sys-on-surface-variant);
+}
+.pantry-summary-error {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--mat-sys-error);
 }
 
-// The title and the summary stack, with the add button beside them.
+// The two header states that replace the figures carry no summary class (that
+// one names what the API counted) so they can never pass for them. The zero
+// count is the one figure worth interrupting for. These selectors stay at the
+// root - their class names are page-unique, so no ancestor scoping is needed
+// (and the error paragraph keeps its ancestor so it still outranks `.pantry-header p`).
+.pantry-summary-zero {
+  color: var(--mat-sys-error);
+}
+
+.pantry-summary-pending {
+  display: flex;
+  align-items: center;
+  min-height: 1.25rem;
+}
+
 .pantry-heading {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
 
-// Shared state block for the loading spinner and the load error + retry UI.
+.pantry-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+// Shared state block for the load error + retry UI.
 .pantry-status {
   display: flex;
   flex-direction: column;
@@ -65,146 +67,172 @@
   padding: 3rem 0;
 }
 
-.pantry-error p {
+.pantry-error p,
+.panel-error {
   margin: 0;
   color: var(--mat-sys-error);
 }
 
-.pantry-empty {
-  mat-card-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 3rem 1.5rem;
-    text-align: center;
-  }
+// Loading: a wrapper around the shared skeleton bars (see `src/styles/_skeleton`).
+// The screen-reader text carries the state; the bars are decorative.
+.pantry-loading {
+  padding: 1.5rem 0 2.5rem;
+}
 
-  .pantry-empty-icon {
-    width: 48px;
-    height: 48px;
-    font-size: 48px;
-    color: var(--mat-sys-on-surface-variant);
-  }
+// Empty pantry and "no results" are the shared state-card pattern (icon, title,
+// body, one action) dressed in this page's own wording; see `_state-blocks`.
 
-  h2 {
-    margin: 0.5rem 0 0;
-    font: var(--mat-sys-title-medium);
-  }
+// The toolbar: search, category select, low-stock toggle and a clear action.
+// Filters are client-side over the already-loaded list, so the bar is one thin
+// panel and never issues a request of its own.
+.pantry-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  background: var(--mat-sys-surface-container-low);
+  border-radius: var(--mat-sys-corner-medium);
+}
 
-  p {
-    margin: 0;
-    max-width: 34rem;
-    color: var(--mat-sys-on-surface-variant);
-  }
+// Each control sizes itself; the names are page-unique so no ancestor scoping
+// is needed.
+.search-field {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.category-field {
+  flex: 0 1 14rem;
+  min-width: 10rem;
+}
+
+.low-stock-filter {
+  margin: 0 0.5rem;
+}
+
+.clear-filters {
+  margin-left: auto;
 }
 
 .pantry-category {
   margin-bottom: 1.5rem;
-
-  mat-card-content {
-    padding: 0;
-  }
+}
+.pantry-category mat-card-content {
+  padding: 0;
 }
 
-.pantry-item {
-  border-top: 1px solid var(--mat-sys-outline-variant);
-
-  &:first-child {
-    border-top: none;
-  }
+// The whole header row is the disclosure control: aria-expanded drives the
+// chevron and the collapse state of the content below.
+.category-header {
+  padding: 0;
 }
 
-// Expanded rows get a tinted surface so it is obvious which line the panel
-// below belongs to.
-.pantry-item-open {
-  background: var(--mat-sys-surface-container-low);
-}
-
-.item-row {
+.category-toggle {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
-  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.category-toggle:hover,
+.category-toggle:focus-visible {
+  background: var(--mat-sys-surface-container-hover);
+}
+.category-toggle:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: -2px;
 }
 
-.item-summary {
+.category-toggle-heading {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.75rem;
-  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.15rem;
   min-width: 0;
 }
 
-.item-name {
-  font: var(--mat-sys-title-small);
+.category-title {
+  margin: 0;
 }
 
-// The quantity is the reason this page exists, so it leads the row: a line read
-// as "244 g" instead of "g 244". The unit keeps the line's own code resolved to
-// a symbol, and never changes once the line exists.
-.item-quantity {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.25rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.item-amount {
-  font: var(--mat-sys-title-medium);
-}
-
-.item-unit {
+.category-subtitle {
   color: var(--mat-sys-on-surface-variant);
-  font-size: var(--mat-sys-label-medium-size);
 }
 
-.item-detail {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
+.category-chevron {
   color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
-
-  mat-icon {
-    width: 1rem;
-    height: 1rem;
-    font-size: 1rem;
-  }
+  transition: transform 0.2s ease;
 }
 
-.item-actions {
-  display: flex;
-  flex: 0 0 auto;
+// The collapse is a grid rows animation: the content is clipped to zero height
+// and faded, so the header keeps its compact size and the exit does not jump.
+.pantry-category-collapsed .category-chevron {
+  transform: rotate(-90deg);
 }
 
+.category-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 0.22s ease,
+    opacity 0.18s ease;
+}
+
+.category-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.category-closed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+// Panels slide in under their row: a small translate plus a fade, fast enough
+// to read as feedback and slow enough to be noticed. The row they anchor to is
+// `PantryItemRow`; the panel markup itself is projected into that component, so
+// these rules stay here with the page that owns the panels.
 .item-panel {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   padding: 0.25rem 1rem 1rem;
+  animation: pantry-panel-in 0.18s ease-out;
+}
+
+@keyframes pantry-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .panel-fields {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
-
-  mat-form-field {
-    flex: 1 1 12rem;
-  }
+}
+.panel-fields mat-form-field {
+  flex: 1 1 12rem;
 }
 
 .adjust-current {
   margin: 0;
   color: var(--mat-sys-on-surface-variant);
   font: var(--mat-sys-body-small);
-
-  strong {
-    color: var(--mat-sys-on-surface);
-    font-variant-numeric: tabular-nums;
-  }
+}
+.adjust-current strong {
+  color: var(--mat-sys-on-surface);
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-status {
@@ -213,15 +241,22 @@
   padding: 1rem 0;
 }
 
-.history-note {
-  margin: 0;
+.history-note,
+.history-empty,
+.entry-origin,
+.entry-date {
   color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
 }
-
+.history-note,
 .history-empty {
   margin: 0;
-  color: var(--mat-sys-on-surface-variant);
+}
+.history-note,
+.entry-origin {
+  font: var(--mat-sys-body-small);
+}
+.entry-date {
+  font: var(--mat-sys-label-medium-size);
 }
 
 .entry-list {
@@ -239,41 +274,22 @@
   align-items: baseline;
   padding: 0.35rem 0;
   border-top: 1px solid var(--mat-sys-outline-variant);
-
-  &:first-child {
-    border-top: none;
-  }
+}
+.entry-row:first-child {
+  border-top: none;
 }
 
-// The sign carries the direction; the colour only separates the two kinds of
-// movement at a glance and is never the only cue.
 .entry-delta {
   font: var(--mat-sys-body-medium);
   font-variant-numeric: tabular-nums;
 }
-
 .entry-consumed .entry-delta {
   color: var(--mat-sys-on-surface-variant);
-}
-
-.entry-origin {
-  color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
-}
-
-.entry-date {
-  color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-label-medium-size);
 }
 
 .delete-question {
   margin: 0;
   font: var(--mat-sys-body-medium);
-}
-
-.panel-error {
-  margin: 0;
-  color: var(--mat-sys-error);
 }
 
 .panel-actions {
@@ -289,12 +305,23 @@
   --mat-button-filled-label-text-color: var(--mat-sys-on-error);
 }
 
-@media (max-width: 599px) {
-  .item-row {
-    flex-wrap: wrap;
-  }
+// Grid view container: its direct children are `PantryItemRow` hosts, which
+// carry `.pantry-item.grid-card` themselves.
+.pantry-category .pantry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
 
-  .item-actions {
-    margin-left: auto;
+// The animations are decorative; a user who asked for less motion gets all of
+// them off without losing any state or layout. (The skeleton pulse has its own
+// rule inside the skeleton partial.)
+@media (prefers-reduced-motion: reduce) {
+  .category-collapse,
+  .category-chevron,
+  .item-panel {
+    transition: none;
+    animation: none;
   }
 }

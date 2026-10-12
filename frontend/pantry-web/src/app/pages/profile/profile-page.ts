@@ -150,11 +150,6 @@ export class ProfilePage implements OnInit {
     (id) => ({ id, label: THEME_LABELS[id] }),
   );
 
-  /** Label of the currently selected theme, shown in the preview strip. */
-  protected readonly currentThemeLabel = computed(
-    () => THEME_LABELS[this.prefsForm.controls.themeId.value] ?? '',
-  );
-
   /** Identity shown in the header: email when present, else the username. */
   protected readonly email = computed(
     () => this.session.user()?.email ?? this.session.user()?.username ?? 'Profile',

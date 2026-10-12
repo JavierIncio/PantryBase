@@ -1,8 +1,11 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { MatCheckbox, MatCheckboxChange } from '@angular/material/checkbox';
 import { MatDialog } from '@angular/material/dialog';
+import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { By } from '@angular/platform-browser';
 import { Subject } from 'rxjs';
 import { Unit } from '../../core/catalog/catalog.models';
 import { ConsumptionEntry, PantryItem, PantrySummary } from '../../core/pantry/pantry.models';
@@ -111,6 +114,9 @@ describe('PantryPage', () => {
   let dialogClosed: Subject<AddPantryItemResult | undefined>;
 
   const configure = async () => {
+    // A listed layout choice from a previous test must not leak into the next
+    // one: the view mode is read once from storage when the component is born.
+    localStorage.clear();
     snackBar = { open: vi.fn() };
     dialogClosed = new Subject<AddPantryItemResult | undefined>();
     await TestBed.configureTestingModule({
@@ -203,6 +209,21 @@ describe('PantryPage', () => {
   const inputValue = (fixture: ComponentFixture<PantryPage>, selector: string, index = 0) =>
     (nodes(fixture, selector)[index] as HTMLInputElement).value;
 
+  /**
+   * Commits an inline quantity with Enter.
+   *
+   * Deliberately not the general `type` helper: that one blurs, and blur is what
+   * abandons the inline draft. An inline edit is confirmed with Enter alone.
+   */
+  const commitInline = (fixture: ComponentFixture<PantryPage>, value: string, index = 0): void => {
+    const input = nodes(fixture, '.qty-input')[index] as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    fixture.detectChanges();
+  };
+
   /** Answers every pending request with an empty ledger, so a test can ignore it. */
   const flushEntries = (fixture: ComponentFixture<PantryPage>): void => {
     for (const req of http.match('/api/pantry/7/entries')) {
@@ -284,14 +305,15 @@ describe('PantryPage', () => {
     expect(text(root(fixture).querySelector('.pantry-summary'))).toBe('1 item');
   });
 
-  it('keeps a spinner up while the pantry is still loading', async () => {
+  it('keeps the skeleton up while the pantry is still loading', async () => {
     await configure();
     const fixture = TestBed.createComponent(PantryPage);
     fixture.detectChanges();
     flushUnits();
 
-    // The list request is still in flight: nothing flushed yet.
-    expect(root(fixture).querySelector('.pantry-status mat-spinner')).toBeTruthy();
+    // The list request is still in flight: nothing flushed yet. The loading
+    // state is a skeleton shaped like the sections it replaces, not a spinner.
+    expect(root(fixture).querySelector('.pantry-loading .skeleton-list')).toBeTruthy();
     // The totals are in flight too, and the header stays quiet rather than showing
     // a second spinner next to the page's own.
     expect(root(fixture).querySelector('.pantry-summary-pending')).toBeNull();
@@ -299,7 +321,7 @@ describe('PantryPage', () => {
     http.expectOne('/api/pantry').flush([MILK]);
     fixture.detectChanges();
 
-    expect(root(fixture).querySelector('.pantry-status')).toBeNull();
+    expect(root(fixture).querySelector('.pantry-loading')).toBeNull();
     expect(nodes(fixture, '.pantry-item').length).toBe(1);
 
     // The page is settled now, so the header shows that the totals are the only
@@ -788,5 +810,248 @@ describe('PantryPage', () => {
 
     expect(nodes(fixture, '.item-name').length).toBe(2);
     expect(snackBar.open).toHaveBeenCalledWith(CONFLICT, 'OK', { duration: 8000 });
+  });
+
+  it('filters the list by name as the user types', async () => {
+    const fixture = await render();
+    type(fixture, '.search-field input', 'yogurt');
+
+    // The category blocks follow the match: only the section that still has a
+    // line under it is worth showing.
+    expect(nodes(fixture, '.pantry-category').length).toBe(1);
+    expect(nodes(fixture, '.item-name').map((node) => text(node))).toEqual(['Yogurt, plain']);
+    expect(root(fixture).querySelector('.clear-filters')).toBeTruthy();
+
+    // A query that matches nothing is its own state, never the empty pantry: the
+    // next action differs (widen the search vs. add the first item).
+    type(fixture, '.search-field input', 'zzz');
+
+    expect(root(fixture).querySelector('.pantry-no-results')).toBeTruthy();
+    expect(root(fixture).querySelector('.pantry-empty')).toBeNull();
+  });
+
+  it('restores the full list from the no-results state with the clear action', async () => {
+    const fixture = await render();
+    type(fixture, '.search-field input', 'zzz');
+    expect(root(fixture).querySelector('.pantry-no-results')).toBeTruthy();
+
+    click(fixture, '.clear-no-results');
+
+    expect(root(fixture).querySelector('.pantry-no-results')).toBeNull();
+    expect(nodes(fixture, '.pantry-item').length).toBe(3);
+    expect(inputValue(fixture, '.search-field input', 0)).toBe('');
+  });
+
+  it('filters by the category chosen in the toolbar select', async () => {
+    const fixture = await render();
+    // The select's own panel is Material's to open; the wiring under test is
+    // that a chosen value narrows the sections below.
+    const select = fixture.debugElement.query(By.directive(MatSelect))
+      .componentInstance as MatSelect;
+    select.selectionChange.emit({ value: 'Legumes', source: select } as unknown as MatSelectChange);
+    fixture.detectChanges();
+
+    expect(nodes(fixture, '.pantry-category').length).toBe(1);
+    expect(text(root(fixture).querySelector('.mat-mdc-card-title'))).toBe('Legumes');
+    expect(nodes(fixture, '.item-name').map((node) => text(node))).toEqual(['Lentils, raw']);
+
+    // Clearing the filters drops the select's choice with the search text.
+    click(fixture, '.clear-filters');
+    expect(nodes(fixture, '.pantry-category').length).toBe(2);
+  });
+
+  it('keeps only low or empty lines when the low-stock filter is on', async () => {
+    const fixture = await render();
+    const checkbox = fixture.debugElement.query(By.directive(MatCheckbox))
+      .componentInstance as MatCheckbox;
+    checkbox.change.emit({ checked: true, source: checkbox } as MatCheckboxChange);
+    fixture.detectChanges();
+
+    expect(nodes(fixture, '.item-name').map((node) => text(node))).toEqual(['Yogurt, plain']);
+  });
+
+  it('collapses and expands a category section, announcing it like a disclosure', async () => {
+    const fixture = await render();
+    expect(
+      (root(fixture).querySelector('.category-toggle') as HTMLButtonElement).getAttribute(
+        'aria-expanded',
+      ),
+    ).toBe('true');
+
+    click(fixture, '.category-toggle', 0);
+
+    const toggle = root(fixture).querySelector('.category-toggle') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const collapse = nodes(fixture, '.category-collapse')[0] as HTMLElement;
+    expect(collapse.className).toContain('category-closed');
+    // A collapsed section is unreachable to the keyboard/tab order, not merely
+    // invisible: the header is there, the rows under it are not.
+    expect(collapse.hasAttribute('inert')).toBe(true);
+    expect(nodes(fixture, '.pantry-item').length).toBe(3);
+
+    click(fixture, '.category-toggle', 0);
+    expect(root(fixture).querySelector('.pantry-category-collapsed')).toBeNull();
+    expect(collapse.hasAttribute('inert')).toBe(false);
+  });
+
+  it('drops an inline quantity field when its section is collapsed', async () => {
+    const fixture = await render();
+    click(fixture, '.inline-edit-trigger', 0);
+    expect(root(fixture).querySelector('.qty-input')).toBeTruthy();
+
+    click(fixture, '.category-toggle', 0);
+
+    // A draft can never hide inside a closed block: collapsing the section
+    // abandons it before anything is hidden.
+    expect(root(fixture).querySelector('.qty-input')).toBeNull();
+    expect(text(root(fixture).querySelector('.item-amount'))).toBe('244');
+    expect(http.match(() => true)).toEqual([]);
+  });
+
+  it('sends the typed amount as a signed delta and swaps the row with the reply', async () => {
+    const fixture = await render();
+    click(fixture, '.inline-edit-trigger', 0);
+    expect((nodes(fixture, '.qty-input')[0] as HTMLInputElement).value).toBe('244');
+
+    commitInline(fixture, '250');
+
+    // Typing "250" against a row of 244 means "reach 250", so what travels is
+    // 250 − 244 with the line's own unit; the endpoint is the ledger's, never a PUT.
+    const req = http.expectOne('/api/pantry/7/adjustments');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ amount: 6, unitCode: 'GRAM' });
+    req.flush({ ...MILK, quantity: 250, version: 1 });
+    fixture.detectChanges();
+
+    expect(root(fixture).querySelector('.qty-input')).toBeNull();
+    expect(text(root(fixture).querySelector('.item-amount'))).toBe('250');
+    expect(snackBar.open).toHaveBeenCalledWith('Quantity updated', 'OK', { duration: 3000 });
+
+    // A movement can change the zero count the header prints, so it is re-read.
+    http.expectOne('/api/pantry/summary').flush(SUMMARY);
+    fixture.detectChanges();
+  });
+
+  it('posts nothing when the inline amount is left unchanged', async () => {
+    const fixture = await render();
+    click(fixture, '.inline-edit-trigger', 0);
+    commitInline(fixture, '244');
+
+    // A delta of zero is not a movement: no ledger entry, no reload, nothing.
+    expect(http.match(() => true)).toEqual([]);
+    expect(text(root(fixture).querySelector('.item-amount'))).toBe('244');
+  });
+
+  it('refuses a negative typed target locally and never sends it', async () => {
+    const fixture = await render();
+    click(fixture, '.inline-edit-trigger', 0);
+    commitInline(fixture, '-100');
+
+    expect(http.match(() => true)).toEqual([]);
+    expect(text(root(fixture).querySelector('.item-amount'))).toBe('244');
+    expect(snackBar.open).toHaveBeenCalledWith('A quantity cannot be negative.', 'OK', {
+      duration: 8000,
+    });
+  });
+
+  it('rolls an inline 409 back to the stored amount and reports it in the snackbar', async () => {
+    const fixture = await render();
+    click(fixture, '.inline-edit-trigger', 0);
+    commitInline(fixture, '10');
+
+    http
+      .expectOne('/api/pantry/7/adjustments')
+      .flush(errorResponse(409, INSUFFICIENT_STOCK), { status: 409, statusText: 'Conflict' });
+    fixture.detectChanges();
+
+    // The row only ever changes from the server's own response, so a refusal is
+    // nothing to revert: the previous figure simply never left.
+    expect(text(root(fixture).querySelector('.item-amount'))).toBe('244');
+    expect(snackBar.open).toHaveBeenCalledWith(INSUFFICIENT_STOCK, 'OK', { duration: 8000 });
+    // A failed write does not re-read the totals: nothing moved.
+    expect(http.match('/api/pantry/summary')).toEqual([]);
+  });
+
+  it('abandons the inline draft on Escape', async () => {
+    const fixture = await render();
+    click(fixture, '.inline-edit-trigger', 0);
+    const input = nodes(fixture, '.qty-input')[0] as HTMLInputElement;
+    input.value = '999';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+
+    expect(root(fixture).querySelector('.qty-input')).toBeNull();
+    expect(text(root(fixture).querySelector('.item-amount'))).toBe('244');
+    expect(http.match(() => true)).toEqual([]);
+  });
+
+  it('steps the quantity with the line unit step on the + and − buttons', async () => {
+    const fixture = await render();
+
+    click(fixture, '.qty-increment', 0);
+    let req = http.expectOne('/api/pantry/7/adjustments');
+    expect(req.request.body).toEqual({ amount: 10, unitCode: 'GRAM' });
+    req.flush({ ...MILK, quantity: 254, version: 1 });
+    fixture.detectChanges();
+    http.expectOne('/api/pantry/summary').flush(SUMMARY);
+    fixture.detectChanges();
+    expect(text(nodes(fixture, '.item-amount')[0])).toBe('254');
+
+    click(fixture, '.qty-decrement', 0);
+    req = http.expectOne('/api/pantry/7/adjustments');
+    expect(req.request.body).toEqual({ amount: -10, unitCode: 'GRAM' });
+    req.flush({ ...MILK, quantity: 244 });
+    fixture.detectChanges();
+    http.expectOne('/api/pantry/summary').flush(SUMMARY);
+    fixture.detectChanges();
+    expect(text(nodes(fixture, '.item-amount')[0])).toBe('244');
+  });
+
+  it('disables the decrement button on a zeroed line', async () => {
+    const fixture = await render([{ ...MILK, id: 99, name: 'Salt', quantity: 0 }]);
+
+    // There is nothing to take away: the minus step would only be able to fail.
+    const decrement = root(fixture).querySelector('.qty-decrement') as HTMLButtonElement;
+    expect(decrement.disabled).toBe(true);
+  });
+
+  it('switches to the grid layout and remembers the choice', async () => {
+    const fixture = await render();
+    expect(root(fixture).querySelector('.pantry-grid')).toBeNull();
+
+    click(fixture, '.view-toggle button[aria-label="Grid view"]');
+
+    expect(root(fixture).querySelector('.pantry-content.pantry-grid')).toBeTruthy();
+    expect(nodes(fixture, '.pantry-item.grid-card').length).toBe(3);
+    // In the grid the cards sit apart from their section header, so the category
+    // travels with the line; the list reads it from the grouping instead.
+    expect(nodes(fixture, '.item-category').length).toBe(3);
+    expect(localStorage.getItem('pantry.viewMode')).toBe('grid');
+  });
+
+  it('switches back to the list and forgets no line in between', async () => {
+    const fixture = await render();
+    click(fixture, '.view-toggle button[aria-label="Grid view"]');
+    expect(nodes(fixture, '.pantry-item.grid-card').length).toBe(3);
+
+    click(fixture, '.view-toggle button[aria-label="List view"]');
+
+    expect(root(fixture).querySelector('.pantry-content.pantry-grid')).toBeNull();
+    expect(nodes(fixture, '.pantry-item').length).toBe(3);
+    expect(localStorage.getItem('pantry.viewMode')).toBe('list');
+  });
+
+  it('opens on the grid when that is the stored choice', async () => {
+    await configure();
+    localStorage.setItem('pantry.viewMode', 'grid');
+    const fixture = TestBed.createComponent(PantryPage);
+    fixture.detectChanges();
+    flushUnits();
+    http.expectOne('/api/pantry').flush([MILK]);
+    flushSummary();
+    fixture.detectChanges();
+
+    expect(root(fixture).querySelector('.pantry-content.pantry-grid')).toBeTruthy();
   });
 });

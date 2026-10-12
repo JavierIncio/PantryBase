@@ -1,0 +1,80 @@
+// Availability panel: a self-contained, token-driven block so the detail page,
+// the start-cooking dialog and the session banner render it identically without
+// wrapping it in their own chrome.
+.availability {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--mat-sys-corner-medium);
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container);
+}
+
+// A confirmed gap gets a warm left edge; the positive state stays neutral so it
+// reads as information, not as an alert.
+.availability:not(.availability-clear) {
+  border-left: 3px solid #b26a00;
+}
+
+.availability-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font: var(--mat-sys-title-small);
+
+  mat-icon {
+    flex: 0 0 auto;
+    width: 1.15rem;
+    height: 1.15rem;
+    font-size: 1.15rem;
+    color: #b26a00;
+  }
+}
+
+.availability-clear-head mat-icon {
+  color: #2e7d32;
+}
+
+.availability-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.availability-group-title {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+}
+
+.availability-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.availability-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+.availability-name {
+  font: var(--mat-sys-title-small);
+}
+
+.availability-figures {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+}

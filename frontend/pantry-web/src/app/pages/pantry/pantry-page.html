@@ -20,310 +20,395 @@
       </p>
     }
   </div>
-  <button mat-flat-button type="button" class="open-add-item" (click)="openAddItem()">
-    <mat-icon>add</mat-icon>
-    Add item
-  </button>
+  <div class="pantry-header-actions">
+    <mat-button-toggle-group
+      class="view-toggle"
+      aria-label="Show the pantry as"
+      [value]="viewMode()"
+      (change)="setViewMode($event.value)"
+    >
+      <mat-button-toggle value="list" aria-label="List view">
+        <mat-icon aria-hidden="true">view_list</mat-icon>
+      </mat-button-toggle>
+      <mat-button-toggle value="grid" aria-label="Grid view">
+        <mat-icon aria-hidden="true">grid_view</mat-icon>
+      </mat-button-toggle>
+    </mat-button-toggle-group>
+    <button mat-flat-button type="button" class="open-add-item" (click)="openAddItem()">
+      <mat-icon aria-hidden="true">add</mat-icon>
+      Add item
+    </button>
+  </div>
 </header>
 
 @if (loading()) {
-  <div class="pantry-status"><mat-spinner diameter="40" /></div>
+  <div class="pantry-loading" role="status" aria-live="polite">
+    <p class="visually-hidden">Loading your pantry…</p>
+    <div class="skeleton-list" aria-hidden="true">
+      @for (section of skeletonSections; track $index) {
+        <div class="skeleton-section">
+          <span class="skeleton-bar skeleton-category-bar"></span>
+          @for (row of skeletonRows; track $index) {
+            <div class="skeleton-row">
+              <span class="skeleton-bar skeleton-name-bar"></span>
+              <span class="skeleton-bar skeleton-qty-bar"></span>
+              <span class="skeleton-bar skeleton-action-bar"></span>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
 } @else if (loadError(); as message) {
   <div class="pantry-status pantry-error">
     <p class="pantry-error-message">{{ message }}</p>
     <button mat-stroked-button type="button" class="retry-pantry" (click)="load()">Retry</button>
   </div>
 } @else if (isEmpty()) {
-  <mat-card class="pantry-empty">
+  <mat-card class="state-card pantry-empty">
     <mat-card-content>
-      <mat-icon class="pantry-empty-icon" aria-hidden="true">inventory_2</mat-icon>
-      <h2>Your pantry is empty</h2>
-      <p>
+      <mat-icon class="state-icon" aria-hidden="true">inventory_2</mat-icon>
+      <h2 class="state-title">Your pantry is empty</h2>
+      <p class="state-body">
         Nothing is stored yet. Ingredients added from the catalog appear here grouped by category,
         with how much of each one you have and where you keep it.
       </p>
+      <button mat-flat-button type="button" class="empty-add" (click)="openAddItem()">
+        <mat-icon aria-hidden="true">add</mat-icon>
+        Add your first item
+      </button>
     </mat-card-content>
   </mat-card>
 } @else {
-  @for (section of sections(); track section.category) {
-    <mat-card class="pantry-category">
-      <mat-card-header>
-        <mat-card-title>{{ section.category }}</mat-card-title>
-        <mat-card-subtitle>
-          {{ section.items.length }} {{ section.items.length === 1 ? 'item' : 'items' }}
-        </mat-card-subtitle>
-      </mat-card-header>
-      <mat-card-content>
-        @for (item of section.items; track item.id) {
-          <section class="pantry-item" [class.pantry-item-open]="openPanel()?.id === item.id">
-            <div class="item-row">
-              <div class="item-summary">
-                <span class="item-name">{{ item.name }}</span>
-                <span class="item-quantity">
-                  <span class="item-amount">{{ item.quantity }}</span>
-                  <span class="item-unit">{{ unitLabel(item.unitCode) }}</span>
-                </span>
-                @if (item.location) {
-                  <span class="item-detail">
-                    <mat-icon aria-hidden="true">place</mat-icon>
-                    {{ item.location }}
-                  </span>
-                }
-                @if (item.note) {
-                  <span class="item-detail">
-                    <mat-icon aria-hidden="true">notes</mat-icon>
-                    {{ item.note }}
-                  </span>
-                }
-              </div>
-              <div class="item-actions">
-                <button
-                  mat-icon-button
-                  type="button"
-                  class="action-edit"
-                  [disabled]="busy()"
-                  [attr.aria-label]="'Edit location and note of ' + item.name"
-                  (click)="openEdit(item)"
-                >
-                  <mat-icon>edit</mat-icon>
-                </button>
-                <button
-                  mat-icon-button
-                  type="button"
-                  class="action-adjust"
-                  [disabled]="busy()"
-                  [attr.aria-label]="'Adjust the quantity of ' + item.name"
-                  (click)="openAdjust(item)"
-                >
-                  <mat-icon>exposure</mat-icon>
-                </button>
-                <button
-                  mat-icon-button
-                  type="button"
-                  class="action-history"
-                  [disabled]="busy()"
-                  [attr.aria-label]="'History of ' + item.name"
-                  (click)="openHistory(item)"
-                >
-                  <mat-icon>history</mat-icon>
-                </button>
-                <button
-                  mat-icon-button
-                  type="button"
-                  class="action-delete"
-                  [disabled]="busy()"
-                  [attr.aria-label]="'Remove ' + item.name"
-                  (click)="askDelete(item)"
-                >
-                  <mat-icon>delete</mat-icon>
-                </button>
-              </div>
-            </div>
+  <div class="pantry-toolbar" role="search">
+    <mat-form-field class="search-field">
+      <mat-icon matPrefix aria-hidden="true">search</mat-icon>
+      <mat-label>Search your pantry</mat-label>
+      <input
+        matInput
+        type="search"
+        placeholder="By name"
+        [value]="query()"
+        (input)="onQueryInput($event)"
+      />
+      @if (query()) {
+        <button
+          mat-icon-button
+          matSuffix
+          type="button"
+          class="clear-query"
+          aria-label="Clear search"
+          (click)="clearQuery()"
+        >
+          <mat-icon aria-hidden="true">close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
 
-            @if (isOpen(item.id, 'edit')) {
-              <form
-                class="item-panel edit-panel"
-                [formGroup]="editForm"
-                (ngSubmit)="saveDetails(item)"
-              >
-                <div class="panel-fields">
-                  <mat-form-field>
-                    <mat-label>Location</mat-label>
-                    <input matInput formControlName="location" maxlength="100" />
-                    @if (
-                      editForm.controls.location.touched &&
-                      editForm.controls.location.hasError('maxlength')
-                    ) {
-                      <mat-error>Use at most 100 characters.</mat-error>
-                    }
-                  </mat-form-field>
-                  <mat-form-field>
-                    <mat-label>Note</mat-label>
-                    <input matInput formControlName="note" maxlength="255" />
-                    @if (
-                      editForm.controls.note.touched && editForm.controls.note.hasError('maxlength')
-                    ) {
-                      <mat-error>Use at most 255 characters.</mat-error>
-                    }
-                  </mat-form-field>
-                </div>
-                @if (panelError(); as message) {
-                  <p class="panel-error">{{ message }}</p>
-                }
-                <div class="panel-actions">
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    class="cancel-edit"
-                    (click)="closePanel(item)"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    mat-flat-button
-                    type="button"
-                    class="save-details"
-                    [disabled]="editForm.invalid || busy()"
-                    (click)="saveDetails(item)"
-                  >
-                    @if (savingItemId() === item.id) {
-                      <mat-spinner diameter="20" />
-                    } @else {
-                      Save
-                    }
-                  </button>
-                </div>
-              </form>
-            }
-
-            @if (isOpen(item.id, 'adjust')) {
-              <form
-                class="item-panel adjust-panel"
-                [formGroup]="adjustForm"
-                (ngSubmit)="applyAdjustment(item)"
-              >
-                <p class="adjust-current">
-                  In stock: <strong>{{ item.quantity }} {{ unitLabel(item.unitCode) }}</strong>
-                </p>
-                <div class="panel-fields">
-                  <mat-form-field class="amount-field">
-                    <mat-label>Change</mat-label>
-                    <input
-                      matInput
-                      type="number"
-                      step="any"
-                      inputmode="decimal"
-                      formControlName="amount"
-                    />
-                    <mat-hint>Positive adds stock, negative consumes it.</mat-hint>
-                    @if (
-                      adjustForm.controls.amount.touched &&
-                      adjustForm.controls.amount.hasError('required')
-                    ) {
-                      <mat-error>Enter an amount.</mat-error>
-                    }
-                    @if (
-                      adjustForm.controls.amount.touched &&
-                      adjustForm.controls.amount.hasError('zero')
-                    ) {
-                      <mat-error>Zero is not a movement: add or consume something.</mat-error>
-                    }
-                  </mat-form-field>
-                  <mat-form-field class="unit-field">
-                    <mat-label>Unit</mat-label>
-                    <mat-select formControlName="unitCode">
-                      @for (group of adjustmentGroups(); track group.category) {
-                        <mat-optgroup [label]="group.title">
-                          @for (unit of group.options; track unit.code) {
-                            <mat-option [value]="unit.code">{{ unit.label }}</mat-option>
-                          }
-                        </mat-optgroup>
-                      }
-                    </mat-select>
-                    <mat-hint>Converted to the unit this line keeps.</mat-hint>
-                  </mat-form-field>
-                </div>
-                @if (panelError(); as message) {
-                  <p class="panel-error">{{ message }}</p>
-                }
-                <div class="panel-actions">
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    class="cancel-adjust"
-                    (click)="closePanel(item)"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    mat-flat-button
-                    type="button"
-                    class="apply-adjustment"
-                    [disabled]="adjustForm.invalid || busy()"
-                    (click)="applyAdjustment(item)"
-                  >
-                    @if (savingItemId() === item.id) {
-                      <mat-spinner diameter="20" />
-                    } @else {
-                      Apply
-                    }
-                  </button>
-                </div>
-              </form>
-            }
-
-            @if (isOpen(item.id, 'history')) {
-              <div class="item-panel history-panel">
-                @if (historyLoading()) {
-                  <div class="panel-status"><mat-spinner diameter="24" /></div>
-                } @else if (historyError(); as message) {
-                  <p class="panel-error">{{ message }}</p>
-                } @else if (entries(); as log) {
-                  @if (log.length === 0) {
-                    <p class="history-empty">No movements recorded for this item.</p>
-                  } @else {
-                    <p class="history-note">
-                      Movements in {{ unitLabel(item.unitCode) }}, oldest first. Every change of
-                      quantity leaves one.
-                    </p>
-                    <ul class="entry-list">
-                      @for (entry of log; track entry.id) {
-                        <li class="entry-row" [class.entry-consumed]="entry.deltaQuantity < 0">
-                          <span class="entry-delta">{{ signedDelta(entry.deltaQuantity) }}</span>
-                          <span class="entry-origin">{{ originLabel(entry.origin) }}</span>
-                          <span class="entry-date">{{ entry.createdAt | date: 'medium' }}</span>
-                        </li>
-                      }
-                    </ul>
-                  }
-                }
-                <div class="panel-actions">
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    class="close-history"
-                    (click)="closePanel(item)"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            }
-
-            @if (confirmingDeleteId() === item.id) {
-              <div class="item-panel delete-panel">
-                <p class="delete-question">
-                  Remove <strong>{{ item.name }}</strong> from your pantry? Its movement history is
-                  deleted with it and cannot be brought back.
-                </p>
-                <div class="panel-actions">
-                  <button
-                    mat-stroked-button
-                    type="button"
-                    class="cancel-delete"
-                    (click)="cancelDelete(item)"
-                  >
-                    Keep it
-                  </button>
-                  <button
-                    mat-flat-button
-                    type="button"
-                    class="confirm-delete"
-                    [disabled]="busy()"
-                    (click)="confirmDelete(item)"
-                  >
-                    @if (deletingItemId() === item.id) {
-                      <mat-spinner diameter="20" />
-                    } @else {
-                      Remove
-                    }
-                  </button>
-                </div>
-              </div>
-            }
-          </section>
+    <mat-form-field class="category-field">
+      <mat-label>Category</mat-label>
+      <mat-select
+        [value]="categoryFilter() ?? ''"
+        (selectionChange)="setCategoryFilter($event.value)"
+      >
+        <mat-option value="">All categories</mat-option>
+        @for (category of categories(); track category) {
+          <mat-option [value]="category">{{ category }}</mat-option>
         }
+      </mat-select>
+    </mat-form-field>
+
+    <mat-checkbox
+      class="low-stock-filter"
+      [checked]="lowStockOnly()"
+      (change)="lowStockOnly.set($event.checked)"
+    >
+      Low or empty only
+    </mat-checkbox>
+
+    @if (hasActiveFilters()) {
+      <button mat-button type="button" class="clear-filters" (click)="clearFilters()">
+        Clear filters
+      </button>
+    }
+  </div>
+
+  @if (noResults()) {
+    <mat-card class="state-card pantry-no-results">
+      <mat-card-content>
+        <mat-icon class="state-icon" aria-hidden="true">search_off</mat-icon>
+        <h2 class="state-title">No items match your filters</h2>
+        <p class="state-body">
+          Nothing in your pantry matches the current search. Widen the query or clear the filters.
+        </p>
+        <button mat-flat-button type="button" class="clear-no-results" (click)="clearFilters()">
+          Clear filters
+        </button>
       </mat-card-content>
     </mat-card>
+  } @else {
+    @for (section of sections(); track section.category; let i = $index) {
+      @let sectionCollapsed = isCollapsed(section.category);
+      <mat-card class="pantry-category" [class.pantry-category-collapsed]="sectionCollapsed">
+        <mat-card-header class="category-header">
+          <button
+            type="button"
+            class="category-toggle"
+            [attr.aria-expanded]="!sectionCollapsed"
+            [attr.aria-controls]="categoryRegionId(i)"
+            (click)="toggleCategory(section.category)"
+          >
+            <span class="category-toggle-heading">
+              <mat-card-title class="category-title">{{ section.category }}</mat-card-title>
+              <mat-card-subtitle class="category-subtitle">
+                {{ section.items.length }} {{ section.items.length === 1 ? 'item' : 'items' }}
+              </mat-card-subtitle>
+            </span>
+            <mat-icon class="category-chevron" aria-hidden="true">expand_more</mat-icon>
+          </button>
+        </mat-card-header>
+
+        <div
+          class="category-collapse"
+          [class.category-closed]="sectionCollapsed"
+          [attr.inert]="sectionCollapsed ? '' : null"
+          [attr.id]="categoryRegionId(i)"
+        >
+          <div class="category-collapse-inner">
+            <mat-card-content class="pantry-content" [class.pantry-grid]="viewMode() === 'grid'">
+              @for (item of section.items; track item.id) {
+                <app-pantry-item-row
+                  [item]="item"
+                  [unitLabel]="unitLabel(item.unitCode)"
+                  [viewMode]="viewMode()"
+                  [busy]="rowBusy(item.id)"
+                  [open]="openPanel()?.id === item.id"
+                  [editing]="editingQuantityId() === item.id"
+                  [draft]="quantityDraft()"
+                  (step)="onStep(item, $event)"
+                  (startEdit)="startQuantityEdit(item)"
+                  (draftChange)="onQuantityInput($event)"
+                  (commitEdit)="commitQuantityEdit(item)"
+                  (cancelEdit)="cancelQuantityEdit()"
+                  (panel)="onOpenPanel(item, $event)"
+                  (remove)="askDelete(item)"
+                >
+                  @if (isOpen(item.id, 'edit')) {
+                    <form
+                      class="item-panel edit-panel"
+                      [formGroup]="editForm"
+                      (ngSubmit)="saveDetails(item)"
+                    >
+                      <div class="panel-fields">
+                        <mat-form-field>
+                          <mat-label>Location</mat-label>
+                          <input matInput formControlName="location" maxlength="100" />
+                          @if (
+                            editForm.controls.location.touched &&
+                            editForm.controls.location.hasError('maxlength')
+                          ) {
+                            <mat-error>Use at most 100 characters.</mat-error>
+                          }
+                        </mat-form-field>
+                        <mat-form-field>
+                          <mat-label>Note</mat-label>
+                          <input matInput formControlName="note" maxlength="255" />
+                          @if (
+                            editForm.controls.note.touched &&
+                            editForm.controls.note.hasError('maxlength')
+                          ) {
+                            <mat-error>Use at most 255 characters.</mat-error>
+                          }
+                        </mat-form-field>
+                      </div>
+                      @if (panelError(); as message) {
+                        <p class="panel-error">{{ message }}</p>
+                      }
+                      <div class="panel-actions">
+                        <button
+                          mat-stroked-button
+                          type="button"
+                          class="cancel-edit"
+                          (click)="closePanel(item)"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          mat-flat-button
+                          type="button"
+                          class="save-details"
+                          [disabled]="editForm.invalid || rowBusy(item.id)"
+                          (click)="saveDetails(item)"
+                        >
+                          @if (savingItemId() === item.id) {
+                            <mat-spinner diameter="20" />
+                          } @else {
+                            Save
+                          }
+                        </button>
+                      </div>
+                    </form>
+                  }
+
+                  @if (isOpen(item.id, 'adjust')) {
+                    <form
+                      class="item-panel adjust-panel"
+                      [formGroup]="adjustForm"
+                      (ngSubmit)="applyAdjustment(item)"
+                    >
+                      <p class="adjust-current">
+                        In stock:
+                        <strong>{{ item.quantity }} {{ unitLabel(item.unitCode) }}</strong>
+                      </p>
+                      <div class="panel-fields">
+                        <mat-form-field class="amount-field">
+                          <mat-label>Change</mat-label>
+                          <input
+                            matInput
+                            type="number"
+                            step="any"
+                            inputmode="decimal"
+                            formControlName="amount"
+                          />
+                          <mat-hint>Positive adds stock, negative consumes it.</mat-hint>
+                          @if (
+                            adjustForm.controls.amount.touched &&
+                            adjustForm.controls.amount.hasError('required')
+                          ) {
+                            <mat-error>Enter an amount.</mat-error>
+                          }
+                          @if (
+                            adjustForm.controls.amount.touched &&
+                            adjustForm.controls.amount.hasError('zero')
+                          ) {
+                            <mat-error>Zero is not a movement: add or consume something.</mat-error>
+                          }
+                        </mat-form-field>
+                        <mat-form-field class="unit-field">
+                          <mat-label>Unit</mat-label>
+                          <mat-select formControlName="unitCode">
+                            @for (group of adjustmentGroups(); track group.category) {
+                              <mat-optgroup [label]="group.title">
+                                @for (unit of group.options; track unit.code) {
+                                  <mat-option [value]="unit.code">{{ unit.label }}</mat-option>
+                                }
+                              </mat-optgroup>
+                            }
+                          </mat-select>
+                          <mat-hint>Converted to the unit this line keeps.</mat-hint>
+                        </mat-form-field>
+                      </div>
+                      @if (panelError(); as message) {
+                        <p class="panel-error">{{ message }}</p>
+                      }
+                      <div class="panel-actions">
+                        <button
+                          mat-stroked-button
+                          type="button"
+                          class="cancel-adjust"
+                          (click)="closePanel(item)"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          mat-flat-button
+                          type="button"
+                          class="apply-adjustment"
+                          [disabled]="adjustForm.invalid || rowBusy(item.id)"
+                          (click)="applyAdjustment(item)"
+                        >
+                          @if (savingItemId() === item.id) {
+                            <mat-spinner diameter="20" />
+                          } @else {
+                            Apply
+                          }
+                        </button>
+                      </div>
+                    </form>
+                  }
+
+                  @if (isOpen(item.id, 'history')) {
+                    <div class="item-panel history-panel">
+                      @if (historyLoading()) {
+                        <div class="panel-status"><mat-spinner diameter="24" /></div>
+                      } @else if (historyError(); as message) {
+                        <p class="panel-error">{{ message }}</p>
+                      } @else if (entries(); as log) {
+                        @if (log.length === 0) {
+                          <p class="history-empty">No movements recorded for this item.</p>
+                        } @else {
+                          <p class="history-note">
+                            Movements in {{ unitLabel(item.unitCode) }}, oldest first. Every change
+                            of quantity leaves one.
+                          </p>
+                          <ul class="entry-list">
+                            @for (entry of log; track entry.id) {
+                              <li
+                                class="entry-row"
+                                [class.entry-consumed]="entry.deltaQuantity < 0"
+                              >
+                                <span class="entry-delta">{{
+                                  signedDelta(entry.deltaQuantity)
+                                }}</span>
+                                <span class="entry-origin">{{ originLabel(entry.origin) }}</span>
+                                <span class="entry-date">{{
+                                  entry.createdAt | date: 'medium'
+                                }}</span>
+                              </li>
+                            }
+                          </ul>
+                        }
+                      }
+                      <div class="panel-actions">
+                        <button
+                          mat-stroked-button
+                          type="button"
+                          class="close-history"
+                          (click)="closePanel(item)"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  }
+
+                  @if (confirmingDeleteId() === item.id) {
+                    <div class="item-panel delete-panel">
+                      <p class="delete-question">
+                        Remove <strong>{{ item.name }}</strong> from your pantry? Its movement
+                        history is deleted with it and cannot be brought back.
+                      </p>
+                      <div class="panel-actions">
+                        <button
+                          mat-stroked-button
+                          type="button"
+                          class="cancel-delete"
+                          (click)="cancelDelete(item)"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          mat-flat-button
+                          type="button"
+                          class="confirm-delete"
+                          [disabled]="rowBusy(item.id)"
+                          (click)="confirmDelete(item)"
+                        >
+                          @if (deletingItemId() === item.id) {
+                            <mat-spinner diameter="20" />
+                          } @else {
+                            Remove
+                          }
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </app-pantry-item-row>
+              }
+            </mat-card-content>
+          </div>
+        </div>
+      </mat-card>
+    }
   }
 }

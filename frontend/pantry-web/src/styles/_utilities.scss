@@ -1,0 +1,15 @@
+// The `.visually-hidden` utility appears in every always-on state (a loading
+// document, an error boundary) and is shared so every page finds it in one
+// place. Applied to content that must be readable by assistive technology but
+// should not occupy layout space.
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

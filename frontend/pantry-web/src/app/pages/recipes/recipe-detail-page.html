@@ -172,6 +172,12 @@
     </mat-card>
   }
 
+  @if (availability(); as availability) {
+    <div class="availability-check">
+      <app-recipe-availability-panel [availability]="availability" />
+    </div>
+  }
+
   <div class="detail-actions">
     <a mat-stroked-button routerLink="/recipes" class="back-to-recipes">Back to recipes</a>
     <button

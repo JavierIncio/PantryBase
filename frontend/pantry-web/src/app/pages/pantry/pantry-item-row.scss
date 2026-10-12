@@ -1,0 +1,182 @@
+// One pantry line: the summary/stepper row, its action buttons and the slot the
+// page projects the row's panels into. The component host carries `.pantry-item`
+// (and `.grid-card` / `.pantry-item-open` as its state), because the pantry's
+// grid container lays out its children directly — the host has to be the row
+// element, not wrap one, or the grid and the borders would land on a wrapper.
+
+:host {
+  display: block;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+:host(:first-child) {
+  border-top: none;
+}
+
+// Expanded rows get a tinted surface so it is obvious which line the panel
+// below belongs to.
+:host(.pantry-item-open) {
+  background: var(--mat-sys-surface-container-low);
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+}
+
+.item-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.item-name {
+  font: var(--mat-sys-title-small);
+  min-width: 4rem;
+}
+
+.item-category {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+}
+
+// The stepper: −/+ buttons and, in between, either the read-only amount (which
+// is itself a button that becomes the editable field) or the compact field.
+.quantity-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.qty-field {
+  width: 8.5rem;
+}
+
+.qty-unit-suffix {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+}
+
+// The amount is a button so the whole figure is the click target to edit it,
+// and it carries an aria-label explaining the action like any other control.
+.inline-edit-trigger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--mat-sys-corner-extra-small);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--mat-sys-outline-variant);
+    background: var(--mat-sys-surface-container-low);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}
+
+// The quantity is the reason the pantry exists, so it leads the row: a line read
+// as "244 g" instead of "g 244". The unit keeps the line's own code resolved to
+// a symbol, and never changes once the line exists.
+.item-quantity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-amount {
+  font: var(--mat-sys-title-medium);
+}
+
+.item-unit {
+  color: var(--mat-sys-on-surface-variant);
+  font-size: var(--mat-sys-label-medium-size);
+}
+
+.item-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+
+  mat-icon {
+    width: 1rem;
+    height: 1rem;
+    font-size: 1rem;
+  }
+}
+
+.item-actions {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+// Grid view: the same row reflows into a card. Declared after the host's
+// border-top so the card border wins over the list border.
+:host(.grid-card) {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-surface-container-low);
+
+  .item-row {
+    flex-direction: column;
+    align-items: stretch;
+    padding-bottom: 0.5rem;
+  }
+
+  .item-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .item-name {
+    font: var(--mat-sys-title-medium);
+  }
+
+  .item-detail {
+    font: var(--mat-sys-label-medium);
+  }
+
+  .item-actions {
+    justify-content: flex-end;
+    border-top: 1px solid var(--mat-sys-outline-variant);
+    padding-top: 0.25rem;
+  }
+}
+
+// On narrow screens the row wraps and the actions trail the summary.
+@media (max-width: 599px) {
+  .item-row {
+    flex-wrap: wrap;
+  }
+
+  .item-actions {
+    margin-left: auto;
+  }
+
+  :host(.grid-card) .item-actions {
+    margin-left: 0;
+  }
+
+  .qty-field {
+    width: 6.5rem;
+  }
+}

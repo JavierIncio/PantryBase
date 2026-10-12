@@ -1,0 +1,62 @@
+@if (availability(); as a) {
+  <div class="availability" [class.availability-clear]="!a.hasGaps">
+    @if (a.hasGaps) {
+      <p class="availability-head">
+        <mat-icon aria-hidden="true">warning_amber</mat-icon>
+        <span>Some ingredients are not fully covered</span>
+      </p>
+
+      @if (a.low.length > 0) {
+        <div class="availability-group">
+          <span class="availability-group-title">Not enough ({{ a.low.length }})</span>
+          <ul class="availability-list">
+            @for (item of a.low; track item.ingredientId) {
+              <li class="availability-row">
+                <span class="availability-name">{{ item.ingredientName }}</span>
+                <span class="availability-figures">
+                  need {{ amount(item.neededAmount, item.neededUnitCode) }} · have
+                  {{ amount(item.availableAmount, item.availableUnitCode) }}
+                </span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+
+      @if (a.missing.length > 0) {
+        <div class="availability-group">
+          <span class="availability-group-title">Missing ({{ a.missing.length }})</span>
+          <ul class="availability-list">
+            @for (item of a.missing; track item.ingredientId) {
+              <li class="availability-row">
+                <span class="availability-name">{{ item.ingredientName }}</span>
+                <span class="availability-figures">not in your pantry</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+
+      @if (a.uncatalogued.length > 0) {
+        <div class="availability-group">
+          <span class="availability-group-title">
+            Not in the catalog ({{ a.uncatalogued.length }})
+          </span>
+          <ul class="availability-list">
+            @for (item of a.uncatalogued; track item.position) {
+              <li class="availability-row">
+                <span class="availability-name">{{ item.ingredientName }}</span>
+                <span class="availability-figures">can't be verified against your pantry</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    } @else {
+      <p class="availability-head availability-clear-head">
+        <mat-icon aria-hidden="true">check_circle</mat-icon>
+        <span>You have everything you need for this recipe</span>
+      </p>
+    }
+  </div>
+}

@@ -33,7 +33,12 @@ import {
 } from '../../core/cooking/cooking.models';
 import { CookingService } from '../../core/cooking/cooking.service';
 import { splitSteps } from '../../core/cooking/cooking-steps';
-import { formatAmount } from '../../core/recipes/recipe-matching';
+import { RecipeAvailabilityPanel } from '../../core/recipes/recipe-availability-panel';
+import {
+  RecipeAvailability,
+  formatAmount,
+  recipeAvailability,
+} from '../../core/recipes/recipe-matching';
 import { RecipeDetail } from '../../core/recipes/recipes.models';
 import { RecipesService } from '../../core/recipes/recipes.service';
 import { ShortageDialog } from './shortage-dialog';
@@ -88,6 +93,7 @@ const statusLabel = (status: CookingSessionStatus): string => STATUS_LABELS[stat
     MatCheckbox,
     MatIcon,
     MatProgressSpinner,
+    RecipeAvailabilityPanel,
     RouterLink,
   ],
   templateUrl: './cooking-session-page.html',
@@ -120,6 +126,20 @@ export class CookingSessionPage implements OnInit {
 
   /** Steps derived from the recipe's instructions; empty until it is loaded. */
   protected readonly steps = computed(() => splitSteps(this.recipe()?.instructions ?? ''));
+
+  /**
+   * The pantry check of the loaded recipe, or null before it arrives.
+   *
+   * The recipe is already read for the checklist, so the availability is derived
+   * from it with the same pure rule the detail page uses — no second request and
+   * no second wording. The banner only renders when there are gaps (see the
+   * template): a cooking session is underway, so a reassuring "all covered" line
+   * would be noise, whereas a non-blocking reminder of what is short is useful.
+   */
+  protected readonly availability = computed<RecipeAvailability | null>(() => {
+    const recipe = this.recipe();
+    return recipe ? recipeAvailability(recipe) : null;
+  });
 
   /**
    * Indices of the steps ticked in this visit.

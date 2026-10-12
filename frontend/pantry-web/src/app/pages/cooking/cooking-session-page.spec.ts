@@ -92,6 +92,72 @@ const RECIPE: RecipeDetail = {
   coverage: [],
 };
 
+/**
+ * A recipe with one short line, one absent line and one uncatalogued line: the
+ * three facts the session banner has to keep visible while cooking.
+ */
+const RECIPE_WITH_GAPS: RecipeDetail = {
+  ...RECIPE,
+  coverage: [
+    {
+      ingredientId: 10,
+      ingredientName: 'Eggs',
+      neededAmount: 3,
+      neededUnitCode: 'UNIT',
+      availableAmount: 1,
+      availableUnitCode: 'UNIT',
+      fullyCovered: false,
+    },
+    {
+      ingredientId: 11,
+      ingredientName: 'Bacon',
+      neededAmount: 150,
+      neededUnitCode: 'GRAM',
+      availableAmount: 0,
+      availableUnitCode: 'GRAM',
+      fullyCovered: false,
+    },
+  ],
+  ingredients: [
+    {
+      ingredientId: 10,
+      ingredientName: 'Eggs',
+      ingredientCategory: 'Dairy and Egg Products',
+      originalAmount: 3,
+      originalUnitCode: 'UNIT',
+      canonicalAmount: 3,
+      canonicalUnitCode: 'UNIT',
+      canonicalUnitCategory: 'COUNT',
+      matched: true,
+      position: 1,
+    },
+    {
+      ingredientId: 11,
+      ingredientName: 'Bacon',
+      ingredientCategory: 'Meat',
+      originalAmount: 150,
+      originalUnitCode: 'GRAM',
+      canonicalAmount: 150,
+      canonicalUnitCode: 'GRAM',
+      canonicalUnitCategory: 'WEIGHT',
+      matched: true,
+      position: 2,
+    },
+    {
+      ingredientId: null,
+      ingredientName: 'Mystery Spice',
+      ingredientCategory: null,
+      originalAmount: null,
+      originalUnitCode: null,
+      canonicalAmount: null,
+      canonicalUnitCode: null,
+      canonicalUnitCategory: null,
+      matched: false,
+      position: 3,
+    },
+  ],
+};
+
 /** Backend error body, as `ErrorResponse` serializes it on the wire. */
 const errorResponse = (status: number, message: string) => ({
   timestamp: '2026-10-12T09:00:00Z',
@@ -194,6 +260,31 @@ describe('CookingSessionPage', () => {
     // The checklist is local by design (the session stores its status, not the
     // steps), so ticking one must cost no request at all.
     expect(http.match(() => true)).toEqual([]);
+  });
+
+  it('keeps a non-blocking availability banner above the checklist when there are gaps', async () => {
+    const fixture = await render(LIVE, RECIPE_WITH_GAPS);
+
+    const banner = root(fixture).querySelector(
+      '.session-availability app-recipe-availability-panel',
+    );
+    const steps = root(fixture).querySelector('.session-steps');
+    expect(banner).toBeTruthy();
+    // The banner precedes the checklist and never disables the controls.
+    expect(banner!.compareDocumentPosition(steps!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(root(fixture).querySelector('button.complete-session')).toBeTruthy();
+
+    expect(nodes(fixture, '.availability-group-title').map((node) => text(node))).toEqual([
+      'Not enough (1)',
+      'Missing (1)',
+      'Not in the catalog (1)',
+    ]);
+  });
+
+  it('shows no availability banner when the recipe has no gaps', async () => {
+    const fixture = await render();
+
+    expect(root(fixture).querySelector('.session-availability')).toBeNull();
   });
 
   it('pauses the session and swaps the control to resume', async () => {

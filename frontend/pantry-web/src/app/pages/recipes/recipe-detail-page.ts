@@ -16,21 +16,26 @@ import {
   MatCardTitle,
 } from '@angular/material/card';
 import { MatChip, MatChipSet } from '@angular/material/chips';
+import { MatDialog } from '@angular/material/dialog';
 import { MatIcon } from '@angular/material/icon';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toErrorResponse } from '../../core/auth/auth.models';
 import { UnitService } from '../../core/catalog/unit.service';
 import { CookingService } from '../../core/cooking/cooking.service';
+import { RecipeAvailabilityPanel } from '../../core/recipes/recipe-availability-panel';
 import {
   IngredientCoverageRow,
+  RecipeAvailability,
   coverageClass,
   coveragePercent,
   formatAmount,
   pairCoverage,
+  recipeAvailability,
 } from '../../core/recipes/recipe-matching';
 import { RecipeDetail, RecipeSource } from '../../core/recipes/recipes.models';
 import { RecipesService } from '../../core/recipes/recipes.service';
+import { StartCookingDialog } from './start-cooking-dialog';
 
 /** How the two recipe origins are named in the UI. */
 const SOURCE_LABELS: Record<RecipeSource, string> = {
@@ -86,6 +91,7 @@ const categoryArea = (category: string, area: string): string | null => {
     MatChipSet,
     MatIcon,
     MatProgressSpinner,
+    RecipeAvailabilityPanel,
     RouterLink,
   ],
   templateUrl: './recipe-detail-page.html',
@@ -98,6 +104,7 @@ export class RecipeDetailPage implements OnInit {
   private readonly recipesService = inject(RecipesService);
   private readonly cooking = inject(CookingService);
   private readonly units = inject(UnitService);
+  private readonly dialog = inject(MatDialog);
 
   protected readonly recipe = signal<RecipeDetail | null>(null);
   protected readonly loading = signal(true);
@@ -127,6 +134,18 @@ export class RecipeDetailPage implements OnInit {
   protected readonly hasUnmatched = computed(() =>
     this.rows().some((row) => !row.ingredient.matched),
   );
+
+  /**
+   * The pantry classification of the loaded recipe, or null before it arrives.
+   *
+   * Derived from the detail so the panel, the start-cooking confirmation and the
+   * button's behaviour can never disagree: they all read the same computed
+   * value, and it is recomputed only when the recipe itself changes.
+   */
+  protected readonly availability = computed<RecipeAvailability | null>(() => {
+    const recipe = this.recipe();
+    return recipe ? recipeAvailability(recipe) : null;
+  });
 
   ngOnInit(): void {
     // The amounts of the ingredient lines are labelled from the unit catalog;
@@ -206,6 +225,12 @@ export class RecipeDetailPage implements OnInit {
    * id is never a query parameter the URL has to carry: the response is what
    * names the session, and a failed creation is a message on this page — the
    * recipe the user is reading stays exactly where it was.
+   *
+   * When the pantry check found gaps, this class's `availability` opens a
+   * confirmation first: starting a session deducts nothing, so the check is a
+   * warning for the user to acknowledge, not a refusal — proceeding is their
+   * call, and cancelling creates no session. With everything covered the session
+   * starts directly, because there is nothing to warn about.
    */
   protected startCooking(): void {
     const recipe = this.recipe();
@@ -213,9 +238,43 @@ export class RecipeDetailPage implements OnInit {
       return;
     }
 
+    const availability = this.availability();
+    if (availability?.hasGaps) {
+      this.confirmStart(recipe.id, availability);
+      return;
+    }
+
+    this.createSession(recipe.id);
+  }
+
+  /**
+   * Asks the user to acknowledge the gaps, and creates the session if they do.
+   *
+   * Only an explicit `true` proceeds: dismissing the dialog is a no, and no
+   * session is created, which is the state the button's click found.
+   */
+  private confirmStart(recipeId: number, availability: RecipeAvailability): void {
+    this.dialog
+      .open(StartCookingDialog, {
+        data: availability,
+        autoFocus: 'first-tabbable',
+        restoreFocus: true,
+        maxWidth: '34rem',
+        width: 'calc(100% - 2rem)',
+      })
+      .afterClosed()
+      .subscribe((confirmed: boolean | undefined) => {
+        if (confirmed === true) {
+          this.createSession(recipeId);
+        }
+      });
+  }
+
+  /** Sends the session creation; a failure is a message on this page. */
+  private createSession(recipeId: number): void {
     this.starting.set(true);
     this.startError.set(null);
-    this.cooking.createSession(recipe.id).subscribe({
+    this.cooking.createSession(recipeId).subscribe({
       next: (session) => {
         this.starting.set(false);
         this.router.navigate(['/cooking', session.id]);

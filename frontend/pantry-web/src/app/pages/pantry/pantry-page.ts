@@ -16,6 +16,7 @@ import {
   Validators,
 } from '@angular/forms';
 import { MatButton } from '@angular/material/button';
+import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
 import {
   MatCard,
   MatCardContent,
@@ -23,9 +24,17 @@ import {
   MatCardSubtitle,
   MatCardTitle,
 } from '@angular/material/card';
+import { MatCheckbox } from '@angular/material/checkbox';
 import { MatOption, MatOptgroup } from '@angular/material/core';
 import { MatDialog } from '@angular/material/dialog';
-import { MatError, MatFormField, MatHint, MatLabel } from '@angular/material/form-field';
+import {
+  MatError,
+  MatFormField,
+  MatHint,
+  MatLabel,
+  MatPrefix,
+  MatSuffix,
+} from '@angular/material/form-field';
 import { MatIcon } from '@angular/material/icon';
 import { MatInput } from '@angular/material/input';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
@@ -44,9 +53,15 @@ import {
 } from '../../core/pantry/pantry.models';
 import { PantryService } from '../../core/pantry/pantry.service';
 import { AddPantryItemDialog, AddPantryItemResult } from './add-pantry-item-dialog';
-
-/** Which of a row's inline editors is expanded; at most one, never two. */
-type PanelKind = 'edit' | 'adjust' | 'history';
+import { PantryItemRow } from './pantry-item-row';
+import {
+  LOW_STOCK_THRESHOLD,
+  PanelKind,
+  PantryViewMode,
+  deltaToTarget,
+  filterPantryItems,
+  groupByCategory,
+} from './pantry-helpers';
 
 /** The expanded row and what it is showing. */
 interface OpenPanel {
@@ -54,11 +69,12 @@ interface OpenPanel {
   readonly kind: PanelKind;
 }
 
-/** One category block of the list, in the order the API returned it. */
-interface PantrySection {
-  readonly category: string;
-  readonly items: PantryItem[];
-}
+/** localStorage key remembering the chosen list/grid layout. */
+const VIEW_MODE_STORAGE_KEY = 'pantry.viewMode';
+
+/** Rows of the loading skeleton, per fake category. */
+const SKELETON_SECTIONS = [0, 1, 2] as const;
+const SKELETON_ROWS = [0, 1, 2] as const;
 
 const ORIGIN_LABELS: Record<ConsumptionOrigin, string> = {
   MANUAL: 'Manual',
@@ -87,25 +103,15 @@ const signedDelta = (delta: number): string => (delta > 0 ? `+${delta}` : String
 const nonZeroAmount = (control: AbstractControl): ValidationErrors | null =>
   control.value === 0 ? { zero: true } : null;
 
-/**
- * Groups a flat list into consecutive category blocks.
- *
- * A single pass and no sorting: the API already answers by category and then by
- * name, so sorting here could only disagree with the server's collation (and
- * cost a second copy of the list on every write).
- */
-function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
-  const sections: PantrySection[] = [];
-  for (const item of items) {
-    const last = sections[sections.length - 1];
-    if (last && last.category === item.category) {
-      last.items.push(item);
-    } else {
-      sections.push({ category: item.category, items: [item] });
-    }
+/** Reads the persisted layout choice; unknown values fall back to the list. */
+const loadStoredViewMode = (): PantryViewMode => {
+  try {
+    return window.localStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'grid' ? 'grid' : 'list';
+  } catch {
+    // Storage can be unavailable (private mode); the list is always a safe default.
+    return 'list';
   }
-  return sections;
-}
+};
 
 /**
  * "My pantry": the user's inventory grouped by category, with every write the
@@ -113,14 +119,27 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
  * quantity with a signed amount, remove the line, read its ledger — available
  * without leaving the list.
  *
+ * The line itself — its summary, the quantity stepper and the action buttons
+ * that open the four panels — is rendered by the presentational
+ * {@link PantryItemRow}, which emits what the user did and projects the panels
+ * this page still owns. Extracting it keeps the row's layout out of this file's
+ * style budget and lets the row be tested on its own, while every write and
+ * every piece of state stays here.
+ *
  * Only one row is expanded at a time. The four row actions are the whole feature
  * area of a line and they all read better next to the line they belong to, but
  * four independently collapsible panels would leave the list impossible to scan;
  * a single `openPanel` keeps one row tall and the rest compact.
  *
- * Unit codes are labelled from the unit catalog (`GET /api/units`), never from a
- * local table: the codes travel in every payload and their names are the API's
- * to say, so a second copy of them here could only ever disagree with it.
+ * Quantity edits happen inline on the row itself: −/+ move the stock by the
+ * unit's step and clicking the amount turns it into a field that submits the
+ * signed delta to `POST /api/pantry/{id}/adjustments` (never a PUT: changing
+ * stock is a ledgered movement by contract). The server's response replaces the
+ * row in place — the amount can come back normalized to the line's unit — and a
+ * 409 (would go below zero) or a network failure restores the previous value
+ * and reports the backend's own message. A row's buttons and field are disabled
+ * while its request is in flight, and the rest of the page honours the shared
+ * `busy` so two writers cannot race the same stock.
  *
  * The list is the whole view, so a failed load is a page-level error with a
  * retry rather than an empty inventory that silently looks like an empty pantry.
@@ -133,23 +152,36 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
  * that fails. No breakdown is drawn here: the list groups the same lines by
  * category a few centimetres below, so a chart of them would be a copy.
  *
+ * The search box and the category/low-stock filters run in the client over the
+ * list this page already fetched. The pantry is household-sized, every filter is
+ * a predicate over fields the rows already carry, and the server's order
+ * survives filtering, so a request per keystroke would answer no question the
+ * browser cannot. Category sections collapse in place (the state lives here, not
+ * in the URL), and the list/grid toggle persists to localStorage because there
+ * is no backend preference for a pure presentation choice.
+ *
  * A 404 means the line is gone (or never was this user's) and there is nothing
  * local to correct: every write that gets one closes its panel and reloads the
  * list, because the server's version is the only one that can still be true. A
  * 409 on an adjustment, by contrast, is about the amount the user typed — the
  * message arrives with the three figures it computed, so it is shown as-is
- * inside the panel and the typed amount survives for the retry.
+ * inside the panel and the typed amount survives for the retry; inline edits
+ * keep no draft (the row already shows the previous value), so the message goes
+ * to the snackbar.
  */
 @Component({
   selector: 'app-pantry-page',
   imports: [
     DatePipe,
     MatButton,
+    MatButtonToggle,
+    MatButtonToggleGroup,
     MatCard,
     MatCardContent,
     MatCardHeader,
     MatCardSubtitle,
     MatCardTitle,
+    MatCheckbox,
     MatError,
     MatFormField,
     MatHint,
@@ -158,8 +190,11 @@ function groupByCategory(items: readonly PantryItem[]): PantrySection[] {
     MatLabel,
     MatOption,
     MatOptgroup,
+    MatPrefix,
     MatProgressSpinner,
     MatSelect,
+    MatSuffix,
+    PantryItemRow,
     ReactiveFormsModule,
   ],
   templateUrl: './pantry-page.html',
@@ -178,6 +213,10 @@ export class PantryPage implements OnInit {
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
 
+  protected readonly skeletonSections = SKELETON_SECTIONS;
+  protected readonly skeletonRows = SKELETON_ROWS;
+  protected readonly lowStockThreshold = LOW_STOCK_THRESHOLD;
+
   /**
    * Totals of the inventory as the server counted them, `null` until the first
    * answer arrives.
@@ -194,10 +233,64 @@ export class PantryPage implements OnInit {
   protected readonly summaryLoading = signal(false);
   protected readonly summaryError = signal<string | null>(null);
 
-  /** Category blocks of the list, derived so a write never re-sorts anything. */
-  protected readonly sections = computed(() => groupByCategory(this.items()));
+  /** The layout the rows are rendered in; defaults to the list. */
+  protected readonly viewMode = signal<PantryViewMode>(loadStoredViewMode());
+
+  /** Search text, matched against the line names of the already-fetched list. */
+  protected readonly query = signal('');
+  /** Category the toolbar keeps, or `null` for every category. */
+  protected readonly categoryFilter = signal<string | null>(null);
+  /** True to keep only zeroed or low lines (see {@link LOW_STOCK_THRESHOLD}). */
+  protected readonly lowStockOnly = signal(false);
+  /** Categories of the pantry, in the server's order, for the toolbar select. */
+  protected readonly categories = computed(() => {
+    const seen: string[] = [];
+    for (const item of this.items()) {
+      if (!seen.includes(item.category)) {
+        seen.push(item.category);
+      }
+    }
+    return seen;
+  });
+
+  /**
+   * Category blocks of the list after the toolbar filters, derived so a write
+   * or a filter never re-sorts anything.
+   */
+  protected readonly sections = computed(() => groupByCategory(this.filteredItems()));
+
+  /** The list the toolbar produced from the whole pantry. */
+  private readonly filteredItems = computed(() =>
+    filterPantryItems(this.items(), {
+      query: this.query(),
+      category: this.categoryFilter(),
+      lowStockOnly: this.lowStockOnly(),
+    }),
+  );
+
   protected readonly isEmpty = computed(
     () => !this.loading() && this.loadError() === null && this.items().length === 0,
+  );
+
+  /**
+   * No line matched the toolbar, although the pantry itself is not empty.
+   *
+   * Deliberately a state of its own and not the "empty pantry" card: "nothing
+   * in the house" and "nothing matches what I asked for" call for different
+   * next actions (add the first item vs. clear the filters), and confusing them
+   * would send a user hunting in the wrong place.
+   */
+  protected readonly noResults = computed(
+    () =>
+      !this.loading() &&
+      this.loadError() === null &&
+      this.items().length > 0 &&
+      this.filteredItems().length === 0,
+  );
+
+  /** True when any filter of the toolbar is narrowing the list. */
+  protected readonly hasActiveFilters = computed(
+    () => this.query().trim() !== '' || this.categoryFilter() !== null || this.lowStockOnly(),
   );
 
   /**
@@ -215,9 +308,9 @@ export class PantryPage implements OnInit {
   /**
    * True while the totals are still unknown and nothing else takes their place.
    *
-   * The page's own spinner already says the view is loading, so a second one in
-   * the header would only compete with it, and a list that failed to load takes
-   * the whole body with it.
+   * The page's own skeletons already say the view is loading, so a second
+   * spinner there would only compete with them, and a list that failed to load
+   * takes the whole body with it.
    */
   protected readonly summaryPending = computed(
     () =>
@@ -249,15 +342,29 @@ export class PantryPage implements OnInit {
 
   protected readonly savingItemId = signal<number | null>(null);
   protected readonly deletingItemId = signal<number | null>(null);
+  /** Row whose inline quantity request is in flight. */
+  protected readonly inlineSavingId = signal<number | null>(null);
+  /** Row currently showing its editable quantity field; at most one. */
+  protected readonly editingQuantityId = signal<number | null>(null);
+  /** Draft text of the inline quantity field. */
+  protected readonly quantityDraft = signal('');
+
+  /** Categories the user has collapsed; a section is hidden when its name is here. */
+  protected readonly collapsedCategories = signal<ReadonlySet<string>>(new Set());
+
   /**
    * True while any write is in flight.
    *
    * Every action button honours it: the quantity is a shared fact and two
    * concurrent writes from one screen would produce a ledger whose order the
-   * user never chose.
+   * user never chose. The inline quantity request joins the panel saves and the
+   * delete, so opening a panel mid-save is as impossible as a second save.
    */
   protected readonly busy = computed(
-    () => this.savingItemId() !== null || this.deletingItemId() !== null,
+    () =>
+      this.savingItemId() !== null ||
+      this.deletingItemId() !== null ||
+      this.inlineSavingId() !== null,
   );
 
   protected readonly entries = signal<ConsumptionEntry[] | null>(null);
@@ -359,9 +466,96 @@ export class PantryPage implements OnInit {
     return open?.id === itemId && open.kind === kind;
   }
 
+  /**
+   * Opens the panel the row asked for.
+   *
+   * The row knows which button was used; the page knows the state and the form
+   * behind each panel, so the mapping stays here rather than in the child.
+   */
+  protected onOpenPanel(item: PantryItem, kind: PanelKind): void {
+    switch (kind) {
+      case 'edit':
+        this.openEdit(item);
+        return;
+      case 'adjust':
+        this.openAdjust(item);
+        return;
+      case 'history':
+        this.openHistory(item);
+        return;
+    }
+  }
+
   protected unitLabel = (unitCode: string): string => this.units.label(unitCode);
   protected originLabel = originLabel;
   protected signedDelta = signedDelta;
+
+  /** Switches the row layout and remembers it for the next visit. */
+  protected setViewMode(mode: PantryViewMode): void {
+    this.viewMode.set(mode === 'grid' ? 'grid' : 'list');
+    try {
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, this.viewMode());
+    } catch {
+      // The switch already took effect on screen; persistence is best-effort.
+    }
+  }
+
+  /** Updates the search text from the toolbar input. */
+  protected onQueryInput(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+  }
+
+  protected clearQuery(): void {
+    this.query.set('');
+  }
+
+  protected setCategoryFilter(value: string | null): void {
+    this.categoryFilter.set(value === '' ? null : value);
+  }
+
+  /** Drops every filter; the search box and the select reset with them. */
+  protected clearFilters(): void {
+    this.query.set('');
+    this.categoryFilter.set(null);
+    this.lowStockOnly.set(false);
+  }
+
+  /** True when the given category header is collapsed. */
+  protected isCollapsed = (category: string): boolean => this.collapsedCategories().has(category);
+
+  /**
+   * Collapses or expands a category section in place.
+   *
+   * The state is a set of collapsed names held by the component: sections are a
+   * derived view, so remembering the names (not the indices) keeps the state
+   * valid when filters change which sections exist. Collapsing a section that is
+   * mid-editing drops the inline field first, so a requirement can never hide
+   * inside a closed block.
+   */
+  protected toggleCategory(category: string): void {
+    const collapsed = this.collapsedCategories();
+    if (collapsed.has(category)) {
+      const next = new Set(collapsed);
+      next.delete(category);
+      this.collapsedCategories.set(next);
+      return;
+    }
+    const section = this.sections().find((candidate) => candidate.category === category);
+    if (section?.items.some((item) => item.id === this.editingQuantityId())) {
+      this.cancelQuantityEdit();
+    }
+    const next = new Set(collapsed);
+    next.add(category);
+    this.collapsedCategories.set(next);
+  }
+
+  /** Id of the collapse region, paired with its header's `aria-controls`. */
+  protected categoryRegionId = (index: number): string => `pantry-category-${index}`;
+
+  /** True while a write is in flight on the given row. */
+  protected rowBusy(itemId: number): boolean {
+    return this.busy() || this.inlineSavingId() === itemId;
+  }
 
   /**
    * Opens the quick-add dialog over the pantry.
@@ -425,6 +619,7 @@ export class PantryPage implements OnInit {
 
     this.confirmingDeleteId.set(null);
     this.panelError.set(null);
+    this.cancelQuantityEdit();
     this.openPanel.set({ id: item.id, kind: 'adjust' });
     this.adjustForm.reset({ amount: null, unitCode: item.unitCode });
     this.notify(`${item.name} is already stored: add to its quantity instead.`);
@@ -545,8 +740,131 @@ export class PantryPage implements OnInit {
     });
   }
 
+  /**
+   * Turns the row's quantity into an editable field.
+   *
+   * The draft starts from the stored amount, so pressing Enter with no change
+   * costs no request (the delta is zero and nothing is sent). Opening a new
+   * field silently closes an old one: at most one row edits, matching the
+   * panel rule, so the draft signal can be a single value.
+   */
+  protected startQuantityEdit(item: PantryItem): void {
+    if (this.rowBusy(item.id)) {
+      return;
+    }
+    this.editingQuantityId.set(item.id);
+    this.quantityDraft.set(String(item.quantity));
+  }
+
+  /** Keeps the draft in sync with what the user types. */
+  protected onQuantityInput(value: string): void {
+    this.quantityDraft.set(value);
+  }
+
+  /**
+   * Commits the typed amount, closing the field.
+   *
+   * The typed value is a target, not a delta: the request posts
+   * `target - current` in the line's unit, so the row reaches exactly what the
+   * user wrote. A row that cannot be parsed (empty, `NaN`) is treated as a
+   * cancel, a negative target is refused locally (the schema forbids it), and a
+   * target equal to the stored amount is a no-op so "press Enter" never writes a
+   * meaningless ledger entry. Errors roll the row back to its previous value:
+   * the row only ever changes from the server's own response.
+   */
+  protected commitQuantityEdit(item: PantryItem): void {
+    if (this.editingQuantityId() !== item.id || this.busy()) {
+      return;
+    }
+    const raw = this.quantityDraft().trim();
+    const target = Number(raw);
+    this.cancelQuantityEdit();
+    if (!Number.isFinite(target)) {
+      return;
+    }
+    if (target < 0) {
+      this.notify('A quantity cannot be negative.', true);
+      return;
+    }
+    const delta = deltaToTarget(item.quantity, target);
+    if (delta === 0) {
+      return;
+    }
+    this.postAdjustment(item, delta);
+  }
+
+  /**
+   * Reverts the inline field. Wired to Escape and blur, so leaving the field
+   * without confirming abandons the draft instead of surprising the user with a
+   * save they never asked for.
+   */
+  protected cancelQuantityEdit(): void {
+    this.editingQuantityId.set(null);
+    this.quantityDraft.set('');
+  }
+
+  /**
+   * Applies a step the row already scaled to the line's unit.
+   *
+   * The row needs the unit's step to write its button labels, so it computes the
+   * signed delta there; the page only carries it to the ledger through the same
+   * path a typed adjustment uses.
+   */
+  protected onStep(item: PantryItem, delta: number): void {
+    this.stepAdjustment(item, delta);
+  }
+
+  /**
+   * Steps the quantity by a fixed signed delta.
+   *
+   * The advance of a single click is the unit's step; the request is the same
+   * adjustment endpoint the typed edit uses. The minus button is disabled at
+   * zero (there is nothing to take away), so the 409 path appears when an edit
+   * goes below zero — not on a button that can only fail.
+   */
+  private stepAdjustment(item: PantryItem, delta: number): void {
+    if (this.rowBusy(item.id)) {
+      return;
+    }
+    this.cancelQuantityEdit();
+    this.postAdjustment(item, delta);
+  }
+
+  /**
+   * Posts a signed delta to the ledger and swaps the row on success.
+   *
+   * The row keeps whatever value it had until the server answers: an optimistic
+   * update would have to be undone on a rejection, and the response is the only
+   * authority on what the amount became (it can come back normalized). On success
+   * the row is replaced in place, the header totals are re-read (a movement can
+   * change the zero count), and a confirmation snackbar confirms the write. On a
+   * failure the previous value simply stays: nothing local touched it. A 404
+   * goes through the stale-line path (reload the list); every other status is the
+   * backend's own wording, which is the only text that knows the numbers.
+   */
+  private postAdjustment(item: PantryItem, delta: number): void {
+    this.inlineSavingId.set(item.id);
+    this.pantry.adjustQuantity(item.id, { amount: delta, unitCode: item.unitCode }).subscribe({
+      next: (updated) => {
+        this.inlineSavingId.set(null);
+        this.replaceItem(updated);
+        this.loadSummary();
+        this.notify('Quantity updated');
+      },
+      error: (error: HttpErrorResponse) => {
+        this.inlineSavingId.set(null);
+        if (error.status === 404) {
+          this.reportStaleLine(error);
+          return;
+        }
+        this.notify(toErrorResponse(error).message || 'Unable to adjust the quantity.', true);
+      },
+    });
+  }
+
   protected askDelete(item: PantryItem): void {
     this.panelError.set(null);
+    this.cancelQuantityEdit();
     this.confirmingDeleteId.set(item.id);
   }
 
@@ -592,7 +910,9 @@ export class PantryPage implements OnInit {
    *
    * Opening one collapses the other and drops a pending delete confirmation:
    * a row never shows two editors, and a confirmation the user wandered away
-   * from should not be one click away from a destructive request.
+   * from should not be one click away from a destructive request. An inline
+   * quantity field is closed as well: two editors on one row would fight over
+   * the same authority.
    */
   private togglePanel(item: PantryItem, kind: PanelKind): void {
     if (this.isOpen(item.id, kind)) {
@@ -601,6 +921,7 @@ export class PantryPage implements OnInit {
     }
     this.confirmingDeleteId.set(null);
     this.panelError.set(null);
+    this.cancelQuantityEdit();
     this.openPanel.set({ id: item.id, kind });
   }
 
@@ -652,6 +973,7 @@ export class PantryPage implements OnInit {
     this.openPanel.set(null);
     this.confirmingDeleteId.set(null);
     this.panelError.set(null);
+    this.cancelQuantityEdit();
     this.notify(toErrorResponse(error).message || 'That item is no longer in your pantry.', true);
     this.load();
   }

@@ -4,6 +4,14 @@
 // Learn more at https://material.angular.dev/guide/theming
 @use '@angular/material' as mat;
 @use './styles/neutral-palette' as app-palettes;
+// Small shared style blocks (see each partial for its contract): the loading
+// skeleton pattern, the "empty/no results" state cards and the visually-hidden
+// utility. Plain global rules, because they carry no theme and no encapsulation;
+// importing them once here beats duplicating them per component style (which the
+// `anyComponentStyle` budget would otherwise punish).
+@use './styles/skeleton';
+@use './styles/state-blocks';
+@use './styles/utilities';
 
 html {
   height: 100%;

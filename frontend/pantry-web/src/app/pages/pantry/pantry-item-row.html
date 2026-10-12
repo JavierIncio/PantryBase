@@ -1,0 +1,126 @@
+<div class="item-row">
+  <div class="item-summary">
+    <span class="item-name">{{ item().name }}</span>
+    @if (viewMode() === 'grid') {
+      <span class="item-category">{{ item().category }}</span>
+    }
+    <div class="quantity-stepper">
+      <button
+        mat-icon-button
+        type="button"
+        class="qty-decrement"
+        [disabled]="busy() || item().quantity === 0"
+        [attr.aria-label]="
+          'Decrease ' + item().name + ' by ' + stepForUnit(item().unitCode) + ' ' + unitLabel()
+        "
+        (click)="step.emit(-stepForUnit(item().unitCode))"
+      >
+        <mat-icon aria-hidden="true">remove</mat-icon>
+      </button>
+
+      @if (editing()) {
+        <mat-form-field class="qty-field" subscriptSizing="dynamic">
+          <input
+            matInput
+            class="qty-input"
+            type="number"
+            min="0"
+            inputmode="decimal"
+            [step]="stepForUnit(item().unitCode)"
+            [attr.aria-label]="'Quantity of ' + item().name + ' in ' + unitLabel()"
+            [value]="draft()"
+            (input)="draftChange.emit($any($event.target).value)"
+            (keydown.enter)="commitEdit.emit()"
+            (keydown.escape)="cancelEdit.emit()"
+            (blur)="cancelEdit.emit()"
+          />
+          <span matSuffix class="qty-unit-suffix">{{ unitLabel() }}</span>
+        </mat-form-field>
+      } @else {
+        <button
+          type="button"
+          class="inline-edit-trigger"
+          [disabled]="busy()"
+          [attr.aria-label]="'Edit the quantity of ' + item().name"
+          (click)="startEdit.emit()"
+        >
+          <span class="item-quantity">
+            <span class="item-amount">{{ item().quantity }}</span>
+            <span class="item-unit">{{ unitLabel() }}</span>
+          </span>
+        </button>
+      }
+
+      <button
+        mat-icon-button
+        type="button"
+        class="qty-increment"
+        [disabled]="busy()"
+        [attr.aria-label]="
+          'Increase ' + item().name + ' by ' + stepForUnit(item().unitCode) + ' ' + unitLabel()
+        "
+        (click)="step.emit(stepForUnit(item().unitCode))"
+      >
+        <mat-icon aria-hidden="true">add</mat-icon>
+      </button>
+    </div>
+
+    @if (item().location) {
+      <span class="item-detail">
+        <mat-icon aria-hidden="true">place</mat-icon>
+        {{ item().location }}
+      </span>
+    }
+    @if (item().note) {
+      <span class="item-detail">
+        <mat-icon aria-hidden="true">notes</mat-icon>
+        {{ item().note }}
+      </span>
+    }
+  </div>
+
+  <div class="item-actions">
+    <button
+      mat-icon-button
+      type="button"
+      class="action-edit"
+      [disabled]="busy()"
+      [attr.aria-label]="'Edit location and note of ' + item().name"
+      (click)="panel.emit('edit')"
+    >
+      <mat-icon aria-hidden="true">edit</mat-icon>
+    </button>
+    <button
+      mat-icon-button
+      type="button"
+      class="action-adjust"
+      [disabled]="busy()"
+      [attr.aria-label]="'Adjust the quantity of ' + item().name"
+      (click)="panel.emit('adjust')"
+    >
+      <mat-icon aria-hidden="true">exposure</mat-icon>
+    </button>
+    <button
+      mat-icon-button
+      type="button"
+      class="action-history"
+      [disabled]="busy()"
+      [attr.aria-label]="'History of ' + item().name"
+      (click)="panel.emit('history')"
+    >
+      <mat-icon aria-hidden="true">history</mat-icon>
+    </button>
+    <button
+      mat-icon-button
+      type="button"
+      class="action-delete"
+      [disabled]="busy()"
+      [attr.aria-label]="'Remove ' + item().name"
+      (click)="remove.emit()"
+    >
+      <mat-icon aria-hidden="true">delete</mat-icon>
+    </button>
+  </div>
+</div>
+
+<ng-content />
