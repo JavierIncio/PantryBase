@@ -1,0 +1,34 @@
+<h2 mat-dialog-title>Not enough in your pantry</h2>
+
+<mat-dialog-content>
+  <p class="shortage-intro">
+    These ingredients are short of what the recipe needs. Nothing has been deducted yet.
+  </p>
+
+  <ul class="shortage-lines">
+    @for (line of deduction.lines; track line.ingredientId) {
+      <li class="shortage-line">
+        <span class="line-name">{{ line.ingredientName }}</span>
+        <span class="line-figures">
+          need {{ formatAmount(line.needed) }} {{ unitLabel(line.unitCode) }} · have
+          {{ formatAmount(line.available) }} {{ unitLabel(line.unitCode) }} · will use
+          {{ formatAmount(line.deducted) }} {{ unitLabel(line.unitCode) }} · leaves
+          {{ formatAmount(line.remaining) }} {{ unitLabel(line.unitCode) }}
+        </span>
+      </li>
+    }
+  </ul>
+
+  <p class="shortage-note">
+    <mat-icon aria-hidden="true">info</mat-icon>
+    Cooking anyway deducts what is stored (the lines above drop to zero) and assumes the rest is
+    brought from outside. That part is not recorded as a movement.
+  </p>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button type="button" class="cancel-shortage" (click)="cancel()">Cancel</button>
+  <button mat-flat-button type="button" class="accept-shortage" (click)="accept()">
+    Cook anyway
+  </button>
+</mat-dialog-actions>

@@ -100,7 +100,7 @@ Jenkins: build → test (JaCoCo) → quality gate → build Docker → deploy (d
 - **Recipe** — cabecera de receta (`source`: `THE_MEAL_DB` o `USER`; dietas, nutrientes por ración calculados desde el catálogo USDA, imagen) con sus **RecipeIngredient\*** line items (ingrediente, cantidad original y canónica, unidad).
 - **Allergen / UserAllergyExclusion** — ontología de alérgenos y exclusiones por usuario.
 - **UserPreferences** — modo de filtrado (laxo/estricto), umbral de cobertura por defecto, dieta.
-- **CookingSession** — sesión de una receta con estados de progreso (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`; `completedAt` se sella al completar o abandonar). Backend implementado (H5); el frontend de la página `/cooking` está pendiente.
+- **CookingSession** — sesión de una receta con estados de progreso (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`; `completedAt` se sella al completar o abandonar). Implementado en backend y frontend (H5); el progreso de pasos es una checklist local no persistida (el backend solo guarda el estado de la sesión).
 - **ConsumptionEntry** — registro de descontado (automático al completar sesión o manual): `PantryItem`, cantidad, origen y timestamp.
 - **Favorite / SavedRecipe / PublishedRecipe** — vínculos personales con recetas.
 - **RecipeHistory** — histórico de recetas realizadas.

@@ -1,0 +1,200 @@
+// Cooking session: a header with the state, then the controls and the local
+// step checklist. The states of the read (loading / error / not found) replace
+// the page the same way the recipe detail's do.
+.session-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem 0;
+}
+
+.session-error p {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.session-not-found {
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 3rem 1.5rem;
+    text-align: center;
+  }
+
+  .session-not-found-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 48px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  h2 {
+    margin: 0.5rem 0 0;
+    font: var(--mat-sys-title-medium);
+  }
+
+  p {
+    margin: 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.session-heading {
+  margin-bottom: 1.5rem;
+
+  h1 {
+    margin: 0.25rem 0 0;
+    font-size: var(--mat-sys-headline-medium-size);
+  }
+}
+
+.session-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--mat-sys-primary);
+  font: var(--mat-sys-label-large);
+  text-decoration: none;
+}
+
+.session-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.session-status-badge {
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--mat-sys-corner-full);
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-medium);
+}
+
+.status-live {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.status-completed {
+  background: #2e7d32;
+  color: #fff;
+}
+
+.status-abandoned {
+  background: #b26a00;
+  color: #fff;
+}
+
+.session-date {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-controls,
+.session-deduction,
+.session-steps {
+  margin-bottom: 1.5rem;
+}
+
+.control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.session-readonly {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.session-transition-error {
+  margin: 0.75rem 0 0;
+  color: var(--mat-sys-error);
+}
+
+// Destructive: the abandon button carries the error color so it cannot be
+// mistaken for the positive action next to it.
+.abandon-session {
+  --mat-button-outlined-label-text-color: var(--mat-sys-error);
+  --mat-button-outlined-outline-color: var(--mat-sys-error);
+}
+
+.deduction-lines,
+.step-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.deduction-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+.line-name {
+  font: var(--mat-sys-title-small);
+}
+
+.line-figures {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.steps-status {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.steps-error {
+  margin: 0;
+  color: var(--mat-sys-error);
+}
+
+.steps-empty,
+.steps-note {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
+.steps-note {
+  margin-top: 0.75rem;
+}
+
+.step-row {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+// Material labels truncate by default; a step is a sentence and has to wrap.
+.step-check {
+  white-space: normal;
+
+  .step-text {
+    display: inline-block;
+    white-space: normal;
+    line-height: 1.4;
+  }
+}

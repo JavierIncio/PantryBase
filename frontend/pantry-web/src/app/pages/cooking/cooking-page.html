@@ -1,0 +1,87 @@
+<header class="cooking-header">
+  <h1>Cooking</h1>
+  <p>Cook a recipe step by step; finishing it deducts what it used from your pantry.</p>
+</header>
+
+@if (loading()) {
+  <div class="cooking-status"><mat-spinner diameter="40" /></div>
+} @else if (loadError(); as message) {
+  <div class="cooking-status cooking-error">
+    <p class="cooking-error-message">{{ message }}</p>
+    <button mat-stroked-button type="button" class="retry-cooking" (click)="load()">Retry</button>
+  </div>
+} @else if (isEmpty()) {
+  <mat-card class="cooking-empty">
+    <mat-card-content>
+      <mat-icon class="cooking-empty-icon" aria-hidden="true">soup_kitchen</mat-icon>
+      <h2>No cooking sessions yet</h2>
+      <p>
+        Pick a recipe and start cooking. A session tracks what you are making and deducts the
+        ingredients it uses when you finish.
+      </p>
+      <a mat-flat-button routerLink="/recipes" class="browse-recipes">Browse recipes</a>
+    </mat-card-content>
+  </mat-card>
+} @else {
+  @if (actionError(); as message) {
+    <p class="cooking-action-error">{{ message }}</p>
+  }
+
+  @if (active().length > 0) {
+    <mat-card class="cooking-group">
+      <mat-card-header>
+        <mat-card-title>In progress</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @for (session of active(); track session.id) {
+          <a class="session-row" [routerLink]="['/cooking', session.id]">
+            <span class="session-name">{{ recipeName(session) }}</span>
+            <span class="session-status status-active">{{ statusLabel(session.status) }}</span>
+            <span class="session-date">Started {{ session.startedAt | date: 'medium' }}</span>
+            <mat-icon class="session-open-icon" aria-hidden="true">chevron_right</mat-icon>
+          </a>
+        }
+      </mat-card-content>
+    </mat-card>
+  }
+
+  @if (history().length > 0) {
+    <mat-card class="cooking-group">
+      <mat-card-header>
+        <mat-card-title>History</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @for (session of history(); track session.id) {
+          <div class="session-row session-row-history">
+            <a class="session-link" [routerLink]="['/cooking', session.id]">
+              <span class="session-name">{{ recipeName(session) }}</span>
+              <span
+                class="session-status"
+                [class.status-completed]="session.status === 'COMPLETED'"
+                [class.status-abandoned]="session.status === 'ABANDONED'"
+              >
+                {{ statusLabel(session.status) }}
+              </span>
+              @if (session.completedAt; as completedAt) {
+                <span class="session-date">{{ completedAt | date: 'medium' }}</span>
+              }
+            </a>
+            <button
+              mat-stroked-button
+              type="button"
+              class="cook-again"
+              [disabled]="startingId() !== null"
+              (click)="startAgain(session.recipeId)"
+            >
+              @if (startingId() === session.recipeId) {
+                <mat-spinner diameter="20" />
+              } @else {
+                Cook again
+              }
+            </button>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+  }
+}

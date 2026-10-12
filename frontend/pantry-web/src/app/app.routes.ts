@@ -68,6 +68,12 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/cooking/cooking-page').then((m) => m.CookingPage),
       },
       {
+        path: 'cooking/:id',
+        title: 'Cooking session',
+        loadComponent: () =>
+          import('./pages/cooking/cooking-session-page').then((m) => m.CookingSessionPage),
+      },
+      {
         path: 'social',
         title: 'Social',
         loadComponent: () => import('./pages/social/social-page').then((m) => m.SocialPage),

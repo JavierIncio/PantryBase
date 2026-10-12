@@ -1,0 +1,167 @@
+@if (loading()) {
+  <div class="session-status"><mat-spinner diameter="40" /></div>
+} @else if (loadError(); as message) {
+  <div class="session-status session-error">
+    <p class="session-error-message">{{ message }}</p>
+    <button mat-stroked-button type="button" class="retry-session" (click)="load()">Retry</button>
+  </div>
+} @else if (notFound()) {
+  <mat-card class="session-not-found">
+    <mat-card-content>
+      <mat-icon class="session-not-found-icon" aria-hidden="true">search_off</mat-icon>
+      <h2>Cooking session not found</h2>
+      <p>This session does not exist or is no longer yours.</p>
+      <a mat-flat-button routerLink="/cooking" class="back-to-cooking">Back to cooking</a>
+    </mat-card-content>
+  </mat-card>
+} @else if (session(); as session) {
+  <header class="session-heading">
+    <a class="session-back" routerLink="/cooking">
+      <mat-icon aria-hidden="true">arrow_back</mat-icon>
+      Cooking
+    </a>
+    <h1>{{ recipeTitle() }}</h1>
+    <div class="session-facts">
+      <span
+        class="session-status-badge"
+        [class.status-live]="!terminal()"
+        [class.status-completed]="session.status === 'COMPLETED'"
+        [class.status-abandoned]="session.status === 'ABANDONED'"
+      >
+        {{ statusLabel(session.status) }}
+      </span>
+      <span class="session-date">Started {{ session.startedAt | date: 'medium' }}</span>
+      @if (session.completedAt; as completedAt) {
+        <span class="session-date">Ended {{ completedAt | date: 'medium' }}</span>
+      }
+    </div>
+  </header>
+
+  <mat-card class="session-controls">
+    <mat-card-content>
+      @if (terminal()) {
+        <p class="session-readonly">
+          This session is {{ statusLabel(session.status) | lowercase }} and can no longer change.
+        </p>
+      } @else {
+        <div class="control-actions">
+          @if (session.status === 'PAUSED') {
+            <button
+              mat-flat-button
+              type="button"
+              class="resume-session"
+              [disabled]="busy()"
+              (click)="resume()"
+            >
+              <mat-icon aria-hidden="true">play_arrow</mat-icon>
+              Resume
+            </button>
+          } @else {
+            <button
+              mat-stroked-button
+              type="button"
+              class="pause-session"
+              [disabled]="busy()"
+              (click)="pause()"
+            >
+              <mat-icon aria-hidden="true">pause</mat-icon>
+              Pause
+            </button>
+          }
+          <button
+            mat-flat-button
+            type="button"
+            class="complete-session"
+            [disabled]="busy()"
+            (click)="complete()"
+          >
+            <mat-icon aria-hidden="true">check</mat-icon>
+            Complete
+          </button>
+          <button
+            mat-stroked-button
+            type="button"
+            class="abandon-session"
+            [disabled]="busy()"
+            (click)="abandon()"
+          >
+            <mat-icon aria-hidden="true">close</mat-icon>
+            Abandon
+          </button>
+        </div>
+
+        @if (transitionError(); as message) {
+          <p class="session-transition-error">{{ message }}</p>
+        }
+      }
+    </mat-card-content>
+  </mat-card>
+
+  @if (deduction(); as plan) {
+    <mat-card class="session-deduction">
+      <mat-card-header>
+        <mat-card-title>Deducted from your pantry</mat-card-title>
+        @if (plan.hasShortage) {
+          <mat-card-subtitle>
+            Finished with a shortage: the short lines dropped to zero and the rest was assumed
+            brought in.
+          </mat-card-subtitle>
+        }
+      </mat-card-header>
+      <mat-card-content>
+        <ul class="deduction-lines">
+          @for (line of plan.lines; track line.ingredientId) {
+            <li class="deduction-line">
+              <span class="line-name">{{ line.ingredientName }}</span>
+              <span class="line-figures">
+                used {{ formatAmount(line.deducted) }} of {{ formatAmount(line.available) }}
+                {{ unitLabel(line.unitCode) }} · {{ formatAmount(line.remaining) }}
+                {{ unitLabel(line.unitCode) }} left
+              </span>
+            </li>
+          }
+        </ul>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  <mat-card class="session-steps">
+    <mat-card-header>
+      <mat-card-title>Steps</mat-card-title>
+      <mat-card-subtitle>
+        @if (steps().length > 0) {
+          {{ doneCount() }} of {{ steps().length }} done
+        } @else {
+          A checklist to follow while you cook
+        }
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (recipeLoading()) {
+        <div class="steps-status"><mat-spinner diameter="24" /></div>
+      } @else if (recipeError(); as message) {
+        <p class="steps-error">{{ message }}</p>
+      } @else if (steps().length === 0) {
+        <p class="steps-empty">This recipe has no instructions to break into steps.</p>
+      } @else {
+        <ul class="step-list">
+          @for (step of steps(); track $index) {
+            <li class="step-row">
+              <mat-checkbox
+                class="step-check"
+                [checked]="isStepDone($index)"
+                (change)="toggleStep($index)"
+              >
+                <span class="step-text">{{ step }}</span>
+              </mat-checkbox>
+            </li>
+          }
+        </ul>
+        <p class="steps-note">
+          Ticking steps is only for you: the session stores its status, not step progress, so these
+          marks start fresh if you reload.
+        </p>
+      }
+    </mat-card-content>
+  </mat-card>
+}

@@ -60,7 +60,10 @@ interface PantrySection {
   readonly items: PantryItem[];
 }
 
-const ORIGIN_LABELS: Record<ConsumptionOrigin, string> = { MANUAL: 'Manual' };
+const ORIGIN_LABELS: Record<ConsumptionOrigin, string> = {
+  MANUAL: 'Manual',
+  COOKING_SESSION: 'Cooking session',
+};
 
 /** Origin of a movement as the user sees it, falling through to the raw value. */
 const originLabel = (origin: ConsumptionOrigin): string => ORIGIN_LABELS[origin] ?? origin;

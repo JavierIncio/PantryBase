@@ -1,0 +1,52 @@
+// Shortage confirmation: one row per short ingredient, plus the note that
+// explains what "Cook anyway" actually records. Kept short on purpose — it is
+// a decision point, not a screen to read at length.
+.shortage-intro {
+  margin: 0 0 0.75rem;
+}
+
+.shortage-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.shortage-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+.line-name {
+  font: var(--mat-sys-title-small);
+}
+
+.line-figures {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.shortage-note {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 1rem 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+
+  mat-icon {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    font-size: 1.1rem;
+  }
+}

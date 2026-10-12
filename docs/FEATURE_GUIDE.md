@@ -337,7 +337,7 @@ Asignar una clase que no existe produce un error `404`: así este endpoint no se
 | `PantryService` (reglas de alta, edición, borrado y ajuste) | `pantry/service/PantryService.java` |
 | Entidades | `pantry/domain/PantryItem.java`, `pantry/domain/ConsumptionEntry.java`, `pantry/domain/ConsumptionOrigin.java` |
 | Repositorios | `pantry/repository/PantryItemRepository.java`, `pantry/repository/ConsumptionEntryRepository.java` |
-| DTOs | `pantry/dto/` (`CreatePantryItemRequest`, `UpdatePantryItemRequest`, `AdjustPantryItemRequest`, `PantryItemResponse`, `ConsumptionEntryResponse`) |
+| DTOs | `pantry/dto/` (`CreatePantryItemRequest`, `UpdatePantryItemRequest`, `AdjustPantryItemRequest`, `ConsumePantryItemRequest`, `PantryItemResponse`, `ConsumptionEntryResponse`) |
 | Excepciones | `pantry/exception/` (`PantryItemNotFoundException`, `IngredientAlreadyInPantryException`, `IngredientNotInCatalogException`, `InsufficientStockException`, `ZeroAdjustmentException`) |
 | Tablas | `db/migration/V12__pantry_items.sql` |
 | Tests | `pantry/PantryControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java`, `pantry/PantryMetricsIntegrationTest.java`, `src/app/core/pantry/pantry.service.spec.ts`, `src/app/pages/pantry/pantry-page.spec.ts` |
@@ -471,6 +471,8 @@ Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_ent
 
 **Definition of done:** completar una receta de 3 ingredientes reduce la despensa exactamente en las cantidades canónicas, y el sumatorio de deltas del libro mayor coincide con la cantidad de cada línea (test de integración `complete_deductsEachIngredientExactly_andTheLedgerAgrees`).
 
+**Frontend (H5).** `core/cooking/` reproduce el patrón de `RecipesService`: `cooking.service.ts` tipa los cuatro endpoints y `cooking.models.ts` publica el contrato con uniones de literales. La pieza delicada es el **409 de carencia**: su cuerpo no es el `ErrorResponse` de siempre, así que el helper `asCompletionDeduction()` lo discrimina por forma (`hasShortage` + `lines`) y lo trata como una pregunta al usuario, no como un fallo. La ruta `/cooking` es la **lista de sesiones** (vivas primero, luego historial) y `/cooking/:id` la sesión activa, que pide la sesión y la receta, trocea `instructions` en pasos para una **checklist local que no se persiste** —el backend solo guarda el estado— y ofrece Pause/Resume/Complete/Abandon según la máquina. Al completar, si llega el 409-plane, un **diálogo Material** lista las líneas cortas y ofrece «Cook anyway» (reenvía con `acceptShortage=true`) o cancelar; la respuesta con `deduction` muestra lo descontado. El botón «Start cooking» del detalle de receta ahora crea la sesión y navega a `/cooking/:sessionId`. El origen `COOKING_SESSION` se añadió a los modelos y etiquetas del libro mayor de la despensa. **260 tests de frontend verdes (27 ficheros).**
+
 ---
 
 ## 14. Rate limiting
@@ -569,6 +571,8 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | Servicio y reglas de recetas | `src/app/core/recipes/` (`recipes.service.ts`, `recipes.models.ts`, `recipe-matching.ts`) |
 | Página «Recipes» (grid y filtros) | `src/app/pages/recipes/recipes-page.{ts,html,scss}` |
 | Detalle de receta | `src/app/pages/recipes/recipe-detail-page.{ts,html,scss}` |
+| Servicio y modelos de cocina | `src/app/core/cooking/` (`cooking.service.ts`, `cooking.models.ts`, `cooking-steps.ts`) |
+| Lista de sesiones y sesión activa | `src/app/pages/cooking/cooking-page.{ts,html,scss}`, `src/app/pages/cooking/cooking-session-page.{ts,html,scss}` |
 | Proxy de desarrollo | `proxy.conf.json` |
 
 **Las cuatro piezas de la sesión y por qué están separadas:**
@@ -578,7 +582,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 - **`auth.guard`** protege las rutas del producto. Un usuario anónimo no es expulsado sin más: como la cookie de refresco es la única credencial del lado del cliente, el guard intenta **restaurar la sesión** (renovar el token y cargar el perfil) antes de rendirse. Si tampoco funciona, recuerda la URL visitada como `returnUrl` para devolver al usuario allí tras identificarse.
 - **`proxy.conf.json`** redirige `/api` y `/oauth2` al backend durante el desarrollo, de modo que el navegador solo habla con el puerto 4200 y no aparece el problema de CORS.
 
-**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle) y la página «no encontrado» están implementadas. Las áreas `cooking` y `social` existen como rutas pero muestran un marcador de posición pendiente de sus hitos. Las decisiones del área de recetas viven en `## 12`.
+**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle), «Cooking» (lista de sesiones + sesión activa) y la página «no encontrado» están implementadas. El área `social` existe como ruta pero muestra un marcador de posición pendiente de su hito. Las decisiones del área de recetas viven en `## 12` y las de cocina en `## 13`.
 
 **La vista «Mi despensa» (H3-3)** es la primera pantalla real del producto, y su pieza nueva es el servicio `PantryService`, que tipa los cinco endpoints en un único sitio para que el componente sea solo presentación. Cuatro decisiones suyas que conviene conocer:
 

@@ -174,9 +174,22 @@
 
   <div class="detail-actions">
     <a mat-stroked-button routerLink="/recipes" class="back-to-recipes">Back to recipes</a>
-    <a mat-flat-button routerLink="/cooking" class="start-cooking">
-      <mat-icon aria-hidden="true">soup_kitchen</mat-icon>
-      Start cooking
-    </a>
+    <button
+      mat-flat-button
+      type="button"
+      class="start-cooking"
+      [disabled]="starting()"
+      (click)="startCooking()"
+    >
+      @if (starting()) {
+        <mat-spinner diameter="20" />
+      } @else {
+        <mat-icon aria-hidden="true">soup_kitchen</mat-icon>
+      }
+      <span>{{ starting() ? 'Starting…' : 'Start cooking' }}</span>
+    </button>
   </div>
+  @if (startError(); as message) {
+    <p class="start-cooking-error">{{ message }}</p>
+  }
 }

@@ -18,9 +18,10 @@ import {
 import { MatChip, MatChipSet } from '@angular/material/chips';
 import { MatIcon } from '@angular/material/icon';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toErrorResponse } from '../../core/auth/auth.models';
 import { UnitService } from '../../core/catalog/unit.service';
+import { CookingService } from '../../core/cooking/cooking.service';
 import {
   IngredientCoverageRow,
   coverageClass,
@@ -93,13 +94,20 @@ const categoryArea = (category: string, area: string): string | null => {
 })
 export class RecipeDetailPage implements OnInit {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly recipesService = inject(RecipesService);
+  private readonly cooking = inject(CookingService);
   private readonly units = inject(UnitService);
 
   protected readonly recipe = signal<RecipeDetail | null>(null);
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
   protected readonly notFound = signal(false);
+
+  /** True while the cooking session of this recipe is being created. */
+  protected readonly starting = signal(false);
+  /** Message of a refused session start; the recipe stays on screen. */
+  protected readonly startError = signal<string | null>(null);
 
   /**
    * The ingredient lines with their coverage attached, in the recipe's order.
@@ -189,6 +197,36 @@ export class RecipeDetailPage implements OnInit {
       return 'not in pantry';
     }
     return `${formatAmount(coverage.availableAmount)} ${this.units.label(coverage.availableUnitCode)}`;
+  }
+
+  /**
+   * Starts a cooking session for this recipe and opens it.
+   *
+   * The session is created here rather than by the cooking page so the recipe's
+   * id is never a query parameter the URL has to carry: the response is what
+   * names the session, and a failed creation is a message on this page — the
+   * recipe the user is reading stays exactly where it was.
+   */
+  protected startCooking(): void {
+    const recipe = this.recipe();
+    if (recipe === null || this.starting()) {
+      return;
+    }
+
+    this.starting.set(true);
+    this.startError.set(null);
+    this.cooking.createSession(recipe.id).subscribe({
+      next: (session) => {
+        this.starting.set(false);
+        this.router.navigate(['/cooking', session.id]);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.starting.set(false);
+        this.startError.set(
+          toErrorResponse(error).message || 'Unable to start cooking this recipe.',
+        );
+      },
+    });
   }
 
   protected sourceLabel = sourceLabel;

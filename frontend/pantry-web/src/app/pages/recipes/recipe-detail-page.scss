@@ -274,6 +274,10 @@
   gap: 0.5rem;
 }
 
+.start-cooking-error {
+  color: var(--mat-sys-error);
+}
+
 @media (max-width: 599px) {
   .detail-heading {
     grid-template-columns: 1fr;

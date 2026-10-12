@@ -92,10 +92,12 @@ export interface AdjustPantryItemRequest {
 /**
  * What caused a movement, matching the `ConsumptionOrigin` enum.
  *
- * H3 only ever writes `MANUAL`; the cooking-session origin arrives in H5, and
- * this union has to be widened then — a compiler error is the intended reminder.
+ * `MANUAL` is a signed adjustment typed by the user; `COOKING_SESSION` is the
+ * deduction a completed cooking session performed (H5). The two travel together
+ * in one ledger because the pantry only has one kind of movement — what changes
+ * is who asked for it.
  */
-export type ConsumptionOrigin = 'MANUAL';
+export type ConsumptionOrigin = 'MANUAL' | 'COOKING_SESSION';
 
 /**
  * One movement of stock from an item's ledger.

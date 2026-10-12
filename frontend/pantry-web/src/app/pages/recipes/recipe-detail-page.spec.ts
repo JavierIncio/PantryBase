@@ -393,17 +393,60 @@ describe('RecipeDetailPage', () => {
     );
   });
 
-  it('wires the actions back to the grid and on to cooking', async () => {
+  it('wires the back action to the recipe grid', async () => {
     const fixture = await render();
     const router = TestBed.inject(Router);
 
-    // The same pair of ways out works from a loaded recipe; the 404 card uses
-    // the back one alone.
     expect(fixture.nativeElement.querySelector('a.back-to-recipes').getAttribute('href')).toBe(
       router.createUrlTree(['/recipes']).toString(),
     );
-    expect(fixture.nativeElement.querySelector('a.start-cooking').getAttribute('href')).toBe(
-      router.createUrlTree(['/cooking']).toString(),
+    // The 404 card keeps the same single way out.
+    expect(nodes(fixture, 'a.back-to-recipes').length).toBe(1);
+  });
+
+  it('starts a cooking session for this recipe and opens it', async () => {
+    const fixture = await render();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    (root(fixture).querySelector('button.start-cooking') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    // The session is created here so its id — not the recipe id — names the URL.
+    const req = http.expectOne('/api/cooking/sessions');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ recipeId: 1 });
+    req.flush({
+      id: 7,
+      recipeId: 1,
+      status: 'IN_PROGRESS',
+      startedAt: '2026-10-12T10:00:00Z',
+      completedAt: null,
+      deduction: null,
+    });
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(['/cooking', 7]);
+  });
+
+  it('keeps the recipe on screen when the session start is refused', async () => {
+    const fixture = await render();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    (root(fixture).querySelector('button.start-cooking') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    http
+      .expectOne('/api/cooking/sessions')
+      .flush(errorResponse(404, 'Recipe 1 not found'), { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    // The refusal belongs to the action that caused it and leaves the recipe
+    // (and the retry) exactly where they were.
+    expect(text(root(fixture).querySelector('.start-cooking-error'))).toBe('Recipe 1 not found');
+    expect(text(root(fixture).querySelector('.detail-heading h1'))).toBe(
+      'Spaghetti alla Carbonara',
     );
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
