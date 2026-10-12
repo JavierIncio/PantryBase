@@ -269,8 +269,48 @@ class CookingControllerIntegrationTest extends AbstractIntegrationTest {
         assertError(response, HttpStatus.NOT_FOUND, COOKING + "/" + theirSession + "/state");
     }
 
-    // ============ HELPERS ============
+    @Test
+    void list_showsOnlyOwnSessions() {
+        HttpHeaders mine = authenticate();
+        HttpHeaders theirs = authenticateSecondUser();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("Risotto");
+        line(recipe, rice, "200", 0);
 
+        long myFirst = createSession(mine, recipe.getId());
+        long mySecond = createSession(mine, recipe.getId());
+        createSession(theirs, recipe.getId());
+
+        ResponseEntity<List<CookingSessionResponse>> response = rest.exchange(COOKING, HttpMethod.GET,
+                new HttpEntity<>(mine), new ParameterizedTypeReference<>() {
+                });
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).extracting(CookingSessionResponse::id)
+                .containsExactlyInAnyOrder(myFirst, mySecond);
+    }
+
+    @Test
+    void get_returnsOwnSession_butAnotherUsersIs404() {
+        HttpHeaders mine = authenticate();
+        HttpHeaders theirs = authenticateSecondUser();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("Risotto");
+        line(recipe, rice, "200", 0);
+
+        long theirSession = createSession(theirs, recipe.getId());
+
+        ResponseEntity<CookingSessionResponse> ok = rest.exchange(COOKING + "/" + theirSession,
+                HttpMethod.GET, new HttpEntity<>(theirs), CookingSessionResponse.class);
+        assertThat(ok.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ok.getBody().status()).isEqualTo(CookingSessionStatus.IN_PROGRESS);
+
+        ResponseEntity<ErrorResponse> notFound = rest.exchange(COOKING + "/" + theirSession,
+                HttpMethod.GET, new HttpEntity<>(mine), ErrorResponse.class);
+        assertError(notFound, HttpStatus.NOT_FOUND, COOKING + "/" + theirSession);
+    }
+
+    // ============ HELPERS ============
     private HttpHeaders authenticateSecondUser() {
         ResponseEntity<com.pantrybase.api.auth.dto.AuthResponse> registered = registerUser(
                 java.util.Map.of("username", "JaneDoe", "email", "jane.doe@example.com",

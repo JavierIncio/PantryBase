@@ -7,6 +7,7 @@ import com.pantrybase.api.cooking.service.CookingService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -14,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * Cooking sessions for the authenticated user.
@@ -39,6 +42,17 @@ public class CookingController {
     public CookingSessionResponse create(@AuthenticationPrincipal Long userId,
                                          @Valid @RequestBody CreateCookingSessionRequest request) {
         return cookingService.create(userId, request);
+    }
+
+    @GetMapping
+    public List<CookingSessionResponse> list(@AuthenticationPrincipal Long userId) {
+        return cookingService.list(userId);
+    }
+
+    @GetMapping("/{sessionId}")
+    public CookingSessionResponse get(@AuthenticationPrincipal Long userId,
+                                      @PathVariable long sessionId) {
+        return cookingService.get(userId, sessionId);
     }
 
     /**

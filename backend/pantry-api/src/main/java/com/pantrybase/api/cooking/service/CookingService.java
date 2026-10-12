@@ -89,6 +89,31 @@ public class CookingService {
     }
 
     /**
+     * The caller's sessions, most recent first.
+     *
+     * <p>Reads are owner-scoped like every other cooking query, and the deduction is left
+     * off: a history view shows what happened by state and time, and replaying a past
+     * deduction on a list read would mean rebuilding a plan the response does not need.</p>
+     */
+    public List<CookingSessionResponse> list(Long userId) {
+        return cookingSessionRepo.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
+                .map(session -> toResponse(session, null))
+                .toList();
+    }
+
+    /**
+     * One session, so the client can reload a running one by id.
+     *
+     * @throws CookingSessionNotFoundException if the session is not this user's
+     */
+    public CookingSessionResponse get(Long userId, long sessionId) {
+        CookingSession session = cookingSessionRepo.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new CookingSessionNotFoundException(sessionId));
+
+        return toResponse(session, null);
+    }
+
+    /**
      * Moves a session to a new state, deducting the recipe when it is completed.
      *
      * <p>Both terminal states stamp {@code completedAt}, so a session's duration is the

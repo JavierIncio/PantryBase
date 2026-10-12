@@ -461,7 +461,7 @@ Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_ent
 | Tabla | `db/migration/V16__cooking_sessions.sql` |
 | Tests | `cooking/CookingControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java` |
 
-**Endpoints:** `POST /api/cooking/sessions` (`{recipeId}` → `201`; `404` si la receta no es del usuario), `GET /api/cooking/sessions` (historial del usuario, más recientes primero), `PUT /api/cooking/sessions/{id}/state` (`{status, acceptShortage}`) y `POST /api/pantry/{itemId}/consume` (`{amount>0, unitCode}` → `200` con la línea y su asiento). El propietario sale del token, nunca del cuerpo.
+**Endpoints:** `POST /api/cooking/sessions` (`{recipeId}` → `201`; `404` si la receta no existe), `GET /api/cooking/sessions` (historial del usuario, más recientes primero), `GET /api/cooking/sessions/{id}` (`404` si la sesión no es suya), `PUT /api/cooking/sessions/{id}/state` (`{status, acceptShortage}`) y `POST /api/pantry/{itemId}/consume` (`{amount>0, unitCode}` → `200` con la línea y su asiento). El propietario sale del token, nunca del cuerpo.
 
 **La máquina de estados.** `IN_PROGRESS` puede pasar a `PAUSED`, `COMPLETED` o `ABANDONED`; `PAUSED` puede volver a `IN_PROGRESS` o cerrarse a `COMPLETED`/`ABANDONED`; `COMPLETED` y `ABANDONED` son terminales. Repetir el estado actual o salir de uno terminal devuelve `409`. `completedAt` se sella al entrar en `COMPLETED` **o** `ABANDONED`: abandonar también cierra la sesión y su duración es un dato. Las recetas no tienen pasos estructurados (solo `instructions` en texto libre), así que la sesión solo guarda su estado; el marcado de pasos es responsabilidad del frontend y no se persiste.
 
