@@ -19,7 +19,7 @@ El usuario registra su inventario de ingredientes con cantidades en medidas esta
 - **Filtrado por disponibilidad:**
   - _Estricto:_ solo recetas que el usuario puede hacer con lo que tiene (todas las cantidades cubiertas).
   - _Laxo:_ recetas parcialmente cubiertas, con porcentaje de cobertura configurable (slider 0-100%).
-- **Modo cocina:** estados de progreso de la sesión (`EN_CURSO`, `COMPLETADA`, `ABANDONADA`, …); al finalizar se descuentan las cantidades del inventario. También descontado manual.
+- **Modo cocina:** estados de progreso de la sesión (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`); al finalizar se descuentan las cantidades del inventario, con confirmación previa si falta stock (la primera llamada responde `409` con el plan de descuento y, al aceptar, se descuenta lo disponible y la línea queda a cero). También descontado manual sin sesión.
 - **Social y personal:** recetas favoritas, guardadas, publicadas e historial de recetas realizadas.
 - **Recomendación con LLM:** asistente que sugiere recetas a partir del inventario (gratis, multi-proveedor con rotación y fallback).
 - **Preferencias de usuario:** exclusión de alérgenos, dieta, modo de filtrado por defecto.
@@ -100,7 +100,7 @@ Jenkins: build → test (JaCoCo) → quality gate → build Docker → deploy (d
 - **Recipe** — cabecera de receta (`source`: `THE_MEAL_DB` o `USER`; dietas, nutrientes por ración calculados desde el catálogo USDA, imagen) con sus **RecipeIngredient\*** line items (ingrediente, cantidad original y canónica, unidad).
 - **Allergen / UserAllergyExclusion** — ontología de alérgenos y exclusiones por usuario.
 - **UserPreferences** — modo de filtrado (laxo/estricto), umbral de cobertura por defecto, dieta.
-- **CookingSession** — sesión activa de una receta con estados de progreso (`EN_CURSO`, `COMPLETADA`, `ABANDONADA`, `EN_PAUSA`).
+- **CookingSession** — sesión de una receta con estados de progreso (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`; `completedAt` se sella al completar o abandonar). Backend implementado (H5); el frontend de la página `/cooking` está pendiente.
 - **ConsumptionEntry** — registro de descontado (automático al completar sesión o manual): `PantryItem`, cantidad, origen y timestamp.
 - **Favorite / SavedRecipe / PublishedRecipe** — vínculos personales con recetas.
 - **RecipeHistory** — histórico de recetas realizadas.

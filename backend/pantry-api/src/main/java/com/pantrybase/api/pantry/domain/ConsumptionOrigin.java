@@ -13,7 +13,18 @@ public enum ConsumptionOrigin {
      *
      * <p>The opening balance shares this origin rather than having one of its own: it is
      * the user telling us what they have, and splitting it would double the cases a
-     * reader has to handle for no fact gained.</p>
+     * reader has to handle for no fact gained. A manual deduction from the inventory
+     * keeps this origin too: it is as deliberate an action as any other adjustment.</p>
      */
-    MANUAL
+    MANUAL,
+
+    /**
+     * A quantity deducted automatically because a cooking session was completed.
+     *
+     * <p>Distinct from {@link #MANUAL} so the ledger can tell a movement the session
+     * wrote from one the user typed: the former is the whole recipe's deduction in one
+     * commit, and answering "why did three lines drop at once" is the pair of that
+     * question with an answer.</p>
+     */
+    COOKING_SESSION
 }

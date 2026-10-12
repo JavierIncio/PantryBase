@@ -2,13 +2,13 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **11 de octubre de 2026** (H4 casi cerrado: búsqueda por ingrediente en backend y frontend verificada — 267 tests backend, 226 frontend —; queda el refresco por TTL de las materializadas y el commit del bloque).
+> Máximo 100 líneas. Última actualización: **12 de octubre de 2026** (H5-a verificado: backend del modo cocina — sesiones, descontado al completar y descontado manual — cerrado con 284 tests backend y JaCoCo 87,77 %; queda el frontend de H5 y las métricas de sesión).
 
 ## Dónde estamos
 
-**Hito en curso: H4 (recetas y filtrado por disponibilidad).** Backend y frontend de H4 **cerrados y verdes**: materialización TheMealDB con cobertura honesta, nutrientes por ración, grid + slider + detalle, sugerencia por despensa (`GET /api/recipes/recommend`), búsqueda fresca por ingrediente con selector de catálogo, y refresco por TTL de las materializadas (`refreshed_at` + re-consulta in-place al proveedor). H0–H3 cerrados y documentados.
+**Hito en curso: H5 (modo cocina).** Backend de H5-a **cerrado y verde**: `CookingSession` con máquina de estados, descuento automático al completar (con confirmación previa si falta stock) y descuento manual desde el inventario. Queda el frontend de H5 (página `/cooking`) y las métricas de sesión. H0–H4 cerrados y documentados.
 
-Estado verificado: **backend 271 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **87,34 %** LINE). **Frontend 226 tests verdes (22 ficheros)** con `npm test` y `npm run build` sin avisos. Ojo: en `target/surefire-reports` hay un informe stale de `PantryMeasureEquivalenceIntegrationTest` (clase eliminada el 05/10); los totales fiables salen de Maven, no de los `.txt` huérfanos.
+Estado verificado: **backend 284 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **87,77 %** LINE). **Frontend 226 tests verdes (22 ficheros)** con `npm test` y `npm run build` sin avisos. Ojo: en `target/surefire-reports` hay informes stale de clases eliminadas; los totales fiables salen de Maven (y, de los `.txt`, solo los del último run).
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -31,6 +31,8 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 - **H4-h Refresco por TTL de materializadas:** migración `V15__recipe_refresh.sql` (columna `refreshed_at` NOT NULL DEFAULT now()) y `app.recipe.refresh-ttl: 24h`. Las filas `THE_MEAL_DB` rancias se re-consultan al proveedor **in-place** (mismo `Recipe.id`: no se invalidan URLs ni candidatos) al abrir el detalle y en búsquedas filtradas (el listado sin filtrar queda local; sus filas viejas se refrescan al abrirse). `refreshIfStale` re-materea con la misma tubería en `REQUIRES_NEW` (delete+insert de líneas, alérgenos y nutrientes re-derivados). Si el proveedor ya no sirve la receta o no casa ninguna línea, se conserva la copia local y se avanza el sello (evita la lluvia de re-consultas). `deleteByRecipeId` de líneas llevaba `@Query` sin `@Modifying` (nunca usado hasta hoy → 500); arreglado al patrón del repos de alérgenos. Guard `@PrePersist` en `Recipe` por si una ruta construye la entidad sin sello (la columna es NOT NULL y Hibernate escribe el null explícito). 4 tests nuevos (25 → 29 en `RecipeControllerIntegrationTest`; 267 → 271).
 
+- **H5-a Modo cocina (backend):** paquete `cooking` con `V16__cooking_sessions.sql`, `CookingSession`/`CookingSessionStatus`, `CookingSessionRepository` y `CookingService`/`CookingController`. Endpoints: `POST /api/cooking/sessions` (`{recipeId}`→201; 404 si la receta no es del usuario), `GET /api/cooking/sessions`, `PUT /api/cooking/sessions/{id}/state` (`{status, acceptShortage}`). Máquina: `IN_PROGRESS → PAUSED|COMPLETED|ABANDONED`, `PAUSED → IN_PROGRESS|COMPLETED|ABANDONED`, terminales `COMPLETED`/`ABANDONED` (repetir → 409); `completedAt` se sella en `COMPLETED` **y** `ABANDONED`. **Descontado al completar:** casa cada línea canónica de la receta (`canonicalAmount`/`canonicalUnitCode` de H4) por `ingredientId` con la despensa y genera `ConsumptionEntry` con `origin=COOKING_SESSION`; si falta stock, **409 con el plan de descuento** (`CompletionDeductionResponse` en vez del `ErrorResponse`) y nada cambia; al reenviar con `acceptShortage=true` descuenta `min(necesario, disponible)`, deja la línea a 0 y asume la parte no registrada sin asiento. **Descontado manual:** `POST /api/pantry/{itemId}/consume` (`{amount>0, unitCode}`) por la misma tubería con `origin=MANUAL` (409 si baja de cero). `ConsumptionOrigin` gana `COOKING_SESSION`. `AbstractIntegrationTest` ahora limpia también recetas y sesiones (una `recipe_ingredient` sobrante rompía el vaciado del catálogo de los tests de despensa). 13 tests nuevos (`CookingControllerIntegrationTest` + consume en `PantryAdjustmentIntegrationTest`; 271 → 284).
+
 ## Decisiones ya tomadas (no volver a abrir sin motivo)
 
 - **H3:** cantidad en `GRAM`/`UNIT` (volumen sin densidad → `ML`); una fila por ingrediente; ajuste con signo y asiento obligatorio; negativo `409` y cero permitido; `@Version` del servidor; `PUT` sin campo de cantidad.
@@ -42,14 +44,16 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H4 escritura desde `search`:** la auto-invocación no pasa por el proxy transaccional y la transacción externa es de solo lectura, así que la persistencia va en un `TransactionTemplate` con `REQUIRES_NEW`; la carrera la arbitra el `UNIQUE (source, external_id)` y se ignora.
 - **H4 recomendación:** el perfil es la fuente del umbral al abrir la página y el slider solo refina en sesión; `/recommend` fuerza `threshold=0` para entregar el rango completo al cliente. La palabra base es heurística (primer token, sin singularizar porque TheMealDB usa plurales), y la caché de `filter.php` tiene su propio prefijo para no confundirse con la de `search.php`. Los candidatos se eligen hasta 8 (cantidad desc) y los 24 hits se reparten **por cuota justa**: ninguna palabra de la despensa puede monopolizar el set.
 - **H4 refresco por TTL:** refresco **in-place** (mismo id de receta) en detalle y búsquedas filtradas, nunca en listados sin filtrar; si el proveedor deja de servir la receta o nada casa tras el refresco, se conserva la copia local y se avanza `refreshed_at` (sin eso, cada búsqueda reintentaría). `@PrePersist` sella `refreshed_at` si una ruta no lo hace (columna NOT NULL + INSERT explícito con null de Hibernate).
+- **H5 descontado y carencia:** completar descuenta las líneas canónicas de la receta con `origin=COOKING_SESSION`; si falta stock, la primera llamada no cambia nada y devuelve **409 con el plan** (`deducted = min(necesario, disponible)`, `remaining`) para que el cliente muestre la consecuencia; al aceptar (`acceptShortage=true`) la línea baja a 0 y la parte no registrada se asume aportada **sin inventar asiento**. El descuento manual (`/consume`, `origin=MANUAL`) y el ajuste usan la misma tubería y libro mayor; bajar de cero siempre 409. `completedAt` se sella también al abandonar (la duración de un abandono es un dato). Las recetas no tienen pasos estructurados: la sesión solo guarda estado; el marcado de pasos es del frontend y no se persiste.
 - **Queries JPQL explícitas cuando el destino no es la entidad:** `findAllergenCodesByRecipeId` sin `@Query` devolvía entidades y la conversión a `String` caía en un `500`; los derived finder devuelven entidades.
 - **Los tests usan los endpoints reales** cuando tocan datos con lazy (p. ej. `excludeFromDiet` vía `PUT /api/users/allergy-exclusions`): tocar `User.allergyExclusions` fuera de sesión revienta con `LazyInitializationException`.
 
 ## Próximos pasos
 
-1. **H5 (modo cocina):** `ConsumptionOrigin` gana `COOKING_SESSION`; el tipo del frontend es unión de uno solo y avisará el compilador.
-2. **H6 (Material theming):** 4-5 paletas SCSS → `:root[data-theme=...]`, selector en preferencias; sin Tailwind ni FontAwesome. Frontend puro.
-3. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
+1. **Frontend de H5:** página `/cooking` (el detalle de receta ya enlaza ahí): iniciar sesión, progreso de estado (pause/resume/abandon), diálogo de carencia cuando el 409 trae el plan (mostrar líneas que faltan y confirmar `acceptShortage`). Delegar en el subagente `frontend`.
+2. **Cerrar H5:** métricas de sesión (duración, tasa de finalización) y advertencias de stock a cero.
+3. **H6 (Material theming):** 4-5 paletas SCSS → `:root[data-theme=...]`, selector en preferencias; sin Tailwind ni FontAwesome. Frontend puro.
+4. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
 
 ## Cuellos de botella y riesgos
 
@@ -66,6 +70,6 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 ## Cómo trabajar aquí
 
 - Comandos: backend `.\mvnw.cmd -o verify` en `backend/pantry-api`; frontend `npm test` / `npm run build`; infra `docker compose up -d` en `infra/`.
-- Documentación: `README.md`, `docs/ROADMAP.md`, `docs/VERSIONS.md` (consultar antes de proponer dependencias), `docs/FEATURE_GUIDE.md` (sección 12 = recetas).
+- Documentación: `README.md`, `docs/ROADMAP.md`, `docs/VERSIONS.md` (consultar antes de proponer dependencias), `docs/FEATURE_GUIDE.md` (sección 12 = recetas, sección 13 = modo cocina).
 - Reglas de trabajo y de idioma: `AGENTS.md`. El frontend solo lo toca el subagente `frontend`.
 - Al cerrar cada fase: tests verdes + docs actualizadas + commit convencional (proponer, nunca push sin pedirlo).

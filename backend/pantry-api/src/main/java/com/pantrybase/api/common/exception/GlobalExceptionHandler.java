@@ -9,6 +9,10 @@ import com.pantrybase.api.catalog.exception.UnknownUnitException;
 import com.pantrybase.api.catalog.exception.UnsupportedConversionException;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.common.dto.ErrorResponseFactory;
+import com.pantrybase.api.cooking.dto.CompletionDeductionResponse;
+import com.pantrybase.api.cooking.exception.CookingSessionNotFoundException;
+import com.pantrybase.api.cooking.exception.CookingShortageException;
+import com.pantrybase.api.cooking.exception.InvalidCookingStateTransitionException;
 import com.pantrybase.api.pantry.exception.IngredientAlreadyInPantryException;
 import com.pantrybase.api.pantry.exception.IngredientNotInCatalogException;
 import com.pantrybase.api.pantry.exception.InsufficientStockException;
@@ -305,5 +309,43 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(ErrorResponseFactory.of(HttpStatus.CONFLICT,
                         "The item was modified concurrently; read it again and retry", request));
+    }
+
+    /** Maps a missing cooking session, including one owned by somebody else, to 404. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleCookingSessionNotFound(CookingSessionNotFoundException ex,
+                                                                      HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps an illegal cooking-session state move to 409.
+     *
+     * <p>409 and not 400 for the same reason as a negative pantry adjustment: the request
+     * is well formed, the state it was applied to is what refuses it.</p>
+     */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleInvalidCookingTransition(InvalidCookingStateTransitionException ex,
+                                                                        HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponseFactory.of(HttpStatus.CONFLICT, ex.getMessage(), request));
+    }
+
+    /**
+     * Maps completing a session that exceeds the pantry to 409, carrying the deduction plan.
+     *
+     * <p>The body is the plan rather than the usual {@link ErrorResponse}: the caller has
+     * to show which lines fall short and what each would become before asking whether to
+     * continue, and returning the same DTO the success path uses saves the client a
+     * second shape. No movement is written; the session is left open.</p>
+     */
+    @ExceptionHandler
+    public ResponseEntity<CompletionDeductionResponse> handleCookingShortage(CookingShortageException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new CompletionDeductionResponse(true, ex.getLines()));
     }
 }

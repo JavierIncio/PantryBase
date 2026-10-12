@@ -4,7 +4,12 @@ import com.pantrybase.api.auth.dto.AuthResponse;
 import com.pantrybase.api.auth.repository.RefreshTokenRepository;
 import com.pantrybase.api.catalog.repository.MeasureConversionRepository;
 import com.pantrybase.api.common.dto.ErrorResponse;
+import com.pantrybase.api.cooking.repository.CookingSessionRepository;
 import com.pantrybase.api.pantry.repository.PantryItemRepository;
+import com.pantrybase.api.recipe.repository.RecipeAllergenRepository;
+import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
+import com.pantrybase.api.recipe.repository.RecipeNutrientsRepository;
+import com.pantrybase.api.recipe.repository.RecipeRepository;
 import com.pantrybase.api.user.domain.Role;
 import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.repository.UserPreferencesRepository;
@@ -60,12 +65,31 @@ public abstract class AbstractIntegrationTest {
     protected MeasureConversionRepository measureConversionRepository;
     @Autowired
     protected PantryItemRepository pantryItemRepository;
+    @Autowired
+    protected CookingSessionRepository cookingSessionRepository;
+    @Autowired
+    protected RecipeRepository recipeRepository;
+    @Autowired
+    protected RecipeIngredientRepository recipeIngredientRepository;
+    @Autowired
+    protected RecipeAllergenRepository recipeAllergenRepository;
+    @Autowired
+    protected RecipeNutrientsRepository recipeNutrientsRepository;
 
     @BeforeEach
     void setUp() {
         // First, because it is the only table here that both holds data and is referenced
         // by the two the other tests wipe. Left in place, deleting a user or an ingredient
         // fails on the foreign key and the failure would look like a bug in the delete.
+        // Cooking sessions reference a user (and a recipe), so they go before both.
+        cookingSessionRepository.deleteAll();
+        // Recipes and their children go next: a leftover recipe_ingredient references an
+        // ingredient, and the pantry suites wipe the whole catalog. Clearing them here
+        // rather than per suite keeps test order from deciding whether a run is green.
+        recipeAllergenRepository.deleteAll();
+        recipeNutrientsRepository.deleteAll();
+        recipeIngredientRepository.deleteAll();
+        recipeRepository.deleteAll();
         pantryItemRepository.deleteAll();
         userRepository.deleteAll();
         refreshTokenRepository.deleteAll();

@@ -4,6 +4,7 @@ import com.pantrybase.api.catalog.domain.Ingredient;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.pantry.domain.ConsumptionOrigin;
 import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
+import com.pantrybase.api.pantry.dto.ConsumePantryItemRequest;
 import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import org.junit.jupiter.api.Test;
@@ -299,12 +300,86 @@ class PantryAdjustmentIntegrationTest extends AbstractPantryIntegrationTest {
         assertThat(entries(headers, id)).hasSize(4);
     }
 
+    @Test
+    void consume_reducesTheLineAndRecordsAManualMovement() {
+        HttpHeaders headers = authenticate();
+        materialize(MILK_FDC_ID, "Milk, whole", MILK, "MILK");
+        long id = addMilk(headers, new BigDecimal("1")).getBody().id();
+
+        ResponseEntity<PantryItemResponse> response = consume(headers, id, "500", "GRAM");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().quantity()).isCloseTo(new BigDecimal("531.288"),
+                within(TOLERANCE));
+        assertDeltas(headers, id, "1031.288", "-500");
+        // Manual, not a session's: the user typed it, and the ledger says so.
+        assertThat(entries(headers, id).get(1).origin()).isEqualTo(ConsumptionOrigin.MANUAL);
+    }
+
+    @Test
+    void consume_moreThanTheLineHolds_returns409AndLeavesStockUntouched() {
+        HttpHeaders headers = authenticate();
+        materialize(MILK_FDC_ID, "Milk, whole", MILK, "MILK");
+        long id = addMilk(headers, new BigDecimal("1")).getBody().id();
+
+        ResponseEntity<ErrorResponse> response = consumeError(headers, id, "2000", "GRAM");
+
+        // Same conflict as a negative adjustment: the request is fine, the stock is not.
+        assertError(response, HttpStatus.CONFLICT, PANTRY + "/" + id + "/consume");
+        assertThat(list(headers).getBody().get(0).quantity())
+                .isCloseTo(new BigDecimal("1031.288"), within(TOLERANCE));
+        assertThat(entries(headers, id)).hasSize(1);
+    }
+
+    @Test
+    void consume_zeroOrNegative_returns400() {
+        HttpHeaders headers = authenticate();
+        materialize(MILK_FDC_ID, "Milk, whole", MILK, "MILK");
+        long id = addMilk(headers, new BigDecimal("1")).getBody().id();
+
+        // Positive-only by bean validation, so consume can never quietly become an add.
+        assertError(consumeError(headers, id, "0", "GRAM"),
+                HttpStatus.BAD_REQUEST, PANTRY + "/" + id + "/consume");
+        assertError(consumeError(headers, id, "-250", "GRAM"),
+                HttpStatus.BAD_REQUEST, PANTRY + "/" + id + "/consume");
+        assertThat(entries(headers, id)).hasSize(1);
+    }
+
+    @Test
+    void consume_anotherUsersLine_returns404AndLeavesItAlone() {
+        HttpHeaders mine = authenticate();
+        HttpHeaders theirs = authenticateAsSecondUser();
+        materialize(MILK_FDC_ID, "Milk, whole", MILK, "MILK");
+        long theirId = addMilk(theirs, new BigDecimal("1")).getBody().id();
+
+        ResponseEntity<ErrorResponse> response = consumeError(mine, theirId, "100", "GRAM");
+
+        assertError(response, HttpStatus.NOT_FOUND, PANTRY + "/" + theirId + "/consume");
+        assertThat(entries(theirs, theirId)).hasSize(1);
+    }
+
     private ResponseEntity<PantryItemResponse> adjust(HttpHeaders headers, long id,
                                                        String amount, String unitCode) {
         return rest.exchange(PANTRY + "/" + id + "/adjustments", HttpMethod.POST,
                 new HttpEntity<>(new AdjustPantryItemRequest(new BigDecimal(amount), unitCode),
                         headers),
                 PantryItemResponse.class);
+    }
+
+    private ResponseEntity<PantryItemResponse> consume(HttpHeaders headers, long id,
+                                                       String amount, String unitCode) {
+        return rest.exchange(PANTRY + "/" + id + "/consume", HttpMethod.POST,
+                new HttpEntity<>(new ConsumePantryItemRequest(new BigDecimal(amount), unitCode),
+                        headers),
+                PantryItemResponse.class);
+    }
+
+    private ResponseEntity<ErrorResponse> consumeError(HttpHeaders headers, long id,
+                                                       String amount, String unitCode) {
+        return rest.exchange(PANTRY + "/" + id + "/consume", HttpMethod.POST,
+                new HttpEntity<>(new ConsumePantryItemRequest(new BigDecimal(amount), unitCode),
+                        headers),
+                ErrorResponse.class);
     }
 
     private List<ConsumptionEntryResponse> entries(HttpHeaders headers, long id) {

@@ -22,15 +22,16 @@ No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROA
 10. [Administración de clases de densidad](#10-administración-de-clases-de-densidad)
 11. [Despensa: inventario del usuario (H3-1 y H3-2)](#11-despensa-inventario-del-usuario-h3-1-y-h3-2)
 12. [Recetas: búsqueda y cobertura (H4)](#12-recetas-búsqueda-y-cobertura-h4)
-13. [Rate limiting](#13-rate-limiting)
-14. [Manejo de errores de la API](#14-manejo-de-errores-de-la-api)
-15. [Observabilidad](#15-observabilidad)
-16. [Correo de desarrollo (Mailpit)](#16-correo-de-desarrollo-mailpit)
-17. [Frontend: sesión, guardas y estructura](#17-frontend-sesión-guardas-y-estructura)
-18. [Migraciones de base de datos](#18-migraciones-de-base-de-datos)
-19. [Tests](#19-tests)
-20. [CI/CD e imágenes Docker](#20-cicd-e-imágenes-docker)
-21. [Zona horaria y notas de mantenimiento](#21-zona-horaria-y-notas-de-mantenimiento)
+13. [Modo cocina (H5)](#13-modo-cocina-h5)
+14. [Rate limiting](#14-rate-limiting)
+15. [Manejo de errores de la API](#15-manejo-de-errores-de-la-api)
+16. [Observabilidad](#16-observabilidad)
+17. [Correo de desarrollo (Mailpit)](#17-correo-de-desarrollo-mailpit)
+18. [Frontend: sesión, guardas y estructura](#18-frontend-sesión-guardas-y-estructura)
+19. [Migraciones de base de datos](#19-migraciones-de-base-de-datos)
+20. [Tests](#20-tests)
+21. [CI/CD e imágenes Docker](#21-cicd-e-imágenes-docker)
+22. [Zona horaria y notas de mantenimiento](#22-zona-horaria-y-notas-de-mantenimiento)
 
 ---
 
@@ -341,7 +342,7 @@ Asignar una clase que no existe produce un error `404`: así este endpoint no se
 | Tablas | `db/migration/V12__pantry_items.sql` |
 | Tests | `pantry/PantryControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java`, `pantry/PantryMetricsIntegrationTest.java`, `src/app/core/pantry/pantry.service.spec.ts`, `src/app/pages/pantry/pantry-page.spec.ts` |
 
-**Endpoints:** `GET /api/pantry`, `GET /api/pantry/summary`, `POST /api/pantry`, `PUT /api/pantry/{id}`, `DELETE /api/pantry/{id}`, `POST /api/pantry/{id}/adjustments` y `GET /api/pantry/{id}/entries`. Todos requieren usuario autenticado y toman el propietario del token, nunca del cuerpo de la petición.
+**Endpoints:** `GET /api/pantry`, `GET /api/pantry/summary`, `POST /api/pantry`, `PUT /api/pantry/{id}`, `DELETE /api/pantry/{id}`, `POST /api/pantry/{id}/adjustments`, `GET /api/pantry/{id}/entries` y `POST /api/pantry/{id}/consume` (descontado manual; ver §13). Todos requieren usuario autenticado y toman el propietario del token, nunca del cuerpo de la petición.
 
 **La regla central: la cantidad se guarda en `GRAM` siempre que se pueda, y en `UNIT` para lo que se cuenta.** Se normaliza al entrar y nunca al salir. El motivo es que una despensa se lee mucho más de lo que se escribe, y todo lo que venga después (cobertura de recetas en H4, descontado en H5) tiene que comparar cantidades entre sí; guardar "2 tazas" obligaría a convertir primero, y esa conversión depende de una densidad que el ingrediente puede que no tenga.
 
@@ -444,7 +445,35 @@ Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_ent
 
 ---
 
-## 13. Rate limiting
+## 13. Modo cocina (H5)
+
+**Qué hace:** abre una sesión de cocina para una receta, sigue su estado (`IN_PROGRESS` → `PAUSED`/`COMPLETED`/`ABANDONED`) y, al completarla, descuenta de la despensa exactamente las cantidades canónicas de la receta. También permite descontar a mano una línea del inventario sin sesión.
+
+| Pieza | Ruta |
+|---|---|
+| `CookingController` (`/api/cooking/sessions`) | `cooking/web/CookingController.java` |
+| `CookingService` (transiciones, plan y descuento) | `cooking/service/CookingService.java` |
+| Entidades | `cooking/domain/` (`CookingSession`, `CookingSessionStatus`) |
+| Repositorio | `cooking/repository/CookingSessionRepository.java` |
+| DTOs | `cooking/dto/` (`CreateCookingSessionRequest`, `CookingSessionResponse`, `UpdateCookingSessionStateRequest`, `DeductionLineResponse`, `CompletionDeductionResponse`) |
+| Excepciones | `cooking/exception/` (`CookingSessionNotFoundException` 404, `InvalidCookingStateTransitionException` 409, `CookingShortageException` 409, resueltas en `GlobalExceptionHandler`) |
+| Descontado manual | `pantry/web/PantryController.java` (`POST /api/pantry/{itemId}/consume`), `pantry/service/PantryService.java` (`consume`, `deduct`) |
+| Tabla | `db/migration/V16__cooking_sessions.sql` |
+| Tests | `cooking/CookingControllerIntegrationTest.java`, `pantry/PantryAdjustmentIntegrationTest.java` |
+
+**Endpoints:** `POST /api/cooking/sessions` (`{recipeId}` → `201`; `404` si la receta no es del usuario), `GET /api/cooking/sessions` (historial del usuario, más recientes primero), `PUT /api/cooking/sessions/{id}/state` (`{status, acceptShortage}`) y `POST /api/pantry/{itemId}/consume` (`{amount>0, unitCode}` → `200` con la línea y su asiento). El propietario sale del token, nunca del cuerpo.
+
+**La máquina de estados.** `IN_PROGRESS` puede pasar a `PAUSED`, `COMPLETED` o `ABANDONED`; `PAUSED` puede volver a `IN_PROGRESS` o cerrarse a `COMPLETED`/`ABANDONED`; `COMPLETED` y `ABANDONED` son terminales. Repetir el estado actual o salir de uno terminal devuelve `409`. `completedAt` se sella al entrar en `COMPLETED` **o** `ABANDONED`: abandonar también cierra la sesión y su duración es un dato. Las recetas no tienen pasos estructurados (solo `instructions` en texto libre), así que la sesión solo guarda su estado; el marcado de pasos es responsabilidad del frontend y no se persiste.
+
+**Descontado al completar (el corazón de H5).** La receta ya trae, desde H4, una cantidad canónica por línea (`RecipeIngredient.canonicalAmount` / `canonicalUnitCode`, convertida con el mismo `UnitConverter.toStorageUnit` que la despensa), así que comparar es canónico contra canónico y no hay que reconvertir. `CookingService` casa cada línea por `ingredientId` con `PantryItem` del usuario y, si todo el stock llega, escribe un `ConsumptionEntry` con `origin=COOKING_SESSION` y delta negativo por línea y baja la cantidad. La ejecución se hace en dos fases dentro de la transacción de la petición: primero se arma el **plan** (una entrada por línea con `needed`, `available`, `deducted` y `remaining`), y solo si el plan no tiene carencias se aplica.
+
+**Stock insuficiente.** Si alguna línea no llega, la primera llamada con `acceptShortage` ausente o `false` no cambia nada y responde **`409` con el plan de descuento** en el cuerpo (`CompletionDeductionResponse`, no el `ErrorResponse` habitual): el cliente necesita nombrar las líneas que se quedan cortas y qué sería de cada una antes de preguntar. En ese plan `deducted` es la proyección de aceptar —`min(available, needed)`— y `remaining` lo que quedaría, porque el usuario decide viendo la consecuencia. Si acepta, reenvía con `acceptShortage=true` y entonces sí se descuenta: la línea baja a 0 y la parte que faltaba **se asume aportada sin registro** (no se inventa un asiento por gramos que nunca entraron). El descuento manual `POST /api/pantry/{itemId}/consume` reutiliza la misma tubería y el mismo libro mayor con `origin=MANUAL`, y también devuelve `409` si dejaría la cantidad bajo cero.
+
+**Definition of done:** completar una receta de 3 ingredientes reduce la despensa exactamente en las cantidades canónicas, y el sumatorio de deltas del libro mayor coincide con la cantidad de cada línea (test de integración `complete_deductsEachIngredientExactly_andTheLedgerAgrees`).
+
+---
+
+## 14. Rate limiting
 
 **Qué hace:** protege la API de abuso limitando cuántas peticiones puede hacer un cliente en una ventana de tiempo.
 
@@ -468,7 +497,7 @@ Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-
 
 ---
 
-## 14. Manejo de errores de la API
+## 15. Manejo de errores de la API
 
 **Qué hace:** convierte los errores internos en respuestas HTTP consistentes, con un formato único para toda la API.
 
@@ -494,7 +523,7 @@ Formato de la respuesta de error (`common/dto/ErrorResponse.java`):
 
 ---
 
-## 15. Observabilidad
+## 16. Observabilidad
 
 **Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos.
 
@@ -509,7 +538,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 16. Correo de desarrollo (Mailpit)
+## 17. Correo de desarrollo (Mailpit)
 
 **Qué hace:** captura los correos que envía la aplicación en lugar de mandarlos de verdad, y los muestra en una interfaz web.
 
@@ -519,7 +548,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 17. Frontend: sesión, guardas y estructura
+## 18. Frontend: sesión, guardas y estructura
 
 **Qué hace:** gestiona la sesión en el navegador y decide a qué páginas puede entrar el usuario.
 
@@ -579,7 +608,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 18. Migraciones de base de datos
+## 19. Migraciones de base de datos
 
 **Qué hace:** crea y modifica el esquema de la base de datos de forma versionada y reproducible.
 
@@ -600,12 +629,15 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 | `V11__catalog_density_class_revalidation.sql` | Procedencia de `FLOUR`, `SUGAR` y `OIL`. |
 | `V12__pantry_items.sql` | `pantry_items` (con `version` para bloqueo optimista y `CHECK (quantity >= 0)`) y `consumption_entries` (`delta_quantity` con signo, sin columna de unidad, borrado en cascada). |
 | `V13__recipes.sql` | `recipes`, `recipe_ingredients` (original + canónico), `recipe_nutrients`, `allergen_mapping` (semillas con los códigos EU de `V3`) y `recipe_allergens`. |
+| `V14__recipe_ingredient_matching.sql` | Columnas de emparejado de `recipe_ingredients` (`matched`, `ingredient_id`, `position`) y el índice único que evita duplicar una receta por origen (`UNIQUE (source, external_id)`). |
+| `V15__recipe_refresh.sql` | `recipes.refreshed_at` (NOT NULL, default `now()`): el sello que el refresco por TTL de TheMealDB comprueba y avanza. |
+| `V16__cooking_sessions.sql` | `cooking_sessions` (`user_id`, `recipe_id`, `status`, `started_at`, `completed_at`, `created_at`) con sus claves foráneas y el check de estados. |
 
 **Regla importante:** una migración ya aplicada **no se edita jamás**; se añade una nueva. Editarla dejaría los entornos desincronizados sin que nada avise. Por eso la procedencia de los valores de `FLOUR`/`SUGAR`/`OIL` no se corrigió en `V5` sino que se documentó en `V11`.
 
 ---
 
-## 19. Tests
+## 20. Tests
 
 **Qué se prueba y cómo:**
 
@@ -619,7 +651,7 @@ Los tests Java replican la estructura del código principal: un test de `catalog
 
 **Los tests de integración no usan bases de datos de mentira.** `TestcontainersConfiguration` arranca un PostgreSQL y un Redis reales en contenedores, de modo que las migraciones, las claves foráneas y las consultas se ejecutan tal como en producción. Un test que pasa contra un motor de base de datos falso puede fallar en producción por una diferencia sutil de sintaxis SQL.
 
-**`AbstractIntegrationTest` limpia `pantry_items` antes que `users`.** El orden importa: es la única tabla que a la vez contiene datos y es referenciada por las dos que otros tests vacían. Si se quedara, borrar un usuario o un ingrediente fallaría por la clave foránea y el fallo parecería un error en el borrado en lugar de un orden de limpieza equivocado.
+**`AbstractIntegrationTest` limpia `pantry_items` antes que `users`, y también introduce las recetas y las sesiones de cocina.** El orden importa: la despensa es la única tabla que a la vez contiene datos y es referenciada por las dos que otros tests vacían; las recetas y sus líneas van después, porque una `recipe_ingredient` sobrante referencia un `ingredient` y los tests de despensa vacían el catálogo entero —si se quedara, borrar un usuario o un ingrediente fallaría por la clave foránea y el fallo parecería un error en el borrado en lugar de un orden de limpieza equivocado.
 
 Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra `StubFoodCatalogPort` como `@Primary`, de manera que el USDA real no se invoca nunca y no se gasta cuota. El `src/test/resources/application.yml` desactiva además la recarga del cubo de fichas (`refill-interval-millis: 3600000`) para que los tests que cuentan tokens exactos no se vuelvan intermitentes; la recarga se cubre por separado en `TokenBucketRefillIntegrationTest`, que sobrescribe ese intervalo.
 
@@ -627,7 +659,7 @@ Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra 
 
 ---
 
-## 20. CI/CD e imágenes Docker
+## 21. CI/CD e imágenes Docker
 
 **Qué hace:** construye, prueba y publica la imagen de la API automáticamente.
 
@@ -644,7 +676,7 @@ La razón es el tamaño y la superficie: la imagen final no incluye Maven, ni el
 
 ---
 
-## 21. Zona horaria y notas de mantenimiento
+## 22. Zona horaria y notas de mantenimiento
 
 - **Zona horaria:** la aplicación trabaja en UTC. `TimeConfig` expone un bean `Clock` en lugar de llamar a `Instant.now()` directamente en el código, lo que permite sustituir el reloj en los tests y comprobar vencimientos de tokens y de caché sin esperar en tiempo real.
 - **Los secretos nunca se versionan:** viven en `infra/.env`, ignorado por git. En `infra/.env.example` solo aparecen los nombres de las variables.

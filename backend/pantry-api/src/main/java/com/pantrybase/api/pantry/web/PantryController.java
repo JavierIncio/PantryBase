@@ -1,6 +1,7 @@
 package com.pantrybase.api.pantry.web;
 
 import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
+import com.pantrybase.api.pantry.dto.ConsumePantryItemRequest;
 import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
@@ -110,5 +111,21 @@ public class PantryController {
     public List<ConsumptionEntryResponse> entries(@AuthenticationPrincipal Long userId,
                                                  @PathVariable long itemId) {
         return pantryService.entries(userId, itemId);
+    }
+
+    /**
+     * Consumes an amount of a line, without a cooking session.
+     *
+     * <p>A sibling of {@code /adjustments} rather than a special value of it: an
+     * adjustment takes a signed amount and can add stock, while this endpoint exists to
+     * record that the user used something up and refuses any amount that is not positive.
+     * The movement is written to the same ledger, so the item's quantity stays
+     * explained.</p>
+     */
+    @PostMapping("/{itemId}/consume")
+    public PantryItemResponse consume(@AuthenticationPrincipal Long userId,
+                                      @PathVariable long itemId,
+                                      @Valid @RequestBody ConsumePantryItemRequest request) {
+        return pantryService.consume(userId, itemId, request);
     }
 }

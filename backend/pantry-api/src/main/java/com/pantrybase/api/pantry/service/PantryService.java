@@ -10,6 +10,7 @@ import com.pantrybase.api.pantry.domain.ConsumptionOrigin;
 import com.pantrybase.api.pantry.domain.PantryItem;
 import com.pantrybase.api.pantry.dto.AdjustPantryItemRequest;
 import com.pantrybase.api.pantry.dto.CategoryShareResponse;
+import com.pantrybase.api.pantry.dto.ConsumePantryItemRequest;
 import com.pantrybase.api.pantry.dto.ConsumptionEntryResponse;
 import com.pantrybase.api.pantry.dto.CreatePantryItemRequest;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
@@ -188,9 +189,74 @@ public class PantryService {
         item.setNote(request.note());
 
         PantryItem saved = pantryItemRepo.save(item);
-        recordEntry(saved, stored.amount());
+        recordEntry(saved, stored.amount(), ConsumptionOrigin.MANUAL);
 
         return toResponse(saved, ingredient);
+    }
+
+    /**
+     * Takes an amount off one line, without a cooking session.
+     *
+     * <p>The manual counterpart of a session's automatic deduction: same ledger, same
+     * refusal to go below zero, but the amount is one the user typed against one
+     * ingredient. It records {@link ConsumptionOrigin#MANUAL} because it is a deliberate
+     * adjustment, indistinguishable in intent from any other.</p>
+     *
+     * <p>The amount must be positive (bean validation rejects zero and negatives), so
+     * this endpoint can only ever remove stock; growing a line stays the adjustment's
+     * job. The amount is converted into the line's own unit, which is immutable.</p>
+     *
+     * @throws PantryItemNotFoundException if the item is not in this user's pantry
+     * @throws InsufficientStockException  if more is consumed than the line holds
+     */
+    @Transactional
+    public PantryItemResponse consume(Long userId, long itemId, ConsumePantryItemRequest request) {
+        PantryItem item = requireOwned(userId, itemId);
+
+        QuantityInfo delta = unitConverter.convert(
+                request.amount(), request.unitCode(), item.getUnitCode(), item.getIngredientId(), null);
+
+        BigDecimal result = item.getQuantity().subtract(delta.amount());
+        if (result.signum() < 0) {
+            throw new InsufficientStockException(itemId, delta.amount().negate(),
+                    item.getQuantity(), result, item.getUnitCode());
+        }
+
+        item.setQuantity(result);
+        PantryItem saved = pantryItemRepo.save(item);
+        recordEntry(saved, delta.amount().negate(), ConsumptionOrigin.MANUAL);
+
+        return toResponse(saved, ingredientRepo.getReferenceById(item.getIngredientId()));
+    }
+
+    /**
+     * Deducts a quantity from a line chosen by ingredient, recording the movement.
+     *
+     * <p>Exists so the cooking package can apply a completion without owning the ledger:
+     * the movement is written here, in the one place that keeps "the sum of an item's
+     * entries is its quantity" true. The caller has already decided how much to take
+     * (see the shortage handling in {@code CookingService}); this method only enforces
+     * the floor.</p>
+     *
+     * <p>A user with no line for the ingredient has nothing to deduct and the call is a
+     * no-op rather than an error: a recipe line with no stock is a normal, expected
+     * outcome of completion, already known to the caller.</p>
+     *
+     * @throws InsufficientStockException if the deduction would take the line below zero
+     */
+    @Transactional
+    public void deduct(Long userId, long ingredientId, BigDecimal amount, ConsumptionOrigin origin) {
+        pantryItemRepo.findByUserIdAndIngredientId(userId, ingredientId).ifPresent(item -> {
+            BigDecimal result = item.getQuantity().subtract(amount);
+            if (result.signum() < 0) {
+                throw new InsufficientStockException(item.getId(), amount.negate(),
+                        item.getQuantity(), result, item.getUnitCode());
+            }
+
+            item.setQuantity(result);
+            PantryItem saved = pantryItemRepo.save(item);
+            recordEntry(saved, amount.negate(), origin);
+        });
     }
 
     /**
@@ -235,7 +301,7 @@ public class PantryService {
 
         item.setQuantity(result);
         PantryItem saved = pantryItemRepo.save(item);
-        recordEntry(saved, delta.amount());
+        recordEntry(saved, delta.amount(), ConsumptionOrigin.MANUAL);
 
         return toResponse(saved,
                 ingredientRepo.getReferenceById(item.getIngredientId()));
@@ -318,14 +384,16 @@ public class PantryService {
      *
      * <p>Takes the saved item because the entry needs its id, which only exists after
      * the insert; taking the delta separately keeps the caller from having to restate a
-     * number that is already in hand.</p>
+     * number that is already in hand. The origin is passed in rather than defaulted, so
+     * the two callers that mean different things — a manual movement and a session
+     * deduction — cannot silently agree on the wrong one.</p>
      */
-    private void recordEntry(PantryItem item, BigDecimal delta) {
+    private void recordEntry(PantryItem item, BigDecimal delta, ConsumptionOrigin origin) {
         ConsumptionEntry entry = new ConsumptionEntry();
         entry.setPantryItemId(item.getId());
         entry.setUserId(item.getUserId());
         entry.setDeltaQuantity(delta);
-        entry.setOrigin(ConsumptionOrigin.MANUAL);
+        entry.setOrigin(origin);
 
         consumptionEntryRepo.save(entry);
     }

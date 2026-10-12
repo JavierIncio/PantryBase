@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,6 +20,17 @@ public interface PantryItemRepository extends JpaRepository<PantryItem, Long> {
      * id-only finder to reach for by mistake.</p>
      */
     Optional<PantryItem> findByIdAndUserId(Long id, Long userId);
+
+    Optional<PantryItem> findByUserIdAndIngredientId(Long userId, Long ingredientId);
+
+    /**
+     * The caller's lines for a set of ingredients, in one query.
+     *
+     * <p>Completing a cooking session needs the stock of every ingredient the recipe
+     * uses; a per-line lookup would turn one deduction into N round trips, and the set
+     * is small and fixed by the recipe.</p>
+     */
+    List<PantryItem> findByUserIdAndIngredientIdIn(Long userId, Collection<Long> ingredientIds);
 
     boolean existsByUserIdAndIngredientId(Long userId, Long ingredientId);
 

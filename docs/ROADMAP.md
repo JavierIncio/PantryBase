@@ -126,14 +126,18 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 **Objetivo:** seguir la receta y reflejar el consumo en la despensa.
 
-- [ ] `CookingSession` con estados: `EN_CURSO`, `EN_PAUSA`, `COMPLETADA`, `ABANDONADA`.
+- [x] `CookingSession` con estados: `IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED` (backend).
 - [ ] Marcar pasos/progreso de la receta desde el frontend.
-- [ ] Al **completar** sesión: generar `ConsumptionEntry` automáticos (descontar cantidades usadas) con confirmación previa.
-- [ ] Descontado manual desde el inventario (sin sesión).
-- [ ] Cálculo de stock tras descuento; advertencias si un ingrediente queda a cero.
+- [x] Al **completar** sesión: generar `ConsumptionEntry` automáticos (descontar cantidades usadas) con confirmación previa (backend).
+- [x] Descontado manual desde el inventario (sin sesión) (backend).
+- [x] Cálculo de stock tras descuento; advertencias si un ingrediente queda a cero (backend).
 - [ ] Métricas: duración de sesiones, tasa de finalización.
 
-**Definition of done:** completar una receta de 3 ingredientes reduce la despensa exactamente en las cantidades usadas (verificado con tests de integración).
+**Backend del bloque (oct 2026):** el paquete `cooking` abre el modo cocina con `POST /api/cooking/sessions` (`{recipeId}` → 201; 404 si la receta no es propia), `PUT /api/cooking/sessions/{id}/state` (`{status, acceptShortage}`) y `GET /api/cooking/sessions` (historial propio). La máquina de estados es `IN_PROGRESS → PAUSED | COMPLETED | ABANDONED`, `PAUSED → IN_PROGRESS | COMPLETED | ABANDONED`, y `COMPLETED`/`ABANDONED` terminales (repetir estado → 409 `InvalidCookingStateTransitionException`); `completedAt` se sella al pasar a `COMPLETED` o `ABANDONED`. **Las recetas no tienen pasos estructurados** (solo `instructions` de texto libre), así que la sesión persiste únicamente estados y el marcado de pasos es responsabilidad del frontend. **Descontado al completar:** con las líneas canónicas que dejó H4 (`RecipeIngredient.canonicalAmount` / `canonicalUnitCode`, ya en la unidad de almacenamiento), `CookingService` casa cada línea por `ingredientId` con la despensa, y si todo el stock llega genera los `ConsumptionEntry` con `origin=COOKING_SESSION` (delta negativo) y baja las líneas. **Stock insuficiente:** si alguna línea no llega, la primera llamada devuelve **409 con el plan de descuento** (`CompletionDeductionResponse`, no el `ErrorResponse` habitual) y ningún cambio; el cliente muestra qué falta y, si el usuario acepta, reenvía con `acceptShortage=true`, con lo que se descuenta `min(necesario, disponible)`, la línea queda a 0 y la parte no registrada se asume aportada sin asiento (los huecos off-book no se inventan). **Descontado manual sin sesión:** `POST /api/pantry/{itemId}/consume` (`{amount>0, unitCode}`) reutiliza la misma tubería de conversión y libro mayor con `origin=MANUAL`, y 409 si baja de cero. `ConsumptionOrigin` gana `COOKING_SESSION` (V16 crea `cooking_sessions`). **284 tests verdes, cobertura LINE 87,77 %.**
+
+**Pendiente del bloque:** frontend del modo cocina (página `/cooking`, progreso de pasos, diálogo de carencia) y métricas de sesión.
+
+**Definition of done:** completar una receta de 3 ingredientes reduce la despensa exactamente en las cantidades canónicas (verificado con tests de integración).
 
 ---
 
