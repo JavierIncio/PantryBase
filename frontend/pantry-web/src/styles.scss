@@ -1,12 +1,26 @@
 // Include theming for Angular Material with `mat.theme()`.
-// This Sass mixin will define CSS variables that are used for styling Angular Material
-// components according to the Material 3 design spec.
-// Learn more about theming and how to use it for your application's
-// custom components at https://material.angular.dev/guide/theming
+// This Sass mixin defines the CSS custom properties Angular Material
+// components consume, according to the Material 3 design spec.
+// Learn more at https://material.angular.dev/guide/theming
 @use '@angular/material' as mat;
+@use './styles/neutral-palette' as app-palettes;
 
 html {
   height: 100%;
+}
+
+/**
+ * PantryBase theme registry: one compiled Material 3 theme per selectable
+ * palette, scoped to `:root[data-theme='<themeId>']`.
+ *
+ * Every block runs `mat.theme(...)` so all Material components (including
+ * overlays: dialogs, menus and tooltips, which are projected into <body>)
+ * resolve their `--mat-sys-*` tokens from the document root element; switching
+ * the `data-theme` attribute swaps the whole token set without recompiling or
+ * reloading. The `blue` block keeps the original app identity (azure primary,
+ * blue tertiary) and is the default declared in `index.html`.
+ */
+:root[data-theme='blue'] {
   @include mat.theme(
     (
       color: (
@@ -19,10 +33,63 @@ html {
   );
 }
 
+:root[data-theme='green'] {
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$green-palette,
+        tertiary: mat.$blue-palette,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+:root[data-theme='amber'] {
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$orange-palette,
+        tertiary: mat.$yellow-palette,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+:root[data-theme='rose'] {
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$rose-palette,
+        tertiary: mat.$magenta-palette,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+:root[data-theme='neutral'] {
+  @include mat.theme(
+    (
+      color: (
+        primary: app-palettes.$neutral-palette,
+        tertiary: app-palettes.$neutral-palette,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
 body {
-  // Default the application to a light color theme. This can be changed to
-  // `dark` to enable the dark color theme, or to `light dark` to defer to the
-  // user's system settings.
+  // The application is light-only for now: `mat.theme` above resolves the
+  // light color scheme, so the browser is told to render form controls and
+  // scrollbars accordingly. Enabling dark mode would need a `dark` block per
+  // `data-theme` plus `light dark` here.
   color-scheme: light;
 
   // Set a default background, font and text colors for the application using
@@ -66,4 +133,3 @@ body {
     --mat-menu-item-focus-state-layer-color: var(--mat-sys-error);
   }
 }
-/* You can add global styles to this file, and also import other style files */

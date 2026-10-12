@@ -2,13 +2,13 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **12 de octubre de 2026** (H5 cerrado: backend del modo cocina — 290 tests, JaCoCo 87,81 % — y frontend — 266 tests, build limpio —, incluidos el resumen de sesiones `GET /api/cooking/sessions/summary` (duración media, tasa de finalización) y los avisos de línea a cero. Siguiente: H6).
+> Máximo 100 líneas. Última actualización: **12 de octubre de 2026** (H6 cerrado: temas de usuario con `themeId` en preferencias — migración `V17`, backend 291 tests, JaCoCo 88,24 % — y 5 paletas Material en frontend — 278 tests, build limpio. Siguiente: H7).
 
 ## Dónde estamos
 
-**Hito en curso: H6 (temas de usuario, Material theming).** H5 (modo cocina) **cerrado**: backend (sesiones, máquina de estados, descontado automático/manual, resumen de métricas) y frontend (`/cooking` + `/cooking/:id`, checklist local, diálogo de carencia, avisos de línea a cero) verdes y documentados. H0–H4 cerrados y documentados.
+**Hito en curso: H7 (recomendador con LLM).** H0–H6 **cerrados** y documentados. H6 (temas de usuario) añadió `themeId` a `UserPreferences` (backend) y las 5 paletas Material con selector en preferencias (frontend). H5 (modo cocina) cerrado: backend (sesiones, máquina de estados, descontado automático/manual, resumen de métricas) y frontend (`/cooking` + `/cooking/:id`, checklist local, diálogo de carencia, avisos de línea a cero) verdes y documentados.
 
-Estado verificado: **backend 290 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **87,81 %** LINE). **Frontend 266 tests verdes (28 ficheros)** con `npm test` y `npm run build` limpio. Ojo: en `target/surefire-reports` hay informes stale de clases eliminadas; los totales fiables salen de Maven (y, de los `.txt`, solo los del último run).
+Estado verificado: **backend 291 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **88,24 %** LINE). **Frontend 278 tests verdes (29 ficheros)** con `npm test` y `npm run build` limpio (bundle inicial 635,03 kB). Ojo: en `target/surefire-reports` hay informes stale de clases eliminadas; los totales fiables salen de Maven (y, de los `.txt`, solo los del último run).
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -37,6 +37,8 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 - **H5-c Métricas y avisos de stock a cero:** `GET /api/cooking/sessions/summary` (`CookingSummaryResponse`) pliega las sesiones del usuario en un solo recuento (`totalSessions` = suma de los cuatro estados, `averageDurationSeconds` sobre las cerradas, `completionRate = completed / (completed + abandoned)`; ambos `null` si no hay cerradas) y `CookingService` lleva contadores Micrometer `pantry.cooking.sessions.completed`/`.abandoned` + `Timer` `pantry.cooking.sessions.duration`. En frontend, el helper `runsOut(line) = deducted > 0 && remaining === 0` marca con «Runs out» las líneas que se vacían, tanto en el diálogo de carencia como en el resumen de deducción. 4 tests backend nuevos (286 → 290) y 6 de frontend (260 → 266, 28 ficheros).
 
+- **H6 Temas de usuario (backend + frontend):** `ThemeId` (enum `BLUE/GREEN/AMBER/ROSE/NEUTRAL`, el **único** que se serializa en minúsculas vía `@JsonValue`/`@JsonCreator` porque su valor ES el `data-theme`), campo `themeId` en `UserPreferences` (default `BLUE`), DTOs de preferencias y `UserService`; migración `V17__user_theme.sql` (`theme_id VARCHAR(16) NOT NULL DEFAULT 'BLUE'`, guarda el nombre del enum). El `PUT /api/users/preferences` exige los 4 campos; un `themeId` inválido → 400. Frontend: `styles.scss` compila **un tema M3 (`mat.theme`) por paleta** bajo `:root[data-theme='<id>']` (amber→orange/yellow, rose→rose/magenta, neutral=paleta gris propia en `src/styles/_neutral-palette.scss`), `core/theme/theme.types.ts` (ids+labels), `ThemeService` (escribe `dataset.theme` + cachea en `localStorage`), `App` (aplica cacheado al inicio y reconcilia con `GET /api/users/preferences` al autenticar, sin FOUC), y selector `mat-button-toggle-group` en `profile-page` con preview token-driven. Backend 290 → 291 tests; frontend 266 → 278 (29 ficheros); bundle 601 → 635,03 kB.
+
 ## Decisiones ya tomadas (no volver a abrir sin motivo)
 
 - **H3:** cantidad en `GRAM`/`UNIT` (volumen sin densidad → `ML`); una fila por ingrediente; ajuste con signo y asiento obligatorio; negativo `409` y cero permitido; `@Version` del servidor; `PUT` sin campo de cantidad.
@@ -50,12 +52,13 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H4 refresco por TTL:** refresco **in-place** (mismo id de receta) en detalle y búsquedas filtradas, nunca en listados sin filtrar; si el proveedor deja de servir la receta o nada casa tras el refresco, se conserva la copia local y se avanza `refreshed_at` (sin eso, cada búsqueda reintentaría). `@PrePersist` sella `refreshed_at` si una ruta no lo hace (columna NOT NULL + INSERT explícito con null de Hibernate).
 - **H5 descontado y carencia:** completar descuenta las líneas canónicas de la receta con `origin=COOKING_SESSION`; si falta stock, la primera llamada no cambia nada y devuelve **409 con el plan** (`deducted = min(necesario, disponible)`, `remaining`) para que el cliente muestre la consecuencia; al aceptar (`acceptShortage=true`) la línea baja a 0 y la parte no registrada se asume aportada **sin inventar asiento**. El descontado manual (`/consume`, `origin=MANUAL`) y el ajuste usan la misma tubería y libro mayor; bajar de cero siempre 409. `completedAt` se sella también al abandonar (la duración de un abandono es un dato). Las recetas no tienen pasos estructurados: la sesión solo guarda estado; el **frontend marca el 409 de carencia por la forma del body** (`hasShortage` + `lines`) distinguiéndolo del 409 de transición (`ErrorResponse`), y el progreso de pasos es una checklist local **no persistida**.
 - **H5 métricas:** el resumen se pliega en **una sola lectura** de las filas del usuario (no varias queries que puedan discrepar). La **tasa de finalización** es `completed / (completed + abandoned)` — las sesiones abiertas no cuentan: tener un plato al fuego no es un fracaso — y tanto la tasa como la duración media son `null` sin sesiones cerradas (indefinidas, no cero). Los contadores Micrometer son globales del proceso (uso del servidor), el resumen es por usuario (la cocina de uno). Aviso de línea a cero: `runsOut(line)` = `deducted > 0 && remaining === 0` (distingue «se ha vaciado» de «ya estaba vacío»), en diálogo y en resumen.
+- **H6 temas:** el color se decide con **un solo atributo `data-theme` en `<html>`**; Material 22 no tiene el API M2 (`$theme-blue`, `accent`/`warn`, `all-component-themes`) así que cada paleta es un `mat.theme(...)` M3 bajo `:root[data-theme='<id>']` y los componentes (incluidos overlays) heredan los tokens del root. `themeId` se serializa en **minúsculas** (`@JsonValue`) y coincide con el `data-theme`; el backend solo lo guarda y devuelve (no valida la paleta contra el CSS). Aplicación en **dos tiempos** (cache `localStorage` primero, preferencia del servidor después) para evitar el FOUC; el preview del selector es token-driven (`--mat-sys-*`) para no duplicar paletas. Sigue sin Tailwind/FontAwesome.
 - **Queries JPQL explícitas cuando el destino no es la entidad:** `findAllergenCodesByRecipeId` sin `@Query` devolvía entidades y la conversión a `String` caía en un `500`; los derived finder devuelven entidades.
 - **Los tests usan los endpoints reales** cuando tocan datos con lazy (p. ej. `excludeFromDiet` vía `PUT /api/users/allergy-exclusions`): tocar `User.allergyExclusions` fuera de sesión revienta con `LazyInitializationException`.
 
 ## Próximos pasos
 
-1. **H6 (Material theming):** 4-5 paletas SCSS → `:root[data-theme=...]`, selector en preferencias; sin Tailwind ni FontAwesome. Frontend puro.
+1. **H7 (recomendador con LLM):** Spring AI + cadena de proveedores gratuitos (Ollama dev; OpenRouter/Groq/Gemini prod), fallback/rotación con circuit breaker, prompt+tool-calling que devuelve `recipeId`s del catálogo (nunca recetas inventadas), `POST /ai/recommend` y métricas por proveedor.
 2. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
 
 ## Cuellos de botella y riesgos
@@ -73,6 +76,6 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 ## Cómo trabajar aquí
 
 - Comandos: backend `.\mvnw.cmd -o verify` en `backend/pantry-api`; frontend `npm test` / `npm run build`; infra `docker compose up -d` en `infra/`.
-- Documentación: `README.md`, `docs/ROADMAP.md`, `docs/VERSIONS.md` (consultar antes de proponer dependencias), `docs/FEATURE_GUIDE.md` (sección 12 = recetas, sección 13 = modo cocina).
+- Documentación: `README.md`, `docs/ROADMAP.md`, `docs/VERSIONS.md` (consultar antes de proponer dependencias), `docs/FEATURE_GUIDE.md` (sección 6 = perfil/preferencias/temas, sección 12 = recetas, sección 13 = modo cocina, sección 18 = frontend/temas).
 - Reglas de trabajo y de idioma: `AGENTS.md`. El frontend solo lo toca el subagente `frontend`.
 - Al cerrar cada fase: tests verdes + docs actualizadas + commit convencional (proponer, nunca push sin pedirlo).

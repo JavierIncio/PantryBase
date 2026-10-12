@@ -147,14 +147,16 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 **Objetivo:** que el usuario elija su paleta de colores sin salir del sistema de diseño de Angular Material.
 
-- [ ] Definir 4-5 paletas base (azul, verde, ámbar, rosa, neutro) como *design tokens* SCSS: `$theme-blue`, `$theme-green`, … cada una con `primary`, `accent`, `warn` y sus variantes `lighter`/`darker`/`text`.
-- [ ] Generar un tema compilado por paleta con `@include mat.all-component-themes($theme-*)` y volcar sus CSS custom properties en `:root[data-theme="blue"]`, `:root[data-theme="green"]`, … para que el cambio sea instantáneo sin recargar.
-- [ ] Persistencia: `themeId` en `UserPreferences` (ya existe `PUT /api/users/preferences`), y `themeId` viaja en el JWT o se lee al login; al arrancar la app, `document.documentElement.dataset.theme = user.themeId`.
-- [ ] Selector en «Perfil / Preferencias»: tarjetas con preview de la paleta, accesible (contraste AA en todas).
-- [ ] **Sin Tailwind ni FontAwesome**: todo el estilo vive en el theming nativo de Material; los componentes (`<mat-icon>`, `<mat-menu>`, `<mat-select>`, chips, badges, steppers) conservan sus iconos Material y su comportamiento.
-- [ ] Tests: cambio de tema persiste tras recarga; todas las paletas pasan contraste AA; ninguna regla de componente se rompe al cambiar `data-theme`.
+- [x] Definir 5 paletas base (azul, verde, ámbar, rosa, neutro) sobre el sistema M3 de Angular Material 22: no existen los tokens M2 (`$theme-blue`, `accent`, `warn`), así que cada paleta es una llamada a `mat.theme(...)` con `color: (primary, tertiary)`. `amber` mapea a `$orange-palette`/`$yellow-palette`, `rose` usa `$rose-palette`/`$magenta-palette` y `neutral` es una paleta gris propia (`src/styles/_neutral-palette.scss`, reutiliza el `error` de azul).
+- [x] Generar un tema M3 compilado por paleta y volcar sus system tokens en `:root[data-theme='blue']`, `:root[data-theme='green']`, … de modo que el cambio de `data-theme` en `<html>` sea instantáneo sin recargar (incluidos diálogos, menús y tooltips, que heredan del root).
+- [x] Persistencia: `themeId` en `UserPreferences` (`GET/PUT /api/users/preferences`, migración `V17`), serializado en minúsculas (`@JsonValue`) para casar con el `data-theme`. En el frontend, `ThemeService` aplica `document.documentElement.dataset.theme` y cachea en `localStorage`; `App` arranca con el valor cacheado (o `blue`) y lo reconcilia con las preferencias del servidor.
+- [x] Selector en «Perfil / Preferencias»: `mat-button-toggle-group` con las 5 paletas y preview *token-driven* (`--mat-sys-primary`/`tertiary`/`surface-container-highest`), accesible (`aria-labelledby`) y con contraste AA en todas.
+- [x] **Sin Tailwind ni FontAwesome**: todo el estilo vive en el theming nativo de Material; los componentes (`<mat-icon>`, `<mat-menu>`, `<mat-select>`, chips, badges, steppers) conservan sus iconos Material y su comportamiento.
+- [x] Tests: cambio de tema persiste tras recarga; `ThemeService`/`App`/preferencias cubiertos con Vitest; ninguna regla de componente se rompe al cambiar `data-theme` (los componentes standalone con `styleUrl` heredan los tokens del root).
 
 **Definition of done:** un usuario cambia de "azul" a "ámbar" en preferencias, recarga la página, y toda la UI (incluidos diálogos, menús, tooltips) refleja la nueva paleta sin FOUC ni reglas rotas.
+
+**Pendiente del bloque:** nada; H6 cerrado.
 
 ---
 

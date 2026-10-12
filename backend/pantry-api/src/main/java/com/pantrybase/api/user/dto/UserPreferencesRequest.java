@@ -2,6 +2,7 @@ package com.pantrybase.api.user.dto;
 
 import com.pantrybase.api.user.domain.Diet;
 import com.pantrybase.api.user.domain.FilterMode;
+import com.pantrybase.api.user.domain.ThemeId;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -12,5 +13,6 @@ import jakarta.validation.constraints.NotNull;
 public record UserPreferencesRequest(
         @NotNull FilterMode filterMode,
         @NotNull @Min(0) @Max(100) Short coverageThreshold,
-        @NotNull Diet diet
+        @NotNull Diet diet,
+        @NotNull ThemeId themeId
 ) {}

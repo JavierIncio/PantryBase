@@ -5,6 +5,7 @@
  * auth models they are stand-ins to be replaced by the generated OpenAPI
  * client once the springdoc spec is wired into the build.
  */
+import { ThemeId } from '../theme/theme.types';
 
 /** How strictly the recipe filter must cover the available pantry. */
 export type FilterMode = 'STRICT' | 'LAX';
@@ -13,12 +14,13 @@ export type FilterMode = 'STRICT' | 'LAX';
 export type Diet =
   'BALANCED' | 'HIGH_FIBER' | 'HIGH_PROTEIN' | 'LOW_CARB' | 'LOW_FAT' | 'LOW_SODIUM';
 
-/** Default filtering preferences; all three fields are required upstream. */
+/** Default filtering preferences; all four fields are required upstream. */
 export interface UserPreferences {
   readonly filterMode: FilterMode;
   /** Pantry coverage percentage required by the filter (0-100). */
   readonly coverageThreshold: number;
   readonly diet: Diet;
+  readonly themeId: ThemeId;
 }
 
 /** One entry of the allergen catalog or of the user's exclusion list. */

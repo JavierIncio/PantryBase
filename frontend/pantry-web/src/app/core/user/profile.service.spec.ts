@@ -19,6 +19,7 @@ const PREFERENCES: UserPreferences = {
   filterMode: 'STRICT',
   coverageThreshold: 80,
   diet: 'LOW_FAT',
+  themeId: 'blue',
 };
 
 const EXCLUSIONS: AllergyExclusions = {
@@ -57,7 +58,7 @@ describe('ProfileService', () => {
     await expect(result).resolves.toEqual(PREFERENCES);
   });
 
-  it('updatePreferences PUTs the three fields and returns the stored values', async () => {
+  it('updatePreferences PUTs the preference fields and returns the stored values', async () => {
     const result = firstValueFrom(service.updatePreferences(PREFERENCES));
 
     const req = http.expectOne('/api/users/preferences');

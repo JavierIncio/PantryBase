@@ -194,9 +194,10 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 | Concepto | Explicación |
 |---|---|
 | `User` | Identidad, correo, nombre, hash de la contraseña, roles y lista de alérgenos excluidos. |
-| `UserPreferences` | Preferencias de filtrado (`filterMode`, `coverageThreshold`, `diet`). Viven en **otra tabla** que comparte la clave primaria con el usuario (`@MapsId`), de modo que guardar una preferencia no reescribe la fila de la cuenta. |
+| `UserPreferences` | Preferencias de filtrado y aspecto (`filterMode`, `coverageThreshold`, `diet`, `themeId`). Viven en **otra tabla** que comparte la clave primaria con el usuario (`@MapsId`), de modo que guardar una preferencia no reescribe la fila de la cuenta. |
 | `FilterMode` | `STRICT` exige cobertura total de los ingredientes; `LAX` aplica el umbral configurado. |
 | `Diet` | Preferencia de dieta. Está marcada como provisional en el código porque TheMealDB no expone etiquetas de dieta y el mapeo aún no está validado. |
+| `ThemeId` | Paleta de color elegida (`BLUE`, `GREEN`, `AMBER`, `ROSE`, `NEUTRAL`). Es el único enum que se serializa en **minúsculas** (`@JsonValue`), porque su valor es literalmente el atributo `data-theme` del frontend. |
 | `Allergen` / `user_allergy_exclusions` | Catálogo de alérgenos y lista de exclusión por usuario. Los alérgenos se eligen de un catálogo cerrado, no se escriben como texto libre. |
 
 | Clase | Ruta |
@@ -205,11 +206,13 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 | `UserService` | `user/service/UserService.java` |
 | Entidades | `user/domain/` (`User`, `UserPreferences`, `Allergen`, `Diet`, `Role`, `FilterMode`) |
 | Repositorios | `user/repository/` |
-| Tablas | `db/migration/V1__init.sql` (`users`, `allergens`), `V2__auth_mods.sql` (`user_roles`), `V3__profile.sql` (`user_preferences`, `user_allergy_exclusions`) |
+| Tablas | `db/migration/V1__init.sql` (`users`, `allergens`), `V2__auth_mods.sql` (`user_roles`), `V3__profile.sql` (`user_preferences`, `user_allergy_exclusions`), `V17__user_theme.sql` (`user_preferences.theme_id`) |
 
 **Endpoints:** `GET /me`, `PUT /profile`, `GET|PUT /preferences`, `GET|PUT /allergy-exclusions`, `GET /allergens`.
 
-Las preferencias y las exclusiones se guardan con semántica de **reemplazo completo** (se manda la lista entera y sustituye a la anterior), no de parcheo. Un código de alérgeno desconocido produce `400`: si se aceptara, el filtro de recetas dejaría de excluir algo y el usuario creería que está protegido.
+Las preferencias y las exclusiones se guardan con semántica de **reemplazo completo** (se manda la lista entera y sustituye a la anterior), no de parcheo. Un código de alérgeno desconocido produce `400`: si se aceptara, el filtro de recetas dejaría de excluir algo y el usuario creería que está protegido. El mismo `400` protege un `themeId` que el enum no pueda parsear.
+
+El `themeId` es la única preferencia puramente de presentación: el backend solo lo guarda y lo devuelve en minúsculas, y el frontend lo aplica como `data-theme` (ver §18). Se mantiene como predeterminado `BLUE` tanto en la entidad como en la columna. Ver H6 en `ROADMAP.md`.
 
 ---
 
@@ -586,6 +589,18 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 **Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle), «Cooking» (lista de sesiones + sesión activa) y la página «no encontrado» están implementadas. El área `social` existe como ruta pero muestra un marcador de posición pendiente de su hito. Las decisiones del área de recetas viven en `## 12` y las de cocina en `## 13`.
 
+**Temas de usuario (H6).** El color de la app lo decide un único atributo `data-theme` en `<html>`, que apunta a uno de cinco ids en minúsculas (`blue`, `green`, `amber`, `rose`, `neutral`). `styles.scss` compila **un tema M3 de Angular Material por paleta** con `mat.theme(...)`, y cada bloque va bajo `:root[data-theme='<id>']`; cambiar el atributo intercambia el juego completo de tokens `--mat-sys-*` sin recargar y lo heredan también los *overlays* (diálogos, menús, tooltips), que se proyectan fuera del componente. Las piezas:
+
+| Pieza | Ruta | Responsabilidad |
+|---|---|---|
+| Registro de paletas | `styles.scss`, `styles/_neutral-palette.scss` | Un `mat.theme(...)` por `data-theme`; las paletas base que Material 22 no trae (`amber`, `neutral`) se mapean o se definen a mano. |
+| `ThemeId`/`THEMES` | `core/theme/theme.types.ts` | Única fuente de verdad de los ids (contrato con el backend) y de sus etiquetas. |
+| `ThemeService` | `core/theme/theme.service.ts` | Escribe `document.documentElement.dataset.theme` y cachea el id en `localStorage` (arranque sin FOUC). |
+| Arranque | `app.ts` | Aplica el valor cacheado (o `blue`) al iniciar y lo reconcilia con `GET /api/users/preferences` en cuanto hay sesión. |
+| Selector | `pages/profile/profile-page.*` | `mat-button-toggle-group` con las 5 paletas; previsualiza en vivo y persiste con `PUT /api/users/preferences`. |
+
+Dos decisiones que conviene conocer: el tema se aplica en **dos tiempos** para evitar el *flash* de paleta —primero el valor cacheado, después el del servidor— porque al restaurar la sesión la preferencia real tarda un viaje de red; y la **previsualización es «token-driven»**: los *swatches* pintan con `var(--mat-sys-primary)`/`tertiary`/`surface-container-highest` del tema activo, así que no duplican las definiciones de paleta que ya viven en `styles.scss`. Igual que en el resto del proyecto, no hay Tailwind ni FontAwesome: Material 22 y sus `<mat-icon>` cubren todo.
+
 **La vista «Mi despensa» (H3-3)** es la primera pantalla real del producto, y su pieza nueva es el servicio `PantryService`, que tipa los cinco endpoints en un único sitio para que el componente sea solo presentación. Cuatro decisiones suyas que conviene conocer:
 
 - **Un solo panel abierto a la vez.** Editar, ajustar, ver el historial y eliminar son las cuatro acciones de una línea, pero cuatro paneles independientes volverían la lista imposible de escanear. Con un único `openPanel` (`{id, kind}`) solo una fila queda alta y el resto compacta.
@@ -608,7 +623,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | **El `POST` lleva `fdcId`, nunca el id interno** | Es el contrato deliberado: el cliente solo ve ids del proveedor en el catálogo, y esa elección es la que permite responder `409` y `404` con un mensaje accionable. |
 | **Contadores de secuencia en las dos lecturas** | El template ya deshabilita el botón de buscar mientras busca y los resultados mientras se lee un detalle, así que hoy no hay forma de solaparlas. Los contadores están para que **los métodos no dependan de esa disposición**: `add()` ya refusaba un segundo clic en código y no en el botón, y estas dos lecturas eran la excepción. |
 
-**Presupuesto de bundle:** `angular.json` avisa a partir de 650 kB de bundle inicial y falla a 1 MB. El aviso subió desde 600 kB al cerrar el alta rápida, que dejó el inicial en 600,06 kB. Los dos datos que lo justifican: la subida real fue de 3 kB y **no es código de la funcionalidad**, que va entero en el *chunk* perezoso de `pantry-page` (de 21 a 65 kB); el bundle inicial es en realidad 7 kB *más pequeño* y lo que creció fue *vendor* reubicado. Un umbral que salta por 60 bytes trains a ignorar los avisos, y a 650 kB siguen quedando 350 kB de margen antes del fallo.
+**Presupuesto de bundle:** `angular.json` avisa a partir de 650 kB de bundle inicial y falla a 1 MB. El aviso subió desde 600 kB al cerrar el alta rápida, que dejó el inicial en 600,06 kB. Los dos datos que lo justifican: la subida real fue de 3 kB y **no es código de la funcionalidad**, que va entero en el *chunk* perezoso de `pantry-page` (de 21 a 65 kB); el bundle inicial es en realidad 7 kB *más pequeño* y lo que creció fue *vendor* reubicado. Un umbral que salta por 60 bytes trains a ignorar los avisos, y a 650 kB siguen quedando 350 kB de margen antes del fallo. **H6** añadió los cinco temas compilados y dejó el inicial en 635,03 kB: sigue por debajo del umbral, con 15 kB de margen, y el coste es CSS de presentación (tokens), no código de rutas.
 
 
 
@@ -638,6 +653,7 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 | `V14__recipe_ingredient_matching.sql` | Columnas de emparejado de `recipe_ingredients` (`matched`, `ingredient_id`, `position`) y el índice único que evita duplicar una receta por origen (`UNIQUE (source, external_id)`). |
 | `V15__recipe_refresh.sql` | `recipes.refreshed_at` (NOT NULL, default `now()`): el sello que el refresco por TTL de TheMealDB comprueba y avanza. |
 | `V16__cooking_sessions.sql` | `cooking_sessions` (`user_id`, `recipe_id`, `status`, `started_at`, `completed_at`, `created_at`) con sus claves foráneas y el check de estados. |
+| `V17__user_theme.sql` | `user_preferences.theme_id` (VARCHAR, NOT NULL, default `BLUE`): la paleta elegida por el usuario (H6). El valor es el nombre del enum en mayúsculas; la API lo expone en minúsculas. |
 
 **Regla importante:** una migración ya aplicada **no se edita jamás**; se añade una nueva. Editarla dejaría los entornos desincronizados sin que nada avise. Por eso la procedencia de los valores de `FLOUR`/`SUGAR`/`OIL` no se corrigió en `V5` sino que se documentó en `V11`.
 

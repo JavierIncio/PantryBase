@@ -73,6 +73,64 @@
   row-gap: 0.5rem;
 }
 
+.theme-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem 0.25rem;
+}
+
+.theme-label {
+  font-size: var(--mat-sys-label-medium-size);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.theme-toggle-group {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.theme-toggle {
+  flex: 1;
+}
+
+.theme-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--mat-sys-corner-medium);
+  background-color: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface);
+}
+
+.theme-swatch {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--mat-sys-on-surface), transparent 75%);
+}
+
+// The preview strip is token-driven: every swatch reflects the CURRENT theme's
+// M3 palette (updated live by `data-theme`), so nothing needs to duplicate the
+// palette definitions in SCSS.
+.theme-swatch-primary {
+  background-color: var(--mat-sys-primary);
+}
+
+.theme-swatch-tertiary {
+  background-color: var(--mat-sys-tertiary);
+}
+
+.theme-swatch-surface {
+  background-color: var(--mat-sys-surface-container-highest);
+}
+
+.theme-name {
+  text-transform: capitalize;
+}
+
 .save-error {
   margin: 0;
   color: var(--mat-sys-error);

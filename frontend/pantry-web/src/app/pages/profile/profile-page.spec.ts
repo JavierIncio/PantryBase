@@ -31,6 +31,7 @@ const PREFERENCES: UserPreferences = {
   filterMode: 'LAX',
   coverageThreshold: 65,
   diet: 'LOW_CARB',
+  themeId: 'blue',
 };
 
 // Catalog in the API-driven order (sorted by name).
@@ -91,6 +92,8 @@ describe('ProfilePage', () => {
 
   /** Default backend answers used by every test unless overridden. */
   const configure = () => {
+    // Real ThemeService: start each test from the default document state.
+    (document.documentElement.dataset as DOMStringMap)['theme'] = 'blue';
     service = {
       getPreferences: vi.fn(),
       updatePreferences: vi.fn(),
@@ -131,8 +134,10 @@ describe('ProfilePage', () => {
     expect(component.prefsForm.controls.filterMode.value).toBe('LAX');
     expect(component.prefsForm.controls.coverageThreshold.value).toBe(65);
     expect(component.prefsForm.controls.diet.value).toBe('LOW_CARB');
+    expect(component.prefsForm.controls.themeId.value).toBe('blue');
     expect(host.querySelectorAll('mat-select').length).toBe(2);
     expect(host.querySelector('.threshold-value')?.textContent).toContain('65%');
+    expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('blue');
 
     // Checklist built from the catalog, with the stored exclusion pre-checked.
     const checkboxes = host.querySelectorAll('mat-checkbox');
@@ -320,12 +325,63 @@ describe('ProfilePage', () => {
       filterMode: 'STRICT',
       coverageThreshold: 90,
       diet: 'HIGH_PROTEIN',
+      themeId: 'blue',
     });
+    expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('blue');
     expect(snackBar.open).toHaveBeenCalledWith('Preferences saved', 'OK', { duration: 3000 });
 
     fixture.detectChanges();
     expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
     expect(component.prefsForm.dirty).toBe(false);
+  });
+
+  it('shows the 5 palette choices and applies the selected theme instantly', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER);
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+
+    const toggles = host.querySelectorAll('mat-button-toggle');
+    expect(toggles.length).toBe(5);
+    expect(host.textContent).toContain('Amber');
+
+    // Live preview: picking a palette switches the document without reloading.
+    component.prefsForm.controls.themeId.setValue('amber');
+    fixture.detectChanges();
+    expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('amber');
+  });
+
+  it('sends the selected theme to the backend and reverts to the stored one on save', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER);
+    service.updatePreferences.mockReturnValue(of(PREFERENCES));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+
+    component.prefsForm.patchValue({ themeId: 'neutral' });
+    component.prefsForm.markAsDirty();
+    fixture.detectChanges();
+    expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('neutral');
+
+    saveButton(fixture, 'save-preferences').click();
+    fixture.detectChanges();
+
+    expect(service.updatePreferences).toHaveBeenCalledWith({
+      filterMode: 'LAX',
+      coverageThreshold: 65,
+      diet: 'LOW_CARB',
+      themeId: 'neutral',
+    });
+    // The server response (stored preferences) re-becomes the source of truth.
+    expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
+    expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('blue');
   });
 
   it('shows the backend message when saving preferences fails and keeps the edits', async () => {

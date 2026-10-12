@@ -122,6 +122,7 @@ public class UserService {
         prefs.setFilterMode(request.filterMode());
         prefs.setCoverageThreshold(request.coverageThreshold());
         prefs.setDiet(request.diet());
+        prefs.setThemeId(request.themeId());
 
         preferencesRepo.save(prefs);
         return toPreferencesResponse(prefs);
@@ -207,7 +208,8 @@ public class UserService {
 
     private UserPreferencesResponse toPreferencesResponse(UserPreferences prefs) {
         return new UserPreferencesResponse(
-                prefs.getFilterMode(), prefs.getCoverageThreshold(), prefs.getDiet()
+                prefs.getFilterMode(), prefs.getCoverageThreshold(), prefs.getDiet(),
+                prefs.getThemeId()
         );
     }
 

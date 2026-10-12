@@ -31,6 +31,7 @@ import { MatError, MatFormField, MatHint, MatLabel } from '@angular/material/for
 import { MatInput } from '@angular/material/input';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSelect } from '@angular/material/select';
+import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ChangePasswordRequest, toErrorResponse, UserResponse } from '../../core/auth/auth.models';
@@ -44,6 +45,8 @@ import {
   UserPreferences,
 } from '../../core/user/profile.models';
 import { ProfileService } from '../../core/user/profile.service';
+import { DEFAULT_THEME, THEME_LABELS, THEMES, type ThemeId } from '../../core/theme/theme.types';
+import { ThemeService } from '../../core/theme/theme.service';
 import {
   createPasswordMatchValidator,
   PasswordMismatchErrorStateMatcher,
@@ -123,6 +126,8 @@ class UsernameErrorStateMatcher implements ErrorStateMatcher {
     MatOption,
     MatProgressSpinner,
     MatSelect,
+    MatButtonToggle,
+    MatButtonToggleGroup,
     MatSlider,
     MatSliderThumb,
     ReactiveFormsModule,
@@ -137,9 +142,18 @@ export class ProfilePage implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly session = inject(SessionState);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly themeService = inject(ThemeService);
 
   protected readonly filterModeOptions = FILTER_MODE_OPTIONS;
   protected readonly dietOptions = DIET_OPTIONS;
+  protected readonly themeOptions: ReadonlyArray<{ id: ThemeId; label: string }> = THEMES.map(
+    (id) => ({ id, label: THEME_LABELS[id] }),
+  );
+
+  /** Label of the currently selected theme, shown in the preview strip. */
+  protected readonly currentThemeLabel = computed(
+    () => THEME_LABELS[this.prefsForm.controls.themeId.value] ?? '',
+  );
 
   /** Identity shown in the header: email when present, else the username. */
   protected readonly email = computed(
@@ -277,6 +291,7 @@ export class ProfilePage implements OnInit {
       Validators.max(100),
     ]),
     diet: this.fb.control<Diet>('BALANCED', Validators.required),
+    themeId: this.fb.control<ThemeId>(DEFAULT_THEME, Validators.required),
   });
 
   protected readonly prefsLoading = signal(true);
@@ -307,9 +322,20 @@ export class ProfilePage implements OnInit {
 
   ngOnInit(): void {
     this.wireCoverageInvariant();
+    this.wireThemePreview();
     this.loadPreferences();
     this.loadExclusions();
     this.syncIdentity(this.session.user());
+  }
+
+  /**
+   * Applies the selected theme as soon as the user picks it (instant preview
+   * without reloading); saving is still what persists it to the backend.
+   */
+  private wireThemePreview(): void {
+    this.prefsForm.controls.themeId.valueChanges.subscribe((themeId) => {
+      this.themeService.apply(themeId);
+    });
   }
 
   /**
@@ -423,7 +449,9 @@ export class ProfilePage implements OnInit {
     this.prefsLoadError.set(null);
     this.profile.getPreferences().subscribe({
       next: (prefs) => {
-        this.prefsForm.reset(this.normalizePreferences(prefs));
+        const normalized = this.normalizePreferences(prefs);
+        this.prefsForm.reset(normalized);
+        this.themeService.apply(normalized.themeId);
         this.prefsLoading.set(false);
       },
       error: (error: HttpErrorResponse) => {
@@ -441,10 +469,11 @@ export class ProfilePage implements OnInit {
    * it is normalized here — before `reset()` — to load a pristine form.
    */
   private normalizePreferences(prefs: UserPreferences): UserPreferences {
+    const themeId = (prefs.themeId ?? DEFAULT_THEME) as ThemeId;
     if (prefs.filterMode === 'STRICT' && prefs.coverageThreshold !== 100) {
-      return { ...prefs, coverageThreshold: 100 };
+      return { ...prefs, coverageThreshold: 100, themeId };
     }
-    return prefs;
+    return { ...prefs, themeId };
   }
 
   /** Sends the edited preferences; on success re-syncs the form with the server. */
@@ -454,9 +483,11 @@ export class ProfilePage implements OnInit {
     }
     this.savingPrefs.set(true);
     this.prefsSaveError.set(null);
-    this.profile.updatePreferences(this.prefsForm.getRawValue()).subscribe({
+    this.profile.updatePreferences(this.prefsForm.getRawValue() as UserPreferences).subscribe({
       next: (saved) => {
-        this.prefsForm.reset(saved);
+        const normalized = this.normalizePreferences(saved);
+        this.prefsForm.reset(normalized);
+        this.themeService.apply(normalized.themeId);
         this.savingPrefs.set(false);
         this.snackBar.open('Preferences saved', 'OK', { duration: 3000 });
       },

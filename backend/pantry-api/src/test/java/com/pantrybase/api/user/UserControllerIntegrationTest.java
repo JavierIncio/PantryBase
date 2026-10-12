@@ -4,6 +4,7 @@ import com.pantrybase.api.AbstractIntegrationTest;
 import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.user.domain.Diet;
 import com.pantrybase.api.user.domain.FilterMode;
+import com.pantrybase.api.user.domain.ThemeId;
 import com.pantrybase.api.user.dto.AllergenResponse;
 import com.pantrybase.api.user.dto.AllergyExclusionsResponse;
 import com.pantrybase.api.user.dto.ReplaceAllergyExclusionsRequest;
@@ -160,8 +161,9 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getBody())
                 .extracting(UserPreferencesResponse::filterMode,
                         UserPreferencesResponse::coverageThreshold,
-                        UserPreferencesResponse::diet)
-                .containsExactly(FilterMode.LAX, (short) 80, Diet.BALANCED);
+                        UserPreferencesResponse::diet,
+                        UserPreferencesResponse::themeId)
+                .containsExactly(FilterMode.LAX, (short) 80, Diet.BALANCED, ThemeId.BLUE);
         assertThat(preferencesRepository.count()).isZero();
     }
 
@@ -170,7 +172,7 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         UserPreferencesResponse preferencesToSave =
-                new UserPreferencesResponse(FilterMode.STRICT, (short) 100, Diet.LOW_CARB);
+                new UserPreferencesResponse(FilterMode.STRICT, (short) 100, Diet.LOW_CARB, ThemeId.ROSE);
 
         ResponseEntity<UserPreferencesResponse> response = rest.exchange(
                 PREFERENCES, HttpMethod.PUT, new HttpEntity<>(preferencesToSave, headers), UserPreferencesResponse.class);
@@ -181,10 +183,30 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getBody())
                 .extracting(UserPreferencesResponse::filterMode,
                         UserPreferencesResponse::coverageThreshold,
-                        UserPreferencesResponse::diet)
-                .containsExactly(FilterMode.STRICT, (short) 100, Diet.LOW_CARB);
+                        UserPreferencesResponse::diet,
+                        UserPreferencesResponse::themeId)
+                .containsExactly(FilterMode.STRICT, (short) 100, Diet.LOW_CARB, ThemeId.ROSE);
 
         assertThat(preferencesRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void savePreferences_withUnknownTheme_shouldReturn400() {
+        HttpHeaders headers = authenticate();
+
+        // Raw map, not the record: the point is to send a value the enum cannot parse,
+        // which the typed DTO would refuse to build.
+        Map<String, Object> body = Map.of(
+                "filterMode", "LAX",
+                "coverageThreshold", 80,
+                "diet", "BALANCED",
+                "themeId", "ultraviolet");
+
+        ResponseEntity<ErrorResponse> response = rest.exchange(
+                PREFERENCES, HttpMethod.PUT, new HttpEntity<>(body, headers), ErrorResponse.class);
+
+        assertError(response, HttpStatus.BAD_REQUEST, PREFERENCES);
+        assertThat(preferencesRepository.count()).isZero();
     }
 
     @Test
@@ -192,13 +214,13 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         UserPreferencesResponse prefsOverThreshold =
-                new UserPreferencesResponse(FilterMode.LAX, (short) 101, Diet.BALANCED);
+                new UserPreferencesResponse(FilterMode.LAX, (short) 101, Diet.BALANCED, ThemeId.BLUE);
         ResponseEntity<ErrorResponse> responseOverThreshold = rest.exchange(
                 PREFERENCES, HttpMethod.PUT, new HttpEntity<>(prefsOverThreshold, headers), ErrorResponse.class);
         assertError(responseOverThreshold, HttpStatus.BAD_REQUEST, PREFERENCES);
 
         UserPreferencesResponse prefsUnderThreshold =
-                new UserPreferencesResponse(FilterMode.LAX, (short) -1, Diet.BALANCED);
+                new UserPreferencesResponse(FilterMode.LAX, (short) -1, Diet.BALANCED, ThemeId.BLUE);
         ResponseEntity<ErrorResponse> responseUnderThreshold = rest.exchange(
                 PREFERENCES, HttpMethod.PUT, new HttpEntity<>(prefsUnderThreshold, headers), ErrorResponse.class);
         assertError(responseUnderThreshold, HttpStatus.BAD_REQUEST, PREFERENCES);

@@ -224,6 +224,28 @@
             </mat-select>
           </mat-form-field>
 
+          <div class="theme-section">
+            <span class="theme-label" id="theme-label">Theme</span>
+            <mat-button-toggle-group
+              formControlName="themeId"
+              name="theme"
+              class="theme-toggle-group"
+              aria-labelledby="theme-label"
+            >
+              @for (theme of themeOptions; track theme.id) {
+                <mat-button-toggle [value]="theme.id" class="theme-toggle">
+                  {{ theme.label }}
+                </mat-button-toggle>
+              }
+            </mat-button-toggle-group>
+            <div class="theme-preview" aria-hidden="true">
+              <span class="theme-swatch theme-swatch-primary"></span>
+              <span class="theme-swatch theme-swatch-tertiary"></span>
+              <span class="theme-swatch theme-swatch-surface"></span>
+              <span class="theme-name">{{ currentThemeLabel() }}</span>
+            </div>
+          </div>
+
           @if (prefsSaveError()) {
             <p class="save-error">{{ prefsSaveError() }}</p>
           }

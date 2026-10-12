@@ -1,0 +1,99 @@
+@use 'sass:map';
+@use '@angular/material' as mat;
+
+/// Greyscale Material 3 palette used by the `neutral` app theme.
+///
+/// Angular Material ships twelve tonal palettes (red, green, blue, yellow,
+/// orange, ...) but none of them is chromatically neutral, so the `neutral`
+/// theme gets its own. The structure and the required tone keys are dictated by
+/// `mat.theme(...)`: a top-level tone scale plus `secondary`, `neutral` and
+/// `neutral-variant` sub-maps. The `error` sub-map is not authored here — it is
+/// reused from a built-in palette so error colors stay consistent across themes
+/// and keep their accessible on/container pairs.
+$neutral-palette: map.merge(
+  (
+    0: #000000,
+    10: #1a1b1f,
+    20: #2f3033,
+    25: #3a3b3f,
+    30: #46464a,
+    35: #525257,
+    40: #5e5e62,
+    50: #77777b,
+    60: #919094,
+    70: #ababaf,
+    80: #c7c6ca,
+    90: #e3e2e6,
+    95: #f1f0f4,
+    98: #faf9fd,
+    99: #fdfbff,
+    100: #ffffff,
+    secondary: (
+      0: #000000,
+      10: #1a1b1f,
+      20: #2f3033,
+      25: #3a3b3f,
+      30: #46464a,
+      35: #525257,
+      40: #5e5e62,
+      50: #77777b,
+      60: #919094,
+      70: #ababaf,
+      80: #c7c6ca,
+      90: #e3e2e6,
+      95: #f1f0f4,
+      98: #faf9fd,
+      99: #fdfbff,
+      100: #ffffff,
+    ),
+    neutral: (
+      0: #000000,
+      4: #0d0e11,
+      6: #121316,
+      10: #1a1b1f,
+      12: #1f2022,
+      17: #292a2c,
+      20: #2f3033,
+      22: #343537,
+      24: #38393c,
+      25: #3b3b3f,
+      30: #46464a,
+      35: #525256,
+      40: #5e5e62,
+      50: #77777a,
+      60: #919094,
+      70: #ababaf,
+      80: #c7c6ca,
+      87: #dbd9dd,
+      90: #e3e2e6,
+      92: #e9e7eb,
+      94: #efedf0,
+      95: #f2f0f4,
+      96: #f4f3f6,
+      98: #faf9fd,
+      99: #fdfbff,
+      100: #ffffff,
+    ),
+    neutral-variant: (
+      0: #000000,
+      10: #181c22,
+      20: #2d3038,
+      25: #383b43,
+      30: #44474e,
+      35: #4f525a,
+      40: #5b5e66,
+      50: #74777f,
+      60: #8e9099,
+      70: #a9abb4,
+      80: #c4c6d0,
+      90: #e0e2ec,
+      95: #eff0fa,
+      98: #f9f9ff,
+      99: #fdfbff,
+      100: #ffffff,
+    ),
+  ),
+  (
+    error: map.get(mat.$blue-palette, error),
+  )
+);

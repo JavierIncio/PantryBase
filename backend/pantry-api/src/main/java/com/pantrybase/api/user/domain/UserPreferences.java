@@ -45,6 +45,10 @@ public class UserPreferences implements Persistable<Long> {
     @Column(name = "diet")
     private Diet diet = Diet.BALANCED;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "theme_id")
+    private ThemeId themeId = ThemeId.BLUE;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -92,6 +96,14 @@ public class UserPreferences implements Persistable<Long> {
 
     public void setDiet(Diet diet) {
         this.diet = diet;
+    }
+
+    public ThemeId getThemeId() {
+        return themeId;
+    }
+
+    public void setThemeId(ThemeId themeId) {
+        this.themeId = themeId;
     }
 
     public Instant getCreatedAt() {

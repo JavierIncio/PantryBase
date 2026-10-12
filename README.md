@@ -20,9 +20,10 @@ El usuario registra su inventario de ingredientes con cantidades en medidas esta
   - _Estricto:_ solo recetas que el usuario puede hacer con lo que tiene (todas las cantidades cubiertas).
   - _Laxo:_ recetas parcialmente cubiertas, con porcentaje de cobertura configurable (slider 0-100%).
 - **Modo cocina:** estados de progreso de la sesión (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`); al finalizar se descuentan las cantidades del inventario, con confirmación previa si falta stock (la primera llamada responde `409` con el plan de descuento y, al aceptar, se descuenta lo disponible y la línea queda a cero). También descontado manual sin sesión.
+- **Temas de usuario:** cinco paletas de color (azul, verde, ámbar, rosa, neutro) sobre el theming M3 de Angular Material; la elegida se guarda en las preferencias y se aplica a toda la UI (incluidos diálogos, menús y tooltips) sin recargar.
 - **Social y personal:** recetas favoritas, guardadas, publicadas e historial de recetas realizadas.
 - **Recomendación con LLM:** asistente que sugiere recetas a partir del inventario (gratis, multi-proveedor con rotación y fallback).
-- **Preferencias de usuario:** exclusión de alérgenos, dieta, modo de filtrado por defecto.
+- **Preferencias de usuario:** exclusión de alérgenos, dieta, modo de filtrado por defecto y tema visual.
 
 ---
 
@@ -209,4 +210,4 @@ Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `JWT_S
 
 Ver el detalle de fases, tareas y criterios de aceptación en [docs/ROADMAP.md](docs/ROADMAP.md).
 
-Principales etapas: **H0 Fundación → H1 Auth → H2 Catálogo y unidades → H3 Inventario → H4 Recetas y filtrado → H5 Modo cocina → H6 LLM → H7 Social → H8 Producción**.
+Principales etapas: **H0 Fundación → H1 Auth → H2 Catálogo y unidades → H3 Inventario → H4 Recetas y filtrado → H5 Modo cocina → H6 Temas de usuario → H7 Recomendador con LLM → H8 Social → H9 Producción**.

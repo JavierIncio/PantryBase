@@ -27,7 +27,7 @@ export class ProfileService {
     return this.http.get<UserPreferences>('/api/users/preferences');
   }
 
-  /** Persists the three preference fields and returns the stored values. */
+  /** Persists the preference fields and returns the stored values. */
   updatePreferences(preferences: UserPreferences): Observable<UserPreferences> {
     return this.http.put<UserPreferences>('/api/users/preferences', preferences);
   }
