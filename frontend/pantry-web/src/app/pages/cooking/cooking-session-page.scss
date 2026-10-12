@@ -151,6 +151,33 @@
   font: var(--mat-sys-title-small);
 }
 
+// Name plus the "runs out" warning on one line; the figures stay below.
+.line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+}
+
+// A line that actually emptied: the warning color keeps it from reading as a
+// neutral tag next to the ingredient name.
+.runs-out {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--mat-sys-corner-full);
+  background: color-mix(in srgb, var(--mat-sys-error) 14%, transparent);
+  color: var(--mat-sys-error);
+  font: var(--mat-sys-label-small);
+
+  mat-icon {
+    width: 1rem;
+    height: 1rem;
+    font-size: 1rem;
+  }
+}
+
 .line-figures {
   color: var(--mat-sys-on-surface-variant);
   font: var(--mat-sys-body-small);

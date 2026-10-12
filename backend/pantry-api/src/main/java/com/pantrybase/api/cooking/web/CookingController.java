@@ -1,6 +1,7 @@
 package com.pantrybase.api.cooking.web;
 
 import com.pantrybase.api.cooking.dto.CookingSessionResponse;
+import com.pantrybase.api.cooking.dto.CookingSummaryResponse;
 import com.pantrybase.api.cooking.dto.CreateCookingSessionRequest;
 import com.pantrybase.api.cooking.dto.UpdateCookingSessionStateRequest;
 import com.pantrybase.api.cooking.service.CookingService;
@@ -47,6 +48,18 @@ public class CookingController {
     @GetMapping
     public List<CookingSessionResponse> list(@AuthenticationPrincipal Long userId) {
         return cookingService.list(userId);
+    }
+
+    /**
+     * The caller's cooking totals: counts by state, average duration and completion rate.
+     *
+     * <p>Mapped under a literal {@code /summary} rather than {@code /{sessionId}} so the
+     * word cannot be read as an id; the more specific literal takes precedence, and the
+     * variable stays free for real ids only.</p>
+     */
+    @GetMapping("/summary")
+    public CookingSummaryResponse summary(@AuthenticationPrincipal Long userId) {
+        return cookingService.summary(userId);
     }
 
     @GetMapping("/{sessionId}")

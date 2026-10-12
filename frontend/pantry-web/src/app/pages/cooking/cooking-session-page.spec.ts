@@ -307,6 +307,15 @@ describe('CookingSessionPage', () => {
     expect(lines).toEqual(['Eggs', 'Bacon']);
   });
 
+  it('warns on the deduction lines that were left empty, and only those', async () => {
+    const fixture = await render({ ...COMPLETED, deduction: COMPLETED.deduction });
+
+    const lines = nodes(fixture, '.deduction-line');
+    // Eggs had 1 of 3 and dropped to zero; Bacon kept 50 of 200.
+    expect(text(lines[0].querySelector('.runs-out'))).toContain('Runs out');
+    expect(lines[1].querySelector('.runs-out')).toBeNull();
+  });
+
   it('shows the not-found card for a 404 without asking for a recipe', async () => {
     await configure('999');
     const fixture = TestBed.createComponent(CookingSessionPage);

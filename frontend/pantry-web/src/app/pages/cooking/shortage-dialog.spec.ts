@@ -30,7 +30,7 @@ describe('ShortageDialog', () => {
   let http: HttpTestingController;
   let close: ReturnType<typeof vi.fn>;
 
-  const configure = async () => {
+  const configure = async (plan: CompletionDeduction = PLAN) => {
     close = vi.fn();
     await TestBed.configureTestingModule({
       imports: [ShortageDialog],
@@ -39,7 +39,7 @@ describe('ShortageDialog', () => {
         provideHttpClientTesting(),
         // The dialog is a question with two answers; the caller gave it the plan
         // and this spec answers with each of them in turn.
-        { provide: MAT_DIALOG_DATA, useValue: PLAN },
+        { provide: MAT_DIALOG_DATA, useValue: plan },
         { provide: MatDialogRef, useValue: { close } },
       ],
     }).compileComponents();
@@ -47,8 +47,10 @@ describe('ShortageDialog', () => {
   };
 
   /** Creates the dialog, answers the unit catalog, and closes it. */
-  const render = async (): Promise<ComponentFixture<ShortageDialog>> => {
-    await configure();
+  const render = async (
+    plan: CompletionDeduction = PLAN,
+  ): Promise<ComponentFixture<ShortageDialog>> => {
+    await configure(plan);
     const fixture = TestBed.createComponent(ShortageDialog);
     fixture.detectChanges();
     http.expectOne('/api/units').flush(UNITS);
@@ -78,6 +80,38 @@ describe('ShortageDialog', () => {
       'need 3 Unit · have 1 Unit · will use 1 Unit · leaves 0 Unit',
     );
     expect(root(fixture).querySelector('.shortage-intro')).toBeTruthy();
+  });
+
+  it('warns that a short line drops to empty', async () => {
+    const fixture = await render();
+
+    const warning = root(fixture).querySelector('.shortage-line .runs-out');
+
+    expect(text(warning)).toContain('Runs out');
+    expect(text(warning?.querySelector('mat-icon'))).toBe('production_quantity_limits');
+  });
+
+  it('marks no line whose shelf keeps stock after the deduction', async () => {
+    // Same dialog, a line with something left over: the warning is conditional
+    // and must not fire on a line that does not empty.
+    const keep: CompletionDeduction = {
+      hasShortage: true,
+      lines: [
+        {
+          ingredientId: 10,
+          ingredientName: 'Eggs',
+          unitCode: 'UNIT',
+          needed: 3,
+          available: 4,
+          deducted: 3,
+          remaining: 1,
+        },
+      ],
+    };
+    const fixture = await render(keep);
+
+    expect(text(root(fixture).querySelector('.line-name'))).toBe('Eggs');
+    expect(root(fixture).querySelector('.runs-out')).toBeNull();
   });
 
   it('answers the question with cancel as no', async () => {

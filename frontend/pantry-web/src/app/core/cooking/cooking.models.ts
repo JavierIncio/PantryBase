@@ -47,6 +47,20 @@ export interface DeductionLine {
 }
 
 /**
+ * Whether a deduction line leaves its shelf empty.
+ *
+ * The warning the UI shows is "this ran out", not "this ends at zero": both
+ * figures are needed to tell the two apart. A line whose `deducted` is zero was
+ * never touched — it was already empty before cooking (there was no stock to
+ * take), so flagging its zero `remaining` would alert the user to nothing new.
+ * A line only *runs out* when stock actually left it (`deducted > 0`) and no
+ * amount survives (`remaining === 0`).
+ */
+export function runsOut(line: DeductionLine): boolean {
+  return line.deducted > 0 && line.remaining === 0;
+}
+
+/**
  * The plan of a completion, in two different places on the wire.
  *
  * The same shape is the body of the **409** a completion gets when the pantry

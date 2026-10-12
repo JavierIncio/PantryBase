@@ -4,6 +4,7 @@ import com.pantrybase.api.cooking.domain.CookingSession;
 import com.pantrybase.api.cooking.domain.CookingSessionStatus;
 import com.pantrybase.api.cooking.dto.CompletionDeductionResponse;
 import com.pantrybase.api.cooking.dto.CookingSessionResponse;
+import com.pantrybase.api.cooking.dto.CookingSummaryResponse;
 import com.pantrybase.api.cooking.dto.CreateCookingSessionRequest;
 import com.pantrybase.api.cooking.dto.DeductionLineResponse;
 import com.pantrybase.api.cooking.dto.UpdateCookingSessionStateRequest;
@@ -20,10 +21,14 @@ import com.pantrybase.api.recipe.domain.RecipeIngredient;
 import com.pantrybase.api.recipe.exception.RecipeNotFoundException;
 import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
 import com.pantrybase.api.recipe.repository.RecipeRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -54,16 +59,35 @@ public class CookingService {
     private final PantryItemRepository pantryItemRepo;
     private final PantryService pantryService;
 
+    /**
+     * Counters the summary can also be read from without querying the database.
+     *
+     * <p>The two terminal outcomes each get a counter and the gap to the terminal stamp is
+     * timed, so an operator can watch completions and how long a cook takes on a dashboard
+     * even between API calls. They are process-lifetime totals, unlike the summary, which is
+     * per-user and read from the rows: the counters say how the server is being used, the
+     * summary says how one user's kitchen is going.</p>
+     */
+    private final Counter completedCounter;
+    private final Counter abandonedCounter;
+    private final Timer sessionDuration;
+
     public CookingService(CookingSessionRepository cookingSessionRepo,
                           RecipeRepository recipeRepo,
                           RecipeIngredientRepository recipeIngredientRepo,
                           PantryItemRepository pantryItemRepo,
-                          PantryService pantryService) {
+                          PantryService pantryService,
+                          MeterRegistry meterRegistry) {
         this.cookingSessionRepo = cookingSessionRepo;
         this.recipeRepo = recipeRepo;
         this.recipeIngredientRepo = recipeIngredientRepo;
         this.pantryItemRepo = pantryItemRepo;
         this.pantryService = pantryService;
+        this.completedCounter = meterRegistry.counter("pantry.cooking.sessions.completed");
+        this.abandonedCounter = meterRegistry.counter("pantry.cooking.sessions.abandoned");
+        this.sessionDuration = Timer.builder("pantry.cooking.sessions.duration")
+                .description("Time from a cooking session starting to finishing or being abandoned")
+                .register(meterRegistry);
     }
 
     /**
@@ -114,6 +138,54 @@ public class CookingService {
     }
 
     /**
+     * The caller's sessions folded into counts, an average duration and a completion rate.
+     *
+     * <p>Folded from one read of the user's rows rather than from several count queries, so
+     * the total and the per-state counts are the same numbers by construction. That matters
+     * more here than the size of the read: sessions accumulate slowly (a person cooks a
+     * handful of meals, not thousands), whereas a second aggregate could disagree with the
+     * first for no reason a client could resolve.</p>
+     *
+     * <p>Only sessions with a terminal stamp feed the duration; a running session has no end
+     * yet and no say in the average. The completion rate is over the finished sessions only,
+     * so an open session does not move it (see {@link CookingSummaryResponse}).</p>
+     */
+    public CookingSummaryResponse summary(Long userId) {
+        long inProgress = 0;
+        long paused = 0;
+        long completed = 0;
+        long abandoned = 0;
+        long timedSessions = 0;
+        double totalDurationSeconds = 0;
+
+        for (CookingSession session : cookingSessionRepo.findAllByUserIdOrderByCreatedAtDesc(userId)) {
+            switch (session.getStatus()) {
+                case IN_PROGRESS -> inProgress++;
+                case PAUSED -> paused++;
+                case COMPLETED -> completed++;
+                case ABANDONED -> abandoned++;
+            }
+
+            if (session.getCompletedAt() != null) {
+                totalDurationSeconds += Duration.between(session.getStartedAt(),
+                        session.getCompletedAt()).toSeconds();
+                timedSessions++;
+            }
+        }
+
+        long finished = completed + abandoned;
+
+        return new CookingSummaryResponse(
+                inProgress + paused + completed + abandoned,
+                inProgress,
+                paused,
+                completed,
+                abandoned,
+                timedSessions == 0 ? null : totalDurationSeconds / timedSessions,
+                finished == 0 ? null : (double) completed / finished);
+    }
+
+    /**
      * Moves a session to a new state, deducting the recipe when it is completed.
      *
      * <p>Both terminal states stamp {@code completedAt}, so a session's duration is the
@@ -139,15 +211,30 @@ public class CookingService {
         if (next == CookingSessionStatus.COMPLETED) {
             boolean acceptShortage = Boolean.TRUE.equals(request.acceptShortage());
             CompletionDeductionResponse deduction = complete(session, acceptShortage);
+            completedCounter.increment();
+            recordDuration(session);
             return toResponse(session, deduction);
         }
 
         session.setStatus(next);
         if (next == CookingSessionStatus.ABANDONED) {
             session.setCompletedAt(Instant.now());
+            abandonedCounter.increment();
+            recordDuration(session);
         }
 
         return toResponse(cookingSessionRepo.save(session), null);
+    }
+
+    /**
+     * Feeds the duration timer, which both terminal states share.
+     *
+     * <p>Times the gap between the two stamps rather than the wall clock at call time, so
+     * the figure is the session's own elapsed span — pauses included, because a session put
+     * on hold and finished later did take that long to finish.</p>
+     */
+    private void recordDuration(CookingSession session) {
+        sessionDuration.record(Duration.between(session.getStartedAt(), session.getCompletedAt()));
     }
 
     /**

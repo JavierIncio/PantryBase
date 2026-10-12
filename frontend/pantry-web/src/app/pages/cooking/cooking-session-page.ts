@@ -29,6 +29,7 @@ import {
   CookingSessionStatus,
   asCompletionDeduction,
   isTerminal,
+  runsOut,
 } from '../../core/cooking/cooking.models';
 import { CookingService } from '../../core/cooking/cooking.service';
 import { splitSteps } from '../../core/cooking/cooking-steps';
@@ -307,6 +308,7 @@ export class CookingSessionPage implements OnInit {
 
   protected statusLabel = statusLabel;
   protected formatAmount = formatAmount;
+  protected runsOut = runsOut;
 
   /** Display name of a unit code, from the catalog with its own fallback. */
   protected unitLabel = (unitCode: string): string => this.units.label(unitCode);

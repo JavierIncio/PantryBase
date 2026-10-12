@@ -9,7 +9,7 @@ import {
 } from '@angular/material/dialog';
 import { MatIcon } from '@angular/material/icon';
 import { UnitService } from '../../core/catalog/unit.service';
-import { CompletionDeduction } from '../../core/cooking/cooking.models';
+import { CompletionDeduction, runsOut } from '../../core/cooking/cooking.models';
 import { formatAmount } from '../../core/recipes/recipe-matching';
 
 /**
@@ -50,6 +50,7 @@ export class ShortageDialog implements OnInit {
 
   protected unitLabel = (unitCode: string): string => this.units.label(unitCode);
   protected formatAmount = formatAmount;
+  protected runsOut = runsOut;
 
   /** Cancels: nothing is deducted and the session stays where it was. */
   protected cancel(): void {

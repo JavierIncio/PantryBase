@@ -8,6 +8,7 @@ import com.pantrybase.api.cooking.domain.CookingSession;
 import com.pantrybase.api.cooking.domain.CookingSessionStatus;
 import com.pantrybase.api.cooking.dto.CompletionDeductionResponse;
 import com.pantrybase.api.cooking.dto.CookingSessionResponse;
+import com.pantrybase.api.cooking.dto.CookingSummaryResponse;
 import com.pantrybase.api.cooking.dto.CreateCookingSessionRequest;
 import com.pantrybase.api.cooking.dto.UpdateCookingSessionStateRequest;
 import com.pantrybase.api.pantry.domain.ConsumptionOrigin;
@@ -27,14 +28,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Covers the H5 contract: a cooking session's state machine and the deduction it makes
@@ -59,6 +63,8 @@ class CookingControllerIntegrationTest extends AbstractIntegrationTest {
     private RecipeRepository recipeRepository;
     @Autowired
     private RecipeIngredientRepository recipeIngredientRepository;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void cleanRecipeData() {
@@ -310,6 +316,84 @@ class CookingControllerIntegrationTest extends AbstractIntegrationTest {
         assertError(notFound, HttpStatus.NOT_FOUND, COOKING + "/" + theirSession);
     }
 
+    @Test
+    void summary_requiresAuthentication() {
+        assertUnauthorized(COOKING + "/summary", HttpMethod.GET);
+    }
+
+    @Test
+    void summary_withNoSessions_isAllZeroWithNullMetrics() {
+        ResponseEntity<CookingSummaryResponse> response = summary(authenticate());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).satisfies(body -> {
+            assertThat(body.totalSessions()).isZero();
+            assertThat(body.inProgressSessions()).isZero();
+            assertThat(body.pausedSessions()).isZero();
+            assertThat(body.completedSessions()).isZero();
+            assertThat(body.abandonedSessions()).isZero();
+            assertThat(body.averageDurationSeconds()).isNull();
+            assertThat(body.completionRate()).isNull();
+        });
+    }
+
+    @Test
+    void summary_countsByState_andAveragesDurationOverFinishedSessions() {
+        HttpHeaders headers = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("Risotto");
+        line(recipe, rice, "200", 0);
+        stock(headers, rice, "500");
+
+        long firstCompleted = createSession(headers, recipe.getId());
+        long secondCompleted = createSession(headers, recipe.getId());
+        long abandoned = createSession(headers, recipe.getId());
+        long paused = createSession(headers, recipe.getId());
+        // A fifth session is deliberately left running: it must count in the total and in
+        // the in-progress count, but must not touch the rate or the average.
+        createSession(headers, recipe.getId());
+
+        backdate(firstCompleted, 3600);
+        backdate(secondCompleted, 3600);
+        backdate(abandoned, 3600);
+
+        updateState(headers, firstCompleted, CookingSessionStatus.COMPLETED, false);
+        updateState(headers, secondCompleted, CookingSessionStatus.COMPLETED, false);
+        updateState(headers, abandoned, CookingSessionStatus.ABANDONED, false);
+        updateState(headers, paused, CookingSessionStatus.PAUSED, false);
+
+        CookingSummaryResponse body = summary(headers).getBody();
+        assertThat(body).satisfies(summaryBody -> {
+            assertThat(summaryBody.totalSessions()).isEqualTo(5);
+            assertThat(summaryBody.inProgressSessions()).isEqualTo(1);
+            assertThat(summaryBody.pausedSessions()).isEqualTo(1);
+            assertThat(summaryBody.completedSessions()).isEqualTo(2);
+            assertThat(summaryBody.abandonedSessions()).isEqualTo(1);
+            // Three finished runs, each backdated an hour, give an average of an hour; the
+            // wide window absorbs the milliseconds spent reaching the terminal stamp.
+            assertThat(summaryBody.averageDurationSeconds()).isNotNull()
+                    .isCloseTo(3600.0, within(5.0));
+            assertThat(summaryBody.completionRate()).isNotNull()
+                    .isCloseTo(2.0 / 3.0, within(0.001));
+        });
+    }
+
+    @Test
+    void summary_countsOnlyTheCallersSessions() {
+        HttpHeaders mine = authenticate();
+        HttpHeaders theirs = authenticateSecondUser();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("Risotto");
+        line(recipe, rice, "200", 0);
+
+        createSession(mine, recipe.getId());
+        createSession(mine, recipe.getId());
+        createSession(theirs, recipe.getId());
+
+        assertThat(summary(mine).getBody().totalSessions()).isEqualTo(2);
+        assertThat(summary(theirs).getBody().totalSessions()).isEqualTo(1);
+    }
+
     // ============ HELPERS ============
     private HttpHeaders authenticateSecondUser() {
         ResponseEntity<com.pantrybase.api.auth.dto.AuthResponse> registered = registerUser(
@@ -328,6 +412,23 @@ class CookingControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         return response.getBody().id();
+    }
+
+    private ResponseEntity<CookingSummaryResponse> summary(HttpHeaders headers) {
+        return rest.exchange(COOKING + "/summary", HttpMethod.GET, new HttpEntity<>(headers),
+                CookingSummaryResponse.class);
+    }
+
+    /**
+     * Rewinds a session's start so a duration can be asserted without waiting it out.
+     *
+     * <p>Written with SQL because {@code started_at} is {@code updatable = false} on the
+     * entity: the column is meant to be stamped once, so the test reaches around that
+     * guard rather than weakening it for a fixture.</p>
+     */
+    private void backdate(long sessionId, long seconds) {
+        jdbcTemplate.update("UPDATE cooking_sessions SET started_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(seconds)), sessionId);
     }
 
     private ResponseEntity<CookingSessionResponse> updateState(HttpHeaders headers, long sessionId,

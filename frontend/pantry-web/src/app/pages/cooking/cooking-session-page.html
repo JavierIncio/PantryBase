@@ -112,7 +112,15 @@
         <ul class="deduction-lines">
           @for (line of plan.lines; track line.ingredientId) {
             <li class="deduction-line">
-              <span class="line-name">{{ line.ingredientName }}</span>
+              <span class="line-head">
+                <span class="line-name">{{ line.ingredientName }}</span>
+                @if (runsOut(line)) {
+                  <span class="runs-out">
+                    <mat-icon aria-hidden="true">production_quantity_limits</mat-icon>
+                    Runs out
+                  </span>
+                }
+              </span>
               <span class="line-figures">
                 used {{ formatAmount(line.deducted) }} of {{ formatAmount(line.available) }}
                 {{ unitLabel(line.unitCode) }} · {{ formatAmount(line.remaining) }}
