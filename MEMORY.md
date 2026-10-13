@@ -43,6 +43,8 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H6-b Pre-flight receta:** helper `recipeAvailability(detail)` en `recipe-matching.ts` clasifica `covered / low / missing / uncatalogued`; panel en `recipe-detail-page` con diálogo de confirmación al pulsar Start si `hasGaps`; banner persistente en `cooking-session-page`. 5 tests helper, 14 componente (detalle/diálogo/banner), 6 perfil (tema).
 - **H6-c Revamp despensa:** `pantry-item-row` presentacional (fila + stepper inline/delta + tarjeta grid con content projection para paneles), búsqueda/filtro/plegado client-side, estados (vacío/carga/error/no-results), vista grid con persistencia localStorage; `pantry-page.scss` bajo 4 kB. 23 tests nuevos (helpers + componente). 336 tests totales (33 ficheros), bundle 637,63 kB.
 
+- **H7-a Spring AI + cadena de proveedores:** Spring AI 2.0.0 con BOM; `spring-ai-starter-model-ollama` (dev) + `spring-ai-starter-model-openai` (OpenRouter prod); `AiProviderProperties` (lista ordenada), `AiConfig` crea `ChatModel`/`ChatClient` por proveedor; `FallbackChatClient` con fallback en cadena (siguiente proveedor en error/timeout); `RecommendationService` construye prompt con despensa + catálogo, pide JSON con `recipeId`/`coverage`/`missing`/`reasoning`; endpoint `POST /api/ai/recommend` (`@AuthenticationPrincipal Long userId`); tests desactivan auto-config AI (`spring.ai.enabled=false` + claves dummy). Spring AI 2.0.0 (BOM `spring-ai-bom:2.0.0`).
+
 ## Decisiones ya tomadas (no volver a abrir sin motivo)
 
 - **H3:** cantidad en `GRAM`/`UNIT` (volumen sin densidad → `ML`); una fila por ingrediente; ajuste con signo y asiento obligatorio; negativo `409` y cero permitido; `@Version` del servidor; `PUT` sin campo de cantidad.

@@ -164,10 +164,10 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 **Objetivo:** asistente gratuito, multi-proveedor, que recomiende sobre catálogo real.
 
-- [ ] Spring AI configurado con cadena de proveedores gratuitos (orden configurable): **Ollama** (local) en dev; en prod **OpenRouter free**, **Groq free tier**, **Gemini free tier**, etc.
-- [ ] Mecanismo **fallback/rotación**: sobre error, quota o timeout → siguiente proveedor; circuit breaker por proveedor degradado.
-- [ ] Prompt estructurado + tool-calling: el LLM devuelve JSON con `recipeId`s del catálogo y justificación de cobertura (nunca recetas inventadas).
-- [ ] Endpoint `POST /ai/recommend` con el inventario como contexto.
+- [x] **H7-a Spring AI + cadena de proveedores:** Spring AI 2.0.0 (BOM `spring-ai-bom:2.0.0`); `spring-ai-starter-model-ollama` (dev) + `spring-ai-starter-model-openai` (OpenRouter prod); `AiProviderProperties` lista ordenada; `AiConfig` crea `ChatModel`/`ChatClient` por proveedor; `FallbackChatClient` fallback en cadena (siguiente en error/timeout); `RecommendationService` prompt con despensa + catálogo → JSON `recipeId`/`coverage`/`missing`/`reasoning`; endpoint `POST /api/ai/recommend` (`@AuthenticationPrincipal Long userId`); tests con `spring.ai.enabled=false` + claves dummy. Desactivada auto-config Google GenAI/Ollama/OpenAI en tests (`spring.ai.enabled=false` + claves dummy).
+- [ ] **H7-b Fallback/rotación + circuit breaker:** Resilience4j por proveedor (timeout, quota, error) → siguiente; `CircuitBreaker` + `Retry` + `RateLimiter` por proveedor; métricas Micrometer (latencia, fallback rate, éxito global).
+- [ ] **H7-c Prompt estructurado + tool-calling:** esquema JSON estricto; `recipeId`s del catálogo real; validación de respuesta; nunca inventa recetas.
+- [ ] Endpoint `POST /ai/recommend` con inventario como contexto (ya en H7-a).
 - [ ] Métricas: latencia por proveedor, tasa de fallback, éxito global.
 
 **Definition of done:** con Ollama caído o apertura de quórum agotada en el primero, la cadena rota y devuelve recomendaciones del catálogo; respuesta con formato estable.
