@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pantrybase.api.pantry.service.PantryService;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import com.pantrybase.api.recipe.service.RecipeService;
+import com.pantrybase.api.recipe.dto.RecipeSearchRequest;
 import com.pantrybase.api.recipe.dto.RecipeSummaryDto;
 import com.pantrybase.api.user.service.UserService;
 import org.springframework.ai.chat.client.ChatClient;
@@ -68,7 +69,11 @@ public class RecommendationService {
             return Collections.emptyList();
         }
         List<PantryItemResponse> pantry = pantryService.list(userId);
-        List<RecipeSummaryDto> recipes = recipeService.search(userId, null);
+        // An untyped listing (no name/ingredient filter) stays local: the model picks from
+        // the user's own and already-materialised recipes. `search` dereferences the request
+        // unconditionally, so it must be an explicit empty filter, never null.
+        List<RecipeSummaryDto> recipes = recipeService.search(userId,
+                new RecipeSearchRequest(null, null, null, null, null));
 
         String pantryText = formatPantry(pantry);
         String recipesText = formatRecipes(recipes);
