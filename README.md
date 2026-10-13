@@ -200,7 +200,7 @@ Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `JWT_S
 
 ## Observabilidad
 
-- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a USDA FDC y TheMealDB y a cada proveedor LLM, tasa de fallback entre modelos, tamaño del inventario, sesiones de cocina completadas.
+- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a USDA FDC y TheMealDB y a cada proveedor LLM, tasa de fallback entre modelos, tamaño del inventario, sesiones de cocina completadas. **Métricas por proveedor LLM** (`ai.provider.latency`, `ai.provider.calls`, `ai.provider.fallbacks`) con tags `provider` y `result` expuestas en `/actuator/prometheus`.
 - **Dashboards en Grafana** para: salud de servicios, cuotas de APIs externas, uso de la despensa y rendimiento del recomendador.
 - **Rate limiting** implementado en Redis (por usuario y por endpoint) y expuesto en métricas para detectar abusos.
 
@@ -210,4 +210,4 @@ Variables de entorno clave: `SPRING_DATASOURCE_*`, `SPRING_DATA_REDIS_*`, `JWT_S
 
 Ver el detalle de fases, tareas y criterios de aceptación en [docs/ROADMAP.md](docs/ROADMAP.md).
 
-Principales etapas: **H0 Fundación → H1 Auth → H2 Catálogo y unidades → H3 Inventario → H4 Recetas y filtrado → H5 Modo cocina → H6 Temas de usuario → H7 Recomendador con LLM → H8 Social → H9 Producción**.
+Principales etapas: **H0 Fundación → H1 Auth → H2 Catálogo y unidades → H3 Inventario → H4 Recetas y filtrado → H5 Modo cocina → H6 Temas de usuario → H7 Recomendador con LLM (completado) → H8 Social → H9 Producción**.

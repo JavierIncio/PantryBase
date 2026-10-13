@@ -2,7 +2,7 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **13 de octubre de 2026** (H7-c completado: tool-calling + JSON schema estricto; backend 291 tests, JaCoCo 88,24 %; frontend 336 tests, build limpio 637,63 kB. Siguiente: H7-d métricas por proveedor).
+> Máximo 100 líneas. Última actualización: **13 de octubre de 2026** (H7-d completado: métricas por proveedor Timer/Counter/Fallback expuestas en `/actuator/prometheus`; backend 291 tests, JaCoCo 88,24 %; frontend 336 tests, build limpio 637,63 kB. Siguiente: H8 Social).
 
 ## Dónde estamos
 
@@ -66,12 +66,13 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H7-a Spring AI + provider chain + user config:** Spring AI 2.0.0 (BOM) con `spring-ai-starter-model-ollama` + `spring-ai-starter-model-openai`; `AiProviderProperties` lista ordenada; `AiConfig` crea `ChatModel`/`ChatClient`; `FallbackChatClient` fallback en cadena (siguiente en error/timeout); `RecommendationService` prompt con despensa + catálogo → JSON `recipeId`/`coverage`/`missing`/`reasoning`; endpoint `POST /api/ai/recommend` (user-scoped). **Config por usuario:** `UserAiConfig` (1:1 User), `activeProvider` (OLLAMA/OPENROUTER), modelos, API key encriptada AES-GCM (`AiEncryptionService`, clave maestra `AI_ENCRYPTION_KEY` en env); `useAi` boolean en `UserPreferences` (default true) desactiva IA y oculta UI; migraciones `V18` + `V19`. `UserAiConfigService` + `AiEncryptionService` (AES-GCM); fallback a system defaults si usuario no configura. Tests desactivan auto-config AI (`spring.ai.enabled=false` + claves dummy).
 - **H7-b Resilience4j circuit breaker + retry + rate limiter por proveedor:** `CircuitBreaker` (sliding window 10/5, failure rate 50%/40%, wait 30s/60s), `Retry` (maxAttempts 3/2, exponential backoff 2s/5s), `RateLimiter` (10/5/20 req por min), `TimeLimiter` (30s/60s) configurados por proveedor en `application.yml`; `FallbackChatClient` usa `CircuitBreakerRegistry`, `RetryRegistry`, `RateLimiterRegistry`; métricas Micrometer en `/actuator/prometheus` (circuitbreaker calls, state transitions, ratelimiter available, retry attempts). Endpoints de monitoreo añadidos (`/actuator/circuitbreakers`, `/actuator/ratelimiters`, `/actuator/retryevents`).
 - **H7-c Tool-calling + JSON Schema estricto:** Spring AI function calling con `submitRecommendations` function; JSON Schema estricto (required fields: recipeId, title, coveragePercentage, missingIngredients, reasoning; type constraints; coveragePercentage 0-100); `FallbackChatClient.callWithFunction` usa `FunctionToolCallback`; `RecommendationService.parseRecommendations` valida estructura antes de deserializar; `RecommendationParseException` para errores; LLM nunca inventa recetas (solo `recipeId`s del catálogo).
+- **H7-d Métricas por proveedor:** Timer `ai.provider.latency` (latencia P50/P95/P99), Counter `ai.provider.calls` (success/failure por `result`), Counter `ai.provider.fallbacks` (fallbacks a siguiente proveedor); tags `provider` (ollama/openrouter), `result` (success/failure); expuestos en `/actuator/prometheus`; listos para dashboard Grafana.
 - **Queries JPQL explícitas cuando el destino no es la entidad:** `findAllergenCodesByRecipeId` sin `@Query` devolvía entidades y la conversión a `String` caía en un `500`; los derived finder devuelven entidades.
 - **Los tests usan los endpoints reales** cuando tocan datos con lazy (p. ej. `excludeFromDiet` vía `PUT /api/users/allergy-exclusions`): tocar `User.allergyExclusions` fuera de sesión revienta con `LazyInitializationException`.
 
 ## Próximos pasos
 
-1. **H7-d métricas por proveedor:** latencia, fallback rate, éxito global expuestas en `/actuator/prometheus` y dashboard Grafana.
+1. **H8 Social y personalización:** Favoritos (`Favorite`), guardadas (`SavedRecipe`), publicaciones (`PublishedRecipe`); historial de recetas realizadas (`RecipeHistory`) alimentado automáticamente al completar sesión; vista de perfil con estadísticas; publicar receta propia (formulario Angular + `RecipesService.create`).
 2. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
 
 ## Cuellos de botella y riesgos
