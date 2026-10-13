@@ -162,8 +162,9 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
                 .extracting(UserPreferencesResponse::filterMode,
                         UserPreferencesResponse::coverageThreshold,
                         UserPreferencesResponse::diet,
-                        UserPreferencesResponse::themeId)
-                .containsExactly(FilterMode.LAX, (short) 80, Diet.BALANCED, ThemeId.BLUE);
+                        UserPreferencesResponse::themeId,
+                        UserPreferencesResponse::useAi)
+                .containsExactly(FilterMode.LAX, (short) 80, Diet.BALANCED, ThemeId.BLUE, true);
         assertThat(preferencesRepository.count()).isZero();
     }
 
@@ -172,7 +173,7 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         UserPreferencesResponse preferencesToSave =
-                new UserPreferencesResponse(FilterMode.STRICT, (short) 100, Diet.LOW_CARB, ThemeId.ROSE);
+                new UserPreferencesResponse(FilterMode.STRICT, (short) 100, Diet.LOW_CARB, ThemeId.ROSE, true);
 
         ResponseEntity<UserPreferencesResponse> response = rest.exchange(
                 PREFERENCES, HttpMethod.PUT, new HttpEntity<>(preferencesToSave, headers), UserPreferencesResponse.class);
@@ -184,8 +185,9 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
                 .extracting(UserPreferencesResponse::filterMode,
                         UserPreferencesResponse::coverageThreshold,
                         UserPreferencesResponse::diet,
-                        UserPreferencesResponse::themeId)
-                .containsExactly(FilterMode.STRICT, (short) 100, Diet.LOW_CARB, ThemeId.ROSE);
+                        UserPreferencesResponse::themeId,
+                        UserPreferencesResponse::useAi)
+                .containsExactly(FilterMode.STRICT, (short) 100, Diet.LOW_CARB, ThemeId.ROSE, true);
 
         assertThat(preferencesRepository.count()).isEqualTo(1);
     }
@@ -214,13 +216,13 @@ public class UserControllerIntegrationTest extends AbstractIntegrationTest {
         HttpHeaders headers = authenticate();
 
         UserPreferencesResponse prefsOverThreshold =
-                new UserPreferencesResponse(FilterMode.LAX, (short) 101, Diet.BALANCED, ThemeId.BLUE);
+                new UserPreferencesResponse(FilterMode.LAX, (short) 101, Diet.BALANCED, ThemeId.BLUE, true);
         ResponseEntity<ErrorResponse> responseOverThreshold = rest.exchange(
                 PREFERENCES, HttpMethod.PUT, new HttpEntity<>(prefsOverThreshold, headers), ErrorResponse.class);
         assertError(responseOverThreshold, HttpStatus.BAD_REQUEST, PREFERENCES);
 
         UserPreferencesResponse prefsUnderThreshold =
-                new UserPreferencesResponse(FilterMode.LAX, (short) -1, Diet.BALANCED, ThemeId.BLUE);
+                new UserPreferencesResponse(FilterMode.LAX, (short) -1, Diet.BALANCED, ThemeId.BLUE, true);
         ResponseEntity<ErrorResponse> responseUnderThreshold = rest.exchange(
                 PREFERENCES, HttpMethod.PUT, new HttpEntity<>(prefsUnderThreshold, headers), ErrorResponse.class);
         assertError(responseUnderThreshold, HttpStatus.BAD_REQUEST, PREFERENCES);

@@ -71,6 +71,8 @@ app:
     secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
     access-ttl: 15m
     refresh-ttl: 7d
+  ai:
+    encryption-key: bWFzdGVyX2tleV9tdXN0X2JlXzMyX2J5dGVzX2Jhc2U2NA==
   security:
     cookie:
       secure: false

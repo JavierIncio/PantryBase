@@ -5,10 +5,12 @@ import com.pantrybase.api.pantry.service.PantryService;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import com.pantrybase.api.recipe.service.RecipeService;
 import com.pantrybase.api.recipe.dto.RecipeSummaryDto;
+import com.pantrybase.api.user.service.UserService;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -50,16 +52,22 @@ public class RecommendationService {
     private final FallbackChatClient fallbackChatClient;
     private final PantryService pantryService;
     private final RecipeService recipeService;
+    private final UserService userService;
 
     public RecommendationService(FallbackChatClient fallbackChatClient,
                                  PantryService pantryService,
-                                 RecipeService recipeService) {
+                                 RecipeService recipeService,
+                                 UserService userService) {
         this.fallbackChatClient = fallbackChatClient;
         this.pantryService = pantryService;
         this.recipeService = recipeService;
+        this.userService = userService;
     }
 
     public List<RecommendationResponse> recommendForUser(Long userId) {
+        if (!userService.getPreferences(userId).useAi()) {
+            return Collections.emptyList();
+        }
         List<PantryItemResponse> pantry = pantryService.list(userId);
         List<RecipeSummaryDto> recipes = recipeService.search(userId, null);
 

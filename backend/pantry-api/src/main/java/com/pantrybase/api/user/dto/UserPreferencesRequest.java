@@ -14,5 +14,6 @@ public record UserPreferencesRequest(
         @NotNull FilterMode filterMode,
         @NotNull @Min(0) @Max(100) Short coverageThreshold,
         @NotNull Diet diet,
-        @NotNull ThemeId themeId
+        @NotNull ThemeId themeId,
+        @NotNull Boolean useAi
 ) {}
