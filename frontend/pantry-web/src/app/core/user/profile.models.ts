@@ -14,13 +14,21 @@ export type FilterMode = 'STRICT' | 'LAX';
 export type Diet =
   'BALANCED' | 'HIGH_FIBER' | 'HIGH_PROTEIN' | 'LOW_CARB' | 'LOW_FAT' | 'LOW_SODIUM';
 
-/** Default filtering preferences; all four fields are required upstream. */
+/** Default filtering preferences; all five fields are required upstream. */
 export interface UserPreferences {
   readonly filterMode: FilterMode;
   /** Pantry coverage percentage required by the filter (0-100). */
   readonly coverageThreshold: number;
   readonly diet: Diet;
   readonly themeId: ThemeId;
+  /**
+   * Whether the LLM recommender may run for this user.
+   *
+   * When false the backend does not call the AI provider and the
+   * `POST /api/ai/recommend` endpoint answers with an empty list instead of an
+   * error, so the UI hides the entry points rather than offering a dead button.
+   */
+  readonly useAi: boolean;
 }
 
 /** One entry of the allergen catalog or of the user's exclusion list. */

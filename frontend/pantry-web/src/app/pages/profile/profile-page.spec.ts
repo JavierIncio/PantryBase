@@ -32,6 +32,7 @@ const PREFERENCES: UserPreferences = {
   coverageThreshold: 65,
   diet: 'LOW_CARB',
   themeId: 'blue',
+  useAi: true,
 };
 
 // Catalog in the API-driven order (sorted by name).
@@ -326,6 +327,7 @@ describe('ProfilePage', () => {
       coverageThreshold: 90,
       diet: 'HIGH_PROTEIN',
       themeId: 'blue',
+      useAi: true,
     });
     expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('blue');
     expect(snackBar.open).toHaveBeenCalledWith('Preferences saved', 'OK', { duration: 3000 });
@@ -393,10 +395,48 @@ describe('ProfilePage', () => {
       coverageThreshold: 65,
       diet: 'LOW_CARB',
       themeId: 'neutral',
+      useAi: true,
     });
     // The server response (stored preferences) re-becomes the source of truth.
     expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
     expect((document.documentElement.dataset as DOMStringMap)['theme']).toBe('blue');
+  });
+
+  it('renders the AI toggle, prefilled from preferences, and sends the off state on save', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    service.updatePreferences.mockReturnValue(of({ ...PREFERENCES, useAi: false }));
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const component = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+
+    // Prefilled from the GET: the recommender starts on.
+    expect(component.prefsForm.controls.useAi.value).toBe(true);
+    expect(host.querySelector('mat-slide-toggle.toggle-use-ai')).toBeTruthy();
+
+    // Turning it off marks the form dirty and travels in the PUT body, which
+    // the backend rejects with a 400 if any of the five fields is missing.
+    component.prefsForm.controls.useAi.setValue(false);
+    component.prefsForm.markAsDirty();
+    fixture.detectChanges();
+
+    const button = saveButton(fixture, 'save-preferences');
+    expect(button.disabled).toBe(false);
+    button.click();
+    fixture.detectChanges();
+
+    expect(service.updatePreferences).toHaveBeenCalledWith({
+      filterMode: 'LAX',
+      coverageThreshold: 65,
+      diet: 'LOW_CARB',
+      themeId: 'blue',
+      useAi: false,
+    });
+    // The server response is the new source of truth and disables Save again.
+    expect(component.prefsForm.controls.useAi.value).toBe(false);
+    expect(saveButton(fixture, 'save-preferences').disabled).toBe(true);
   });
 
   it('shows the backend message when saving preferences fails and keeps the edits', async () => {

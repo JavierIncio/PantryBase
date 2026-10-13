@@ -13,6 +13,7 @@ const PREFERENCES: UserPreferences = {
   coverageThreshold: 80,
   diet: 'BALANCED',
   themeId: 'green',
+  useAi: true,
 };
 
 describe('App', () => {
