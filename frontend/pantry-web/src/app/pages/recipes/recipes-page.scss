@@ -99,7 +99,8 @@
   font: var(--mat-sys-body-small);
 }
 
-.filter-toggles {
+.filter-toggles,
+.actions-row {
   display: flex;
   gap: 1.5rem;
   padding-bottom: 0.25rem;
@@ -284,7 +285,10 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.recipe-missing {
+// The recipe's missing-ingredient note and the AI card's reasoning share the
+// same muted helper style.
+.recipe-missing,
+.recommendation-reasoning {
   margin: 0;
   color: var(--mat-sys-on-surface-variant);
   font: var(--mat-sys-body-small);

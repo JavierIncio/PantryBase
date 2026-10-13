@@ -2,13 +2,13 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **14 de octubre de 2026** (H7 cerrado y **arrancando en Docker `healthy`**: se corrigió el wiring de IA que impedía el boot — resilience4j inválido, starter Gemini retirado, OpenRouter vía `spring.ai.openai`, claves de proveedor unificadas `ollama`/`openrouter`. Backend 291 tests, JaCoCo 88,24 %; frontend 336 tests, build limpio 637,63 kB. Siguiente: H8 Social).
+> Máximo 100 líneas. Última actualización: **14 de octubre de 2026** (H7 cerrado **con frontend**: arranque en Docker `healthy` tras corregir el wiring de IA, y UI de recomendación + preferencia `useAi` que arregla el `400` de preferencias. Backend 291 tests, JaCoCo 88,24 %; frontend 347 tests (34 ficheros), build limpio 637,63 kB. Siguiente: H8 Social).
 
 ## Dónde estamos
 
 **Hito en curso: H8 (Social y personalización).** H0–H7 **cerrados**, documentados y **verificados en runtime** (contenedor `pantry-api` `healthy`). H7-c: Spring AI function calling con JSON Schema estricto; `submitRecommendations` function con schema estricto (required fields, type constraints, coveragePercentage 0-100); `FallbackChatClient.callWithFunction` usa `FunctionToolCallback`; `RecommendationService.parseRecommendations` valida estructura antes de deserializar; `RecommendationParseException` para errores. H7-b: Resilience4j 2.4.0 por proveedor; CB/Retry/RL/TL; métricas en `/actuator/prometheus`. H7-a: Spring AI 2.0.0 + Ollama + OpenRouter con fallback; config por usuario (`UserAiConfig`, API key AES-GCM, `AI_ENCRYPTION_KEY`); `useAi` en `UserPreferences` (default true); migraciones `V18` + `V19`. El **wiring de IA se corrigió el 14-oct** (ver «Cuellos de botella»).
 
-Estado verificado: **backend 291 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **88,24 %** LINE) y `pantry-api` **`healthy`** en Docker Compose (`infra/`). **Frontend 336 tests verdes (33 ficheros)** con `npm test` y `npm run build` limpio (bundle inicial 637,63 kB). Ojo: en `target/surefire-reports` hay informes stale de clases eliminadas; los totales fiables salen de Maven (y, de los `.txt`, solo los del último run).
+Estado verificado: **backend 291 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **88,24 %** LINE) y `pantry-api` **`healthy`** en Docker Compose (`infra/`). **Frontend 347 tests verdes (34 ficheros)** con `npm test` y `npm run build` limpio (bundle inicial 637,63 kB). Ojo: en `target/surefire-reports` hay informes stale de clases eliminadas; los totales fiables salen de Maven (y, de los `.txt`, solo los del último run).
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 
 ## Qué está construido
@@ -44,6 +44,8 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H6-c Revamp despensa:** `pantry-item-row` presentacional (fila + stepper inline/delta + tarjeta grid con content projection para paneles), búsqueda/filtro/plegado client-side, estados (vacío/carga/error/no-results), vista grid con persistencia localStorage; `pantry-page.scss` bajo 4 kB. 23 tests nuevos (helpers + componente). 336 tests totales (33 ficheros), bundle 637,63 kB.
 
 - **H7-a Spring AI + cadena de proveedores + config por usuario:** Spring AI 2.0.0 (BOM `spring-ai-bom:2.0.0`) con `spring-ai-starter-model-ollama` (Ollama) y `spring-ai-starter-model-openai` (OpenRouter, compatible OpenAI). La cadena declarada en `app.ai.providers` (orden) es la fuente de la **clave de proveedor**: `FallbackChatClient` mapea cada `ChatModel` (`OllamaChatModel`→`ollama`, `OpenAiChatModel`→`openrouter`) y usa esa clave para cliente, Resilience4j y métricas (coincide con `UserAiConfig.activeProvider` y las instancias `ollama`/`openrouter`). `RecommendationService` prompt despensa+catálogo → JSON `recipeId`/`coverage`/`missing`/`reasoning`; `POST /api/ai/recommend` (`@AuthenticationPrincipal Long userId`). **Config por usuario:** `UserAiConfig` (1:1 User), `activeProvider` (OLLAMA/OPENROUTER), modelos, API key AES-GCM (`AiEncryptionService`, clave maestra `AI_ENCRYPTION_KEY`); `useAi` boolean en `UserPreferences` (default true); migraciones `V18` + `V19`. Tests con `spring.ai.enabled=false` + excludes + claves dummy. **Starter `google-genai` retirado** (Gemini aplazado).
+
+- **H7-e Frontend de IA (14-oct):** `core/ai/` (`ai.service.ts` = `POST /api/ai/recommend` sin cuerpo; `ai.models.ts` = `Recommendation` a mano). Botón «AI suggestions» en la página de recetas como **tercera vista** (`mode` `'search'|'suggest'|'ai'`, señales propias), visible solo con `useAi=true`; tarjeta con cobertura (reutiliza los colores), faltantes y `reasoning`, enlaza a `/recipes/{id}`; `[]` es estado vacío legítimo (no error). En perfil, `mat-slide-toggle` «AI suggestions» y el `PUT /api/users/preferences` manda ya los **cinco** campos — **arregló el `400`** que H7-a2 introdujo porque el backend volvió `useAi` obligatorio y el frontend no lo enviaba (los tests no lo vieron: el backend manda `useAi`, el front lo mockea).
 
 ## Decisiones ya tomadas (no volver a abrir sin motivo)
 
@@ -90,6 +92,6 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 ## Cómo trabajar aquí
 
 - Comandos: backend `.\mvnw.cmd -o verify` en `backend/pantry-api`; frontend `npm test` / `npm run build`; infra `docker compose up -d` en `infra/`.
-- Documentación: `README.md`, `docs/ROADMAP.md`, `docs/VERSIONS.md` (consultar antes de proponer dependencias), `docs/FEATURE_GUIDE.md` (sección 6 = perfil/preferencias/temas, sección 11 = despensa/revamp, sección 12 = recetas/pre-flight, sección 13 = modo cocina, sección 18 = frontend/temas y despensa).
+- Documentación: `README.md`, `docs/ROADMAP.md`, `docs/VERSIONS.md` (consultar antes de proponer dependencias), `docs/FEATURE_GUIDE.md` (sección 6 = perfil/preferencias/`useAi`, sección 11 = despensa/revamp, sección 12 = recetas/pre-flight, sección 13 = modo cocina, sección 14 = recomendador IA, sección 19 = frontend/temas y despensa).
 - Reglas de trabajo y de idioma: `AGENTS.md`. El frontend solo lo toca el subagente `frontend`.
 - Al cerrar cada fase: tests verdes + docs actualizadas + commit convencional (proponer, nunca push sin pedirlo).

@@ -25,6 +25,8 @@ import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSlideToggle, MatSlideToggleChange } from '@angular/material/slide-toggle';
 import { RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { Recommendation } from '../../core/ai/ai.models';
+import { AiService } from '../../core/ai/ai.service';
 import { toErrorResponse } from '../../core/auth/auth.models';
 import { IngredientSearchHit } from '../../core/catalog/catalog.models';
 import { CatalogService } from '../../core/catalog/catalog.service';
@@ -115,6 +117,15 @@ const SEARCH_DEBOUNCE_MS = 300;
  * the pantry may not hold would answer a question the user did not ask. A 404
  * from the recipe endpoint means the chosen ingredient left the catalog, which
  * is its own error state — clearing the filter is the repair, not retrying it.
+ *
+ * The AI suggestions are a third, independent view: a button offered only while
+ * the user's `useAi` preference is on (read from the same profile load that
+ * seeds the slider) calls `POST /api/ai/recommend`, whose rows are a different
+ * shape — `title`/`coveragePercentage`/`missingIngredients`/`reasoning` rather
+ * than a `RecipeSummary` — so they render in their own grid and never mix with
+ * the search rows. They carry no filters (the prompt is built server-side from
+ * the pantry) and an empty answer is a real state, not an error: the backend
+ * answers `[]` both when nothing fits and when the recommender is off.
  */
 @Component({
   selector: 'app-recipes-page',
@@ -152,6 +163,7 @@ export class RecipesPage implements OnInit {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly recipesService = inject(RecipesService);
   private readonly profileService = inject(ProfileService);
+  private readonly aiService = inject(AiService);
   private readonly catalog = inject(CatalogService);
 
   /**
@@ -243,13 +255,31 @@ export class RecipesPage implements OnInit {
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
 
-  /** Indicates whether the current results come from recommend or search. */
-  protected readonly mode = signal<'search' | 'suggest'>('search');
+  /** Indicates whether the current results come from recommend, search or the AI. */
+  protected readonly mode = signal<'search' | 'suggest' | 'ai'>('search');
+
+  /**
+   * Whether the user allowed the LLM recommender (`useAi` preference).
+   *
+   * Read from the same profile load that seeds the slider. Defaults to true so
+   * the button is offered before the preference arrives (and when the profile
+   * call fails, matching the page's "keep defaults" policy); a `false` from the
+   * server hides the AI entry point entirely, because the backend would answer
+   * an empty list and a button that can only say "nothing" is not worth
+   * showing.
+   */
+  protected readonly useAi = signal(true);
 
   /** Suggest-specific state. */
   protected readonly suggestLoading = signal(false);
   protected readonly suggestError = signal<string | null>(null);
   protected readonly suggestEmpty = signal(false);
+
+  /** AI-specific state, kept apart from search/suggest so the states never mix. */
+  protected readonly aiLoading = signal(false);
+  protected readonly aiError = signal<string | null>(null);
+  protected readonly aiEmpty = signal(false);
+  protected readonly aiRecommendations = signal<Recommendation[]>([]);
 
   /**
    * The cards on screen: the searched rows, filtered by the slider and ordered
@@ -317,6 +347,7 @@ export class RecipesPage implements OnInit {
       next: (preferences) => {
         const threshold = preferences.coverageThreshold;
         this.strict.set(preferences.filterMode === 'STRICT');
+        this.useAi.set(preferences.useAi ?? true);
         if (threshold >= 0 && threshold <= 100) {
           this.threshold.set(threshold);
           this.filters.controls.threshold.setValue(threshold, { emitEvent: false });
@@ -365,6 +396,7 @@ export class RecipesPage implements OnInit {
     this.ingredientStale.set(false);
     this.suggestEmpty.set(false);
     this.suggestError.set(null);
+    this.aiError.set(null);
     this.recipesService.search(query).subscribe({
       next: (recipes) => {
         if (seq !== this.searchSeq) {
@@ -394,6 +426,7 @@ export class RecipesPage implements OnInit {
     this.suggestLoading.set(true);
     this.suggestError.set(null);
     this.suggestEmpty.set(false);
+    this.aiError.set(null);
     this.loadError.set(null);
     this.loading.set(false);
 
@@ -423,6 +456,64 @@ export class RecipesPage implements OnInit {
 
   protected retrySuggest(): void {
     this.suggest();
+  }
+
+  /**
+   * Asks the LLM recommender for suggestions and shows them in their own grid.
+   *
+   * The request carries no filters: the backend builds the prompt from the
+   * pantry and the catalog alone, so strict mode and the allergen toggle do not
+   * travel and neither does the ingredient box. The same `searchSeq` guard as a
+   * search supersedes a late answer — clicking AI and then searching must not
+   * let the AI rows land over the search's.
+   */
+  protected suggestAi(): void {
+    const seq = ++this.searchSeq;
+    this.mode.set('ai');
+    this.aiLoading.set(true);
+    this.aiError.set(null);
+    this.aiEmpty.set(false);
+    this.aiRecommendations.set([]);
+    this.loadError.set(null);
+    this.loading.set(false);
+
+    this.aiService.recommend().subscribe({
+      next: (recommendations) => {
+        if (seq !== this.searchSeq) {
+          return;
+        }
+        this.aiRecommendations.set(recommendations);
+        this.aiLoading.set(false);
+        // An empty array is the expected answer when the pantry suggests
+        // nothing (or the user disabled the AI); it is a state of its own, not
+        // a failure.
+        this.aiEmpty.set(recommendations.length === 0);
+      },
+      error: (error: HttpErrorResponse) => {
+        if (seq !== this.searchSeq) {
+          return;
+        }
+        this.aiLoading.set(false);
+        this.aiError.set(toErrorResponse(error).message || 'Unable to load AI suggestions.');
+      },
+    });
+  }
+
+  protected retryAi(): void {
+    this.suggestAi();
+  }
+
+  /**
+   * Maps a 0-100 recommendation percentage onto the shared coverage colors.
+   *
+   * The AI endpoint reports a whole percentage while the grid's
+   * {@link coverageClass} reads the 0..1 fraction the search returns, so this
+   * bridges the two without duplicating the three-color rule.
+   */
+  protected recommendationCoverage(
+    percentage: number,
+  ): 'coverage-full' | 'coverage-partial' | 'coverage-none' {
+    return coverageClass(percentage / 100);
   }
 
   /**

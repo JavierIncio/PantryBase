@@ -23,15 +23,16 @@ No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROA
 11. [Despensa: inventario del usuario (H3-1 y H3-2)](#11-despensa-inventario-del-usuario-h3-1-y-h3-2)
 12. [Recetas: búsqueda y cobertura (H4)](#12-recetas-búsqueda-y-cobertura-h4)
 13. [Modo cocina (H5)](#13-modo-cocina-h5)
-14. [Rate limiting](#14-rate-limiting)
-15. [Manejo de errores de la API](#15-manejo-de-errores-de-la-api)
-16. [Observabilidad](#16-observabilidad)
-17. [Correo de desarrollo (Mailpit)](#17-correo-de-desarrollo-mailpit)
-18. [Frontend: sesión, guardas y estructura](#18-frontend-sesión-guardas-y-estructura)
-19. [Migraciones de base de datos](#19-migraciones-de-base-de-datos)
-20. [Tests](#20-tests)
-21. [CI/CD e imágenes Docker](#21-cicd-e-imágenes-docker)
-22. [Zona horaria y notas de mantenimiento](#22-zona-horaria-y-notas-de-mantenimiento)
+14. [Recomendador con IA (H7)](#14-recomendador-con-ia-h7)
+15. [Rate limiting](#15-rate-limiting)
+16. [Manejo de errores de la API](#16-manejo-de-errores-de-la-api)
+17. [Observabilidad](#17-observabilidad)
+18. [Correo de desarrollo (Mailpit)](#18-correo-de-desarrollo-mailpit)
+19. [Frontend: sesión, guardas y estructura](#19-frontend-sesión-guardas-y-estructura)
+20. [Migraciones de base de datos](#20-migraciones-de-base-de-datos)
+21. [Tests](#21-tests)
+22. [CI/CD e imágenes Docker](#22-cicd-e-imágenes-docker)
+23. [Zona horaria y notas de mantenimiento](#23-zona-horaria-y-notas-de-mantenimiento)
 
 ---
 
@@ -194,7 +195,7 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 | Concepto | Explicación |
 |---|---|
 | `User` | Identidad, correo, nombre, hash de la contraseña, roles y lista de alérgenos excluidos. |
-| `UserPreferences` | Preferencias de filtrado y aspecto (`filterMode`, `coverageThreshold`, `diet`, `themeId`). Viven en **otra tabla** que comparte la clave primaria con el usuario (`@MapsId`), de modo que guardar una preferencia no reescribe la fila de la cuenta. |
+| `UserPreferences` | Preferencias de filtrado, aspecto e IA (`filterMode`, `coverageThreshold`, `diet`, `themeId`, `useAi`). Viven en **otra tabla** que comparte la clave primaria con el usuario (`@MapsId`), de modo que guardar una preferencia no reescribe la fila de la cuenta. |
 | `FilterMode` | `STRICT` exige cobertura total de los ingredientes; `LAX` aplica el umbral configurado. |
 | `Diet` | Preferencia de dieta. Está marcada como provisional en el código porque TheMealDB no expone etiquetas de dieta y el mapeo aún no está validado. |
 | `ThemeId` | Paleta de color elegida (`BLUE`, `GREEN`, `AMBER`, `ROSE`, `NEUTRAL`). Es el único enum que se serializa en **minúsculas** (`@JsonValue`), porque su valor es literalmente el atributo `data-theme` del frontend. |
@@ -206,13 +207,15 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 | `UserService` | `user/service/UserService.java` |
 | Entidades | `user/domain/` (`User`, `UserPreferences`, `Allergen`, `Diet`, `Role`, `FilterMode`) |
 | Repositorios | `user/repository/` |
-| Tablas | `db/migration/V1__init.sql` (`users`, `allergens`), `V2__auth_mods.sql` (`user_roles`), `V3__profile.sql` (`user_preferences`, `user_allergy_exclusions`), `V17__user_theme.sql` (`user_preferences.theme_id`) |
+| Tablas | `db/migration/V1__init.sql` (`users`, `allergens`), `V2__auth_mods.sql` (`user_roles`), `V3__profile.sql` (`user_preferences`, `user_allergy_exclusions`), `V17__user_theme.sql` (`user_preferences.theme_id`), `V18__user_ai_config.sql` (`user_ai_config`), `V19__user_preferences_use_ai.sql` (`user_preferences.use_ai`) |
 
 **Endpoints:** `GET /me`, `PUT /profile`, `GET|PUT /preferences`, `GET|PUT /allergy-exclusions`, `GET /allergens`.
 
 Las preferencias y las exclusiones se guardan con semántica de **reemplazo completo** (se manda la lista entera y sustituye a la anterior), no de parcheo. Un código de alérgeno desconocido produce `400`: si se aceptara, el filtro de recetas dejaría de excluir algo y el usuario creería que está protegido. El mismo `400` protege un `themeId` que el enum no pueda parsear.
 
-El `themeId` es la única preferencia puramente de presentación: el backend solo lo guarda y lo devuelve en minúsculas, y el frontend lo aplica como `data-theme` (ver §18). Se mantiene como predeterminado `BLUE` tanto en la entidad como en la columna. Ver H6 en `ROADMAP.md`.
+El `themeId` es la única preferencia puramente de presentación: el backend solo lo guarda y lo devuelve en minúsculas, y el frontend lo aplica como `data-theme` (ver §19). Se mantiene como predeterminado `BLUE` tanto en la entidad como en la columna. Ver H6 en `ROADMAP.md`.
+
+La preferencia `useAi` (por defecto `true`) activa o desactiva el recomendador con LLM. `PUT /preferences` exige los **cinco** campos (`filterMode`, `coverageThreshold`, `diet`, `themeId`, `useAi`); con `useAi=false` el backend no llama a ningún proveedor de IA y `POST /api/ai/recommend` responde `200 []` (ver §14).
 
 ---
 
@@ -496,7 +499,34 @@ Si `hasGaps` (alguno de bajo, ausente o no catalogado), el botón «Start cookin
 
 ---
 
-## 14. Rate limiting
+## 14. Recomendador con IA (H7)
+
+**Qué hace:** sugiere hasta 5 recetas que el usuario puede preparar (o casi) con lo que tiene en la despensa, apoyándose en un LLM. El modelo **nunca inventa recetas**: solo puede devolver `recipeId`s del catálogo real, que es lo que se le entrega en el prompt.
+
+| Pieza | Ruta |
+|---|---|
+| `AiController` (`/api/ai`) | `ai/AiController.java` |
+| `RecommendationService` (prompt, schema y parseo) | `ai/RecommendationService.java` |
+| `FallbackChatClient` (cadena + Resilience4j) | `ai/FallbackChatClient.java` |
+| Propiedades de la cadena | `ai/AiProviderProperties.java` + `app.ai.providers` en `application.yml` |
+| Config por usuario | `ai/domain/UserAiConfig.java`, `ai/service/UserAiConfigService.java` |
+| Cifrado de API keys del usuario | `ai/service/AiEncryptionService.java` (AES-GCM; clave maestra `AI_ENCRYPTION_KEY`) |
+| Migraciones | `V18__user_ai_config.sql`, `V19__user_preferences_use_ai.sql` |
+| Frontend | `core/ai/` (`ai.service.ts`, `ai.models.ts`) y botón en `pages/recipes`; toggle en `pages/profile` |
+
+**Cadena de proveedores (H7-a).** Spring AI 2.0.0 (BOM) con `spring-ai-starter-model-ollama` (Ollama, local y gratis) y `spring-ai-starter-model-openai` (OpenRouter, endpoint compatible OpenAI declarado en `spring.ai.openai.base-url`). El orden lo fija `app.ai.providers`; `FallbackChatClient` recorre los `ChatModel` en ese orden y, ante error o timeout, pasa al siguiente. La **clave de proveedor** (`ollama`/`openrouter`) se deriva del tipo de modelo y es la misma que usan las instancias de Resilience4j, las métricas y `UserAiConfig.activeProvider`. Gemini y Groq quedan **aplazados** (el starter `google-genai` se retiró del `pom.xml`). La configuración por usuario (`UserAiConfig`, 1:1 con `User`) permite elegir proveedor y modelos y guardar una API key propia cifrada con AES-GCM.
+
+**Resiliencia (H7-b).** Resilience4j 2.4.0 por proveedor: `CircuitBreaker`, `Retry`, `RateLimiter` y `TimeLimiter` en `application.yml` bajo las configs `ollamaBase`/`openrouterBase` (el sufijo `Base` evita la autorreferencia de `baseConfig`). Se exponen en `/actuator/prometheus` tanto las métricas propias (`ai.provider.latency`, `ai.provider.calls`, `ai.provider.fallbacks`) como las nativas de Resilience4j.
+
+**Respuesta estructurada (H7-c).** El modelo no devuelve texto libre: debe llamar a la función `submitRecommendations` con un JSON Schema estricto (`recipeId`, `title`, `coveragePercentage` 0-100, `missingIngredients`, `reasoning`). `RecommendationService` valida la forma antes de deserializar y lanza `RecommendationParseException` si no encaja; así una alucinación no llega nunca al cliente.
+
+**Preferencia `useAi`.** `UserPreferences` incorpora `useAi` (por defecto `true`) y `PUT /api/users/preferences` exige los cinco campos. Con `useAi=false` el backend **no llama** al proveedor y `POST /api/ai/recommend` responde `200 []` (no un error); el frontend oculta el punto de entrada en ese caso.
+
+**Frontend (H7).** `core/ai/` reproduce el patrón de `RecipesService`/`ProfileService`: `ai.models.ts` publica el `Recommendation` a mano y `ai.service.ts` tipa el endpoint (sin cuerpo). En la página de recetas, el botón «AI suggestions» (visible solo con `useAi` activo) abre una **tercera vista** independiente de la búsqueda y de «Suggest», con sus propios estados de carga, vacío y error; cada tarjeta muestra título, cobertura (reutilizando los colores de cobertura), ingredientes que faltan y la justificación del modelo, y enlaza a `/recipes/{recipeId}`. En el perfil, un `mat-slide-toggle` «AI suggestions» activa o desactiva la recomendación. Un `[]` del backend es un estado vacío legítimo (nada que sugerir, o IA apagada), no un fallo.
+
+---
+
+## 15. Rate limiting
 
 **Qué hace:** protege la API de abuso limitando cuántas peticiones puede hacer un cliente en una ventana de tiempo.
 
@@ -520,7 +550,7 @@ Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-
 
 ---
 
-## 15. Manejo de errores de la API
+## 16. Manejo de errores de la API
 
 **Qué hace:** convierte los errores internos en respuestas HTTP consistentes, con un formato único para toda la API.
 
@@ -546,7 +576,7 @@ Formato de la respuesta de error (`common/dto/ErrorResponse.java`):
 
 ---
 
-## 16. Observabilidad
+## 17. Observabilidad
 
 **Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos.
 
@@ -561,7 +591,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 17. Correo de desarrollo (Mailpit)
+## 18. Correo de desarrollo (Mailpit)
 
 **Qué hace:** captura los correos que envía la aplicación en lugar de mandarlos de verdad, y los muestra en una interfaz web.
 
@@ -571,7 +601,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 18. Frontend: sesión, guardas y estructura
+## 19. Frontend: sesión, guardas y estructura
 
 **Qué hace:** gestiona la sesión en el navegador y decide a qué páginas puede entrar el usuario.
 
@@ -592,6 +622,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | Servicio y reglas de recetas | `src/app/core/recipes/` (`recipes.service.ts`, `recipes.models.ts`, `recipe-matching.ts`) |
 | Página «Recipes» (grid y filtros) | `src/app/pages/recipes/recipes-page.{ts,html,scss}` |
 | Detalle de receta | `src/app/pages/recipes/recipe-detail-page.{ts,html,scss}` |
+| Servicio y modelos del recomendador IA | `src/app/core/ai/` (`ai.service.ts`, `ai.models.ts`) |
 | Servicio y modelos de cocina | `src/app/core/cooking/` (`cooking.service.ts`, `cooking.models.ts`, `cooking-steps.ts`) |
 | Lista de sesiones y sesión activa | `src/app/pages/cooking/cooking-page.{ts,html,scss}`, `src/app/pages/cooking/cooking-session-page.{ts,html,scss}` |
 | Proxy de desarrollo | `proxy.conf.json` |
@@ -603,7 +634,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 - **`auth.guard`** protege las rutas del producto. Un usuario anónimo no es expulsado sin más: como la cookie de refresco es la única credencial del lado del cliente, el guard intenta **restaurar la sesión** (renovar el token y cargar el perfil) antes de rendirse. Si tampoco funciona, recuerda la URL visitada como `returnUrl` para devolver al usuario allí tras identificarse.
 - **`proxy.conf.json`** redirige `/api` y `/oauth2` al backend durante el desarrollo, de modo que el navegador solo habla con el puerto 4200 y no aparece el problema de CORS.
 
-**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle), «Cooking» (lista de sesiones + sesión activa) y la página «no encontrado» están implementadas. El área `social` existe como ruta pero muestra un marcador de posición pendiente de su hito. Las decisiones del área de recetas viven en `## 12` y las de cocina en `## 13`.
+**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle + vista de recomendación IA), «Cooking» (lista de sesiones + sesión activa) y la página «no encontrado» están implementadas. El área `social` existe como ruta pero muestra un marcador de posición pendiente de su hito. Las decisiones del área de recetas viven en `## 12`, las de cocina en `## 13` y las del recomendador IA en `## 14`.
 
 **Temas de usuario (H6).** El color de la app lo decide un único atributo `data-theme` en `<html>`, que apunta a uno de cinco ids en minúsculas (`blue`, `green`, `amber`, `rose`, `neutral`). `styles.scss` compila **un tema M3 de Angular Material por paleta** con `mat.theme(...)`, y cada bloque va bajo `:root[data-theme='<id>']`; cambiar el atributo intercambia el juego completo de tokens `--mat-sys-*` sin recargar y lo heredan también los *overlays* (diálogos, menús, tooltips), que se proyectan fuera del componente. Las piezas:
 
@@ -650,7 +681,7 @@ Dos decisiones que conviene conocer: el tema se aplica en **dos tiempos** para e
 
 ---
 
-## 19. Migraciones de base de datos
+## 20. Migraciones de base de datos
 
 **Qué hace:** crea y modifica el esquema de la base de datos de forma versionada y reproducible.
 
@@ -680,7 +711,7 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 
 ---
 
-## 20. Tests
+## 21. Tests
 
 **Qué se prueba y cómo:**
 
@@ -702,7 +733,7 @@ Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra 
 
 ---
 
-## 21. CI/CD e imágenes Docker
+## 22. CI/CD e imágenes Docker
 
 **Qué hace:** construye, prueba y publica la imagen de la API automáticamente.
 
@@ -719,7 +750,7 @@ La razón es el tamaño y la superficie: la imagen final no incluye Maven, ni el
 
 ---
 
-## 22. Zona horaria y notas de mantenimiento
+## 23. Zona horaria y notas de mantenimiento
 
 - **Zona horaria:** la aplicación trabaja en UTC. `TimeConfig` expone un bean `Clock` en lugar de llamar a `Instant.now()` directamente en el código, lo que permite sustituir el reloj en los tests y comprobar vencimientos de tokens y de caché sin esperar en tiempo real.
 - **Los secretos nunca se versionan:** viven en `infra/.env`, ignorado por git. En `infra/.env.example` solo aparecen los nombres de las variables.
