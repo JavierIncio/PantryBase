@@ -12,6 +12,9 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
@@ -19,6 +22,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -38,16 +42,13 @@ public class FallbackChatClient {
     private final Map<String, Counter> failureCounters = new ConcurrentHashMap<>();
     private final Map<String, Counter> fallbackCounters = new ConcurrentHashMap<>();
 
-    public FallbackChatClient(List<ChatClient> clients,
+    public FallbackChatClient(List<ChatModel> chatModels,
+                              AiProviderProperties providerProperties,
                               CircuitBreakerRegistry circuitBreakerRegistry,
                               RetryRegistry retryRegistry,
                               RateLimiterRegistry rateLimiterRegistry,
                               MeterRegistry meterRegistry) {
-        this.clientsByProvider = clients.stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        c -> c.getClass().getSimpleName().replace("ChatClientImpl", "").toLowerCase(),
-                        c -> c
-                ));
+        this.clientsByProvider = resolveClients(chatModels, providerProperties);
         this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.retryRegistry = retryRegistry;
         this.rateLimiterRegistry = rateLimiterRegistry;
@@ -74,6 +75,35 @@ public class FallbackChatClient {
                     .description("Fallbacks to next provider")
                     .register(meterRegistry));
         }
+    }
+
+    /**
+     * Resolves the ordered provider → client map from the configured chain, so each
+     * provider key (e.g. {@code ollama}, {@code openrouter}) matches the Resilience4j
+     * instance names and {@link UserAiConfig#getActiveProvider()}. Providers declared in
+     * the chain without a matching {@link ChatModel} on the classpath are skipped.
+     */
+    private static Map<String, ChatClient> resolveClients(List<ChatModel> chatModels,
+                                                          AiProviderProperties providerProperties) {
+        Map<String, ChatClient> clients = new LinkedHashMap<>();
+        for (AiProviderProperties.Provider provider : providerProperties.getProviders()) {
+            ChatModel model = findChatModel(chatModels, provider.getType());
+            if (model != null) {
+                clients.put(provider.getType().name().toLowerCase(), ChatClient.builder(model).build());
+            }
+        }
+        return clients;
+    }
+
+    private static ChatModel findChatModel(List<ChatModel> chatModels, AiProviderProperties.Provider.Type type) {
+        return chatModels.stream().filter(model -> supports(type, model)).findFirst().orElse(null);
+    }
+
+    private static boolean supports(AiProviderProperties.Provider.Type type, ChatModel model) {
+        return switch (type) {
+            case OLLAMA -> model instanceof OllamaChatModel;
+            case OPENROUTER -> model instanceof OpenAiChatModel;
+        };
     }
 
     public String callTextWithFallback(Prompt prompt) {

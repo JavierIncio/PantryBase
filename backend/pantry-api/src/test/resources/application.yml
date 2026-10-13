@@ -5,17 +5,13 @@ spring:
     enabled: false
     openai:
       api-key: test-key
+      base-url: https://openrouter.ai/api/v1
     ollama:
       base-url: http://localhost:11434
-    google:
-      genai:
-        api-key: test-key
   autoconfigure:
     exclude:
       - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
       - org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration
-      - org.springframework.ai.model.google.genai.autoconfigure.chat.GoogleGenAiChatAutoConfiguration
-      - org.springframework.ai.model.google.vertexai.autoconfigure.chat.GoogleVertexAiChatAutoConfiguration
       - org.springframework.ai.openai.autoconfigure.OpenAiChatAutoConfiguration
   datasource:
     url: jdbc:postgresql://localhost:5432/pantrybase
