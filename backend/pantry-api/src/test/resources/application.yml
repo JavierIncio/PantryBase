@@ -3,16 +3,11 @@ spring:
     name: pantry-api
   ai:
     enabled: false
-    openai:
-      api-key: test-key
-      base-url: https://openrouter.ai/api/v1
     ollama:
       base-url: http://localhost:11434
   autoconfigure:
     exclude:
-      - org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration
       - org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration
-      - org.springframework.ai.openai.autoconfigure.OpenAiChatAutoConfiguration
   datasource:
     url: jdbc:postgresql://localhost:5432/pantrybase
     username: pantry
@@ -67,8 +62,6 @@ app:
     secret: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
     access-ttl: 15m
     refresh-ttl: 7d
-  ai:
-    encryption-key: bWFzdGVyX2tleV9tdXN0X2JlXzMyX2J5dGVzX2Jhc2U2NA==
   security:
     cookie:
       secure: false

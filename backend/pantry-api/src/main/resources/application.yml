@@ -23,13 +23,9 @@ spring:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
   ai:
-    # Spring AI owns the actual client wiring. OpenRouter is consumed through the
-    # OpenAI-compatible starter, so its credentials live under spring.ai.openai.
+    # Spring AI wires the local, free Ollama model; no API key required.
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-    openai:
-      api-key: ${OPENROUTER_API_KEY}
-      base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
   mail:
     host: ${MAIL_HOST:mailpit}
     port: 1025
@@ -71,16 +67,9 @@ resilience4j:
         minimumNumberOfCalls: 3
         failureRateThreshold: 40
         waitDurationInOpenState: 60s
-      openrouterBase:
-        slidingWindowSize: 10
-        minimumNumberOfCalls: 5
-        failureRateThreshold: 50
-        waitDurationInOpenState: 30s
     instances:
       ollama:
         baseConfig: ollamaBase
-      openrouter:
-        baseConfig: openrouterBase
   retry:
     configs:
       default:
@@ -96,14 +85,9 @@ resilience4j:
         waitDuration: 5s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
-      openrouterBase:
-        maxAttempts: 3
-        waitDuration: 2s
     instances:
       ollama:
         baseConfig: ollamaBase
-      openrouter:
-        baseConfig: default
   ratelimiter:
     configs:
       default:
@@ -113,14 +97,9 @@ resilience4j:
       ollamaBase:
         limitForPeriod: 5
         limitRefreshPeriod: 60s
-      openrouterBase:
-        limitForPeriod: 20
-        limitRefreshPeriod: 60s
     instances:
       ollama:
         baseConfig: ollamaBase
-      openrouter:
-        baseConfig: openrouterBase
   timelimiter:
     configs:
       default:
@@ -128,13 +107,9 @@ resilience4j:
         cancelRunningFuture: true
       ollamaBase:
         timeoutDuration: 60s
-      openrouterBase:
-        timeoutDuration: 30s
     instances:
       ollama:
         baseConfig: ollamaBase
-      openrouter:
-        baseConfig: openrouterBase
 
 server:
   port: ${PORT:8080}
@@ -151,13 +126,10 @@ app:
     access-ttl: 15m
     refresh-ttl: 7d
   ai:
-    encryption-key: ${AI_ENCRYPTION_KEY}
-    # Ordered fallback chain. Credentials/endpoints are configured under spring.ai.*
+    # Free, local models only. Credentials/endpoints live under spring.ai.ollama.
     providers:
       - type: OLLAMA
         model: llama3.1:8b
-      - type: OPENROUTER
-        model: meta-llama/llama-3.1-8b-instruct:free
   security:
     cookie:
       secure: false

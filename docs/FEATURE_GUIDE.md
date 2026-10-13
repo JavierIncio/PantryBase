@@ -207,7 +207,7 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 | `UserService` | `user/service/UserService.java` |
 | Entidades | `user/domain/` (`User`, `UserPreferences`, `Allergen`, `Diet`, `Role`, `FilterMode`) |
 | Repositorios | `user/repository/` |
-| Tablas | `db/migration/V1__init.sql` (`users`, `allergens`), `V2__auth_mods.sql` (`user_roles`), `V3__profile.sql` (`user_preferences`, `user_allergy_exclusions`), `V17__user_theme.sql` (`user_preferences.theme_id`), `V18__user_ai_config.sql` (`user_ai_config`), `V19__user_preferences_use_ai.sql` (`user_preferences.use_ai`) |
+| Tablas | `db/migration/V1__init.sql` (`users`, `allergens`), `V2__auth_mods.sql` (`user_roles`), `V3__profile.sql` (`user_preferences`, `user_allergy_exclusions`), `V17__user_theme.sql` (`user_preferences.theme_id`), `V19__user_preferences_use_ai.sql` (`user_preferences.use_ai`), `V20__drop_user_ai_config.sql` (elimina `user_ai_config`) |
 
 **Endpoints:** `GET /me`, `PUT /profile`, `GET|PUT /preferences`, `GET|PUT /allergy-exclusions`, `GET /allergens`.
 
@@ -509,14 +509,12 @@ Si `hasGaps` (alguno de bajo, ausente o no catalogado), el botón «Start cookin
 | `RecommendationService` (prompt, schema y parseo) | `ai/RecommendationService.java` |
 | `FallbackChatClient` (cadena + Resilience4j) | `ai/FallbackChatClient.java` |
 | Propiedades de la cadena | `ai/AiProviderProperties.java` + `app.ai.providers` en `application.yml` |
-| Config por usuario | `ai/domain/UserAiConfig.java`, `ai/service/UserAiConfigService.java` |
-| Cifrado de API keys del usuario | `ai/service/AiEncryptionService.java` (AES-GCM; clave maestra `AI_ENCRYPTION_KEY`) |
-| Migraciones | `V18__user_ai_config.sql`, `V19__user_preferences_use_ai.sql` |
+| Migraciones | `V19__user_preferences_use_ai.sql` (preferencia `useAi`); `V20__drop_user_ai_config.sql` elimina la tabla `user_ai_config` |
 | Frontend | `core/ai/` (`ai.service.ts`, `ai.models.ts`) y botón en `pages/recipes`; toggle en `pages/profile` |
 
-**Cadena de proveedores (H7-a).** Spring AI 2.0.0 (BOM) con `spring-ai-starter-model-ollama` (Ollama, local y gratis) y `spring-ai-starter-model-openai` (OpenRouter, endpoint compatible OpenAI declarado en `spring.ai.openai.base-url`). El orden lo fija `app.ai.providers`; `FallbackChatClient` recorre los `ChatModel` en ese orden y, ante error o timeout, pasa al siguiente. La **clave de proveedor** (`ollama`/`openrouter`) se deriva del tipo de modelo y es la misma que usan las instancias de Resilience4j, las métricas y `UserAiConfig.activeProvider`. Gemini y Groq quedan **aplazados** (el starter `google-genai` se retiró del `pom.xml`). La configuración por usuario (`UserAiConfig`, 1:1 con `User`) permite elegir proveedor y modelos y guardar una API key propia cifrada con AES-GCM.
+**Cadena de proveedores (H7-a).** Spring AI 2.0.0 (BOM) con `spring-ai-starter-model-ollama` (**Ollama**, local y gratis): el recomendador usa **solo modelos gratuitos que no requieren API key**, con el endpoint declarado en `spring.ai.ollama.base-url`. El orden lo fija `app.ai.providers`; `FallbackChatClient` recorre los `ChatModel` en ese orden y, ante error o timeout, pasa al siguiente. La **clave de proveedor** (`ollama`) se deriva del tipo de modelo y es la misma que usan las instancias de Resilience4j y las métricas. OpenRouter (gratuito pero con cuenta/API key), Gemini y Groq quedan **aplazados**: sus starters (`spring-ai-starter-model-openai`, `spring-ai-starter-model-google-genai`) se retiraron del `pom.xml`. La antigua configuración de IA por usuario (`UserAiConfig`) y el cifrado de API keys (`AiEncryptionService`, `AI_ENCRYPTION_KEY`) se **eliminaron** por no ser necesarios cuando solo se usan modelos locales sin credenciales.
 
-**Resiliencia (H7-b).** Resilience4j 2.4.0 por proveedor: `CircuitBreaker`, `Retry`, `RateLimiter` y `TimeLimiter` en `application.yml` bajo las configs `ollamaBase`/`openrouterBase` (el sufijo `Base` evita la autorreferencia de `baseConfig`). Se exponen en `/actuator/prometheus` tanto las métricas propias (`ai.provider.latency`, `ai.provider.calls`, `ai.provider.fallbacks`) como las nativas de Resilience4j.
+**Resiliencia (H7-b).** Resilience4j 2.4.0 por proveedor: `CircuitBreaker`, `Retry`, `RateLimiter` y `TimeLimiter` en `application.yml` bajo la config `ollamaBase` (el sufijo `Base` evita la autorreferencia de `baseConfig`). Se exponen en `/actuator/prometheus` tanto las métricas propias (`ai.provider.latency`, `ai.provider.calls`, `ai.provider.fallbacks`) como las nativas de Resilience4j.
 
 **Respuesta estructurada (H7-c).** El modelo no devuelve texto libre: debe llamar a la función `submitRecommendations` con un JSON Schema estricto (`recipeId`, `title`, `coveragePercentage` 0-100, `missingIngredients`, `reasoning`). `RecommendationService` valida la forma antes de deserializar y lanza `RecommendationParseException` si no encaja; así una alucinación no llega nunca al cliente.
 

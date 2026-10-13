@@ -14,7 +14,6 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
@@ -79,9 +78,9 @@ public class FallbackChatClient {
 
     /**
      * Resolves the ordered provider → client map from the configured chain, so each
-     * provider key (e.g. {@code ollama}, {@code openrouter}) matches the Resilience4j
-     * instance names and {@link UserAiConfig#getActiveProvider()}. Providers declared in
-     * the chain without a matching {@link ChatModel} on the classpath are skipped.
+     * provider key (e.g. {@code ollama}) matches the Resilience4j instance names.
+     * Providers declared in the chain without a matching {@link ChatModel} on the
+     * classpath are skipped.
      */
     private static Map<String, ChatClient> resolveClients(List<ChatModel> chatModels,
                                                           AiProviderProperties providerProperties) {
@@ -102,7 +101,6 @@ public class FallbackChatClient {
     private static boolean supports(AiProviderProperties.Provider.Type type, ChatModel model) {
         return switch (type) {
             case OLLAMA -> model instanceof OllamaChatModel;
-            case OPENROUTER -> model instanceof OpenAiChatModel;
         };
     }
 

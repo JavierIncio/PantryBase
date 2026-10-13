@@ -33,16 +33,6 @@ public class AiProviderProperties {
         @NotEmpty
         private String model;
 
-        private String baseUrl;
-
-        private String apiKey;
-
-        private Integer timeoutSeconds;
-
-        private Integer maxTokens;
-
-        private Double temperature;
-
         public Type getType() {
             return type;
         }
@@ -59,49 +49,8 @@ public class AiProviderProperties {
             this.model = model;
         }
 
-        public String getBaseUrl() {
-            return baseUrl;
-        }
-
-        public void setBaseUrl(String baseUrl) {
-            this.baseUrl = baseUrl;
-        }
-
-        public String getApiKey() {
-            return apiKey;
-        }
-
-        public void setApiKey(String apiKey) {
-            this.apiKey = apiKey;
-        }
-
-        public Integer getTimeoutSeconds() {
-            return timeoutSeconds;
-        }
-
-        public void setTimeoutSeconds(Integer timeoutSeconds) {
-            this.timeoutSeconds = timeoutSeconds;
-        }
-
-        public Integer getMaxTokens() {
-            return maxTokens;
-        }
-
-        public void setMaxTokens(Integer maxTokens) {
-            this.maxTokens = maxTokens;
-        }
-
-        public Double getTemperature() {
-            return temperature;
-        }
-
-        public void setTemperature(Double temperature) {
-            this.temperature = temperature;
-        }
-
         public enum Type {
-            OLLAMA,
-            OPENROUTER
+            OLLAMA
         }
     }
 }

@@ -54,7 +54,7 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 
 - **PostgreSQL + Flyway:** base relacional robusta para el dominio (inventario, conversiones, sesiones) con esquema versionado. Mejor que MySQL/H2 para consultas con joins y filtros complejos.
 - **Resilience4j:** USDA FDC, TheMealDB y los proveedores de LLM son servicios externos; el circuit breaker evita cascadas y habilita la rotación de fallos de forma controlada.
-- **Spring AI:** abstrae el acceso a múltiples LLMs (Ollama, OpenRouter, Groq, Gemini…) y facilita el fallback entre modelos.
+- **Spring AI:** abstrae el acceso a los LLMs; el recomendador usa únicamente modelos gratuitos locales (Ollama), sin claves de API ni coste.
 - **Testcontainers:** tests de integración repetibles contra PostgreSQL/Redis reales, sin acoplar a un entorno local.
 - **springdoc-openapi:** documentación viva de la API y cliente generable para Angular.
 
@@ -137,7 +137,7 @@ Tres unidades canónicas:
 
 ## LLM de recomendación (gratuito)
 
-- **Spring AI** con una cadena de proveedores gratuitos configurable: **Ollama** (local, 100 % gratis) primero, con **OpenRouter** (modelos free: `llama`, `qwen`, …) como respaldo. Groq y Gemini quedan **aplazados** (no incluidos aún). La cadena se declara en `app.ai.providers`; el cliente de OpenRouter usa el starter compatible con OpenAI (`spring.ai.openai`).
+- **Spring AI** con **Ollama** (local, 100 % gratis): el recomendador usa solo modelos gratuitos que corren en tu máquina, sin claves de API ni gasto. La cadena se declara en `app.ai.providers`. Los proveedores gratuitos en la nube (OpenRouter `:free`, Groq, Gemini) quedan **aplazados** porque exigen cuenta/API key.
 - **Rotación y fallback automático:** si un proveedor responde error, quota agotada o time-out, se rota al siguiente de la cola; un circuit breaker aísla al proveedor degradado y se reintenta tras un cooldown.
 - El LLM **no inventa recetas**: opera sobre el catálogo real (recetas persistidas de TheMealDB y del usuario ++ inventario) mediante tool-calling/prompt estructurado que devuelve JSON con ids de recetas y justificación de cobertura.
 
@@ -194,7 +194,7 @@ npm install && npm start        # dev server con proxy a la API
 # API docs en http://localhost:8080/swagger-ui.html
 ```
 
-Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`, `AI_ENCRYPTION_KEY` (clave AES-256 en Base64 para cifrar API keys de usuario), `OPENROUTER_API_KEY`, `OLLAMA_BASE_URL`. La cadena de proveedores se declara en `app.ai.providers`. TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
+Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`, `OLLAMA_BASE_URL`. El recomendador funciona solo con **modelos gratuitos locales (Ollama)**: no hay claves de API ni gasto. TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
 
 ---
 
