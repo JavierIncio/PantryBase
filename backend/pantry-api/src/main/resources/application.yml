@@ -36,7 +36,99 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,circuitbreakers,circuitbreakerevents,ratelimiters,retryevents
+  endpoint:
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+    retryevents:
+      enabled: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+        recordExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.ai.chat.client.ResponseException
+      ollama:
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 3
+        failureRateThreshold: 40
+        waitDurationInOpenState: 60s
+      openrouter:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+    instances:
+      ollama:
+        baseConfig: ollama
+      openrouter:
+        baseConfig: openrouter
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 2s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.ai.chat.client.ResponseException
+      ollama:
+        maxAttempts: 2
+        waitDuration: 5s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+      openrouter:
+        maxAttempts: 3
+        waitDuration: 2s
+    instances:
+      ollama:
+        baseConfig: ollama
+      openrouter:
+        baseConfig: default
+  ratelimiter:
+    configs:
+      default:
+        limitForPeriod: 10
+        limitRefreshPeriod: 60s
+        timeoutDuration: 5s
+      ollama:
+        limitForPeriod: 5
+        limitRefreshPeriod: 60s
+      openrouter:
+        limitForPeriod: 20
+        limitRefreshPeriod: 60s
+    instances:
+      ollama:
+        baseConfig: ollama
+      openrouter:
+        baseConfig: openrouter
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 30s
+        cancelRunningFuture: true
+      ollama:
+        timeoutDuration: 60s
+      openrouter:
+        timeoutDuration: 30s
+    instances:
+      ollama:
+        baseConfig: ollama
+      openrouter:
+        baseConfig: openrouter
 
 server:
   port: ${PORT:8080}
@@ -52,6 +144,22 @@ app:
     secret: ${JWT_SECRET}
     access-ttl: 15m
     refresh-ttl: 7d
+  ai:
+    encryption-key: ${AI_ENCRYPTION_KEY}
+    providers:
+      - type: OLLAMA
+        model: llama3.1:8b
+        base-url: http://localhost:11434
+        temperature: 0.3
+        max-tokens: 2048
+        timeout-seconds: 30
+      - type: OPENROUTER
+        model: meta-llama/llama-3.1-8b-instruct:free
+        base-url: https://openrouter.ai/api/v1
+        api-key: ${OPENROUTER_API_KEY}
+        temperature: 0.3
+        max-tokens: 2048
+        timeout-seconds: 30
   security:
     cookie:
       secure: false
@@ -79,12 +187,7 @@ app:
       page-size: 20
       connect-timeout: 2s
       read-timeout: 5s
-      # Ventana sin refresco y ventana de datos rancios. La primera evita la llamada
-      # al proveedor; la segunda decide cuanto se sigue sirviendo si el proveedor falla,
-      # que es lo que hace utilizable el catálogo con la cuota de DEMO_KEY (30 req/h).
       cache-ttl: 24h
       max-stale: 30d
   recipe:
-    # Una receta materializada de TheMealDB se re-consulta al proveedor cuando su
-    # copia local supera esta vida (al abrir el detalle o en búsquedas filtradas).
     refresh-ttl: 24h

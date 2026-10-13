@@ -2,11 +2,11 @@
 
 > **Este fichero es el punto de partida de cada sesión.**
 > Al empezar a trabajar, léelo. Al terminar una sesión, actualízalo con el estado real.
-> Máximo 100 líneas. Última actualización: **13 de octubre de 2026** (H7-a completado: Spring AI 2.0.0 + cadena proveedores + config por usuario con API keys encriptadas + preferencia `useAi`; backend 291 tests, JaCoCo 88,24 %; frontend 336 tests, build limpio 637,63 kB. Siguiente: H7-b circuit breaker + Resilience4j).
+> Máximo 100 líneas. Última actualización: **13 de octubre de 2026** (H7-b completado: Resilience4j circuit breaker + retry + rate limiter por proveedor; backend 291 tests, JaCoCo 88,24 %; frontend 336 tests, build limpio 637,63 kB. Siguiente: H7-c).
 
 ## Dónde estamos
 
-**Hito en curso: H7-b (circuit breaker + Resilience4j).** H0–H7-a **cerrados** y documentados. H7-a: Spring AI 2.0.0 (BOM) + Ollama + OpenRouter (OpenRouter) con fallback en cadena; config por usuario (`UserAiConfig`, API key encriptada AES-GCM, clave maestra `AI_ENCRYPTION_KEY`); preferencia `useAi` en `UserPreferences` (default true) para desactivar IA y ocultar en UI; migraciones `V18` + `V19`. H6 (temas de usuario) añadió `themeId` a `UserPreferences` (backend) y las 5 paletas Material con selector en preferencias (frontend). H5 (modo cocina) cerrado: backend (sesiones, máquina de estados, descontado automático/manual, resumen de métricas) y frontend (`/cooking` + `/cooking/:id`, checklist local, diálogo de carencia, avisos de línea a cero) verdes y documentados.
+**Hito en curso: H7-c (tool-calling + JSON schema).** H0–H7-b **cerrados** y documentados. H7-b: Resilience4j 2.4.0 por proveedor; `CircuitBreaker` (sliding window, failure rate, wait duration), `Retry` (exponential backoff), `RateLimiter` (limitForPeriod), `TimeLimiter` (timeout) configurados por proveedor en `application.yml`; `FallbackChatClient` usa registries; métricas Micrometer en `/actuator/prometheus`. H7-a: Spring AI 2.0.0 (BOM) + Ollama + OpenRouter con fallback; config por usuario (`UserAiConfig`, API key AES-GCM, `AI_ENCRYPTION_KEY`); `useAi` en `UserPreferences` (default true); migraciones `V18` + `V19`.
 
 Estado verificado: **backend 291 tests verdes** con `.\mvnw.cmd -o verify` (gate JaCoCo 0,80 superado, **88,24 %** LINE). **Frontend 336 tests verdes (33 ficheros)** con `npm test` y `npm run build` limpio (bundle inicial 637,63 kB). Ojo: en `target/surefire-reports` hay informes stale de clases eliminadas; los totales fiables salen de Maven (y, de los `.txt`, solo los del último run).
 Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
@@ -64,15 +64,15 @@ Rama `main`: commits locales sin publicar, nunca hay push sin pedirlo.
 - **H6-b pre-flight:** la disponibilidad se clasifica en **cuatro cubetas** (cubierto / bajo / ausente / no catalogado) a partir del detalle ya existente (`coverage` + `ingredients.matched`). El pre-flight y el banner son **cálculo de cliente**; no hay endpoint nuevo. `low`/`missing` surgen de `availableAmount > 0` vs `== 0` en `coverage`; `uncatalogued` = `!matched`. Si hay huecos, el Start pide confirmación; si no, arranca directo.
 - **H6-c despensa interactiva:** la edición en línea usa **delta con signo** (`POST /api/pantry/{id}/adjustments`), nunca PUT de cantidad; el target se convierte en delta (`target − current`); 409 deja la fila intacta y muestra el mensaje del backend. Step por unidad (UNIT→1, GRAM/ML→10, KG/L→50, cucharas→1). Content projection mantiene los paneles en la página y evita duplicar lógica. Budget de estilos resuelto sin subir el umbral: aplanar anidaciones y consolidar propiedades compartidas en `pantry-page.scss` (3993 B) + componente hijo `pantry-item-row` (2425 B).
 - **H7-a Spring AI + provider chain + user config:** Spring AI 2.0.0 (BOM) con `spring-ai-starter-model-ollama` + `spring-ai-starter-model-openai`; `AiProviderProperties` lista ordenada; `AiConfig` crea `ChatModel`/`ChatClient`; `FallbackChatClient` fallback en cadena (siguiente en error/timeout); `RecommendationService` prompt con despensa + catálogo → JSON `recipeId`/`coverage`/`missing`/`reasoning`; endpoint `POST /api/ai/recommend` (user-scoped). **Config por usuario:** `UserAiConfig` (1:1 User), `activeProvider` (OLLAMA/OPENROUTER), modelos, API key encriptada AES-GCM (`AiEncryptionService`, clave maestra `AI_ENCRYPTION_KEY` en env); `useAi` boolean en `UserPreferences` (default true) desactiva IA y oculta UI; migraciones `V18` + `V19`. `UserAiConfigService` + `AiEncryptionService` (AES-GCM); fallback a system defaults si usuario no configura. Tests desactivan auto-config AI (`spring.ai.enabled=false` + claves dummy).
+- **H7-b Resilience4j circuit breaker + retry + rate limiter por proveedor:** `CircuitBreaker` (sliding window 10/5, failure rate 50%/40%, wait 30s/60s), `Retry` (maxAttempts 3/2, exponential backoff 2s/5s), `RateLimiter` (10/5/20 req por min), `TimeLimiter` (30s/60s) configurados por proveedor en `application.yml`; `FallbackChatClient` usa `CircuitBreakerRegistry`, `RetryRegistry`, `RateLimiterRegistry`; métricas Micrometer en `/actuator/prometheus` (circuitbreaker calls, state transitions, ratelimiter available, retry attempts). Endpoints de monitoreo añadidos (`/actuator/circuitbreakers`, `/actuator/ratelimiters`, `/actuator/retryevents`).
 - **Queries JPQL explícitas cuando el destino no es la entidad:** `findAllergenCodesByRecipeId` sin `@Query` devolvía entidades y la conversión a `String` caía en un `500`; los derived finder devuelven entidades.
 - **Los tests usan los endpoints reales** cuando tocan datos con lazy (p. ej. `excludeFromDiet` vía `PUT /api/users/allergy-exclusions`): tocar `User.allergyExclusions` fuera de sesión revienta con `LazyInitializationException`.
 
 ## Próximos pasos
 
-1. **H7-b (circuit breaker + Resilience4j):** `CircuitBreaker` + `Retry` + `RateLimiter` por proveedor en la cadena de fallback; métricas Micrometer (latencia, fallback rate, éxito global) expuestas en Prometheus.
-2. **H7-c (tool-calling + JSON schema):** esquema JSON estricto para respuesta LLM; validación antes de parsear; nunca inventa recetas.
-3. **H7-d métricas por proveedor:** latencia, fallback rate, éxito global expuestas en `/actuator/prometheus`.
-4. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
+1. **H7-c (tool-calling + JSON schema):** esquema JSON estricto para respuesta LLM; validación antes de parsear; nunca inventa recetas.
+2. **H7-d métricas por proveedor:** latencia, fallback rate, éxito global expuestas en `/actuator/prometheus`.
+3. Frontend del catálogo (conversor de unidades sin pantalla) y verificar login de Google contra cliente real.
 
 ## Cuellos de botella y riesgos
 
