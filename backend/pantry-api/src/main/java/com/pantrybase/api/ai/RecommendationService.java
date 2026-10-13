@@ -1,11 +1,16 @@
 package com.pantrybase.api.ai;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pantrybase.api.pantry.service.PantryService;
 import com.pantrybase.api.pantry.dto.PantryItemResponse;
 import com.pantrybase.api.recipe.service.RecipeService;
 import com.pantrybase.api.recipe.dto.RecipeSummaryDto;
 import com.pantrybase.api.user.service.UserService;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.stereotype.Service;
@@ -35,24 +40,17 @@ public class RecommendationService {
             - missingIngredients (list of ingredient names they don't have or don't have enough of)
             - reasoning (brief explanation of why this recipe fits)
             
-            Return ONLY a valid JSON array of recommendations. No extra text.
-            
-            Example format:
-            [
-              {
-                "recipeId": 123,
-                "title": "Chicken Stir Fry",
-                "coveragePercentage": 85,
-                "missingIngredients": ["soy sauce", "ginger"],
-                "reasoning": "You have chicken, vegetables, and rice. Only missing Asian pantry staples."
-              }
-            ]
+            You MUST call the submitRecommendations function with your recommendations.
+            Do NOT output any text outside of the function call.
             """;
+
+    private static final String SUBMIT_RECOMMENDATIONS_FUNCTION = "submitRecommendations";
 
     private final FallbackChatClient fallbackChatClient;
     private final PantryService pantryService;
     private final RecipeService recipeService;
     private final UserService userService;
+    private final ObjectMapper objectMapper;
 
     public RecommendationService(FallbackChatClient fallbackChatClient,
                                  PantryService pantryService,
@@ -62,6 +60,7 @@ public class RecommendationService {
         this.pantryService = pantryService;
         this.recipeService = recipeService;
         this.userService = userService;
+        this.objectMapper = new ObjectMapper();
     }
 
     public List<RecommendationResponse> recommendForUser(Long userId) {
@@ -77,9 +76,43 @@ public class RecommendationService {
         var prompt = new PromptTemplate(RECOMMENDATION_PROMPT)
                 .create(Map.of("pantry", pantryText, "recipes", recipesText));
 
-        String response = fallbackChatClient.callTextWithFallback(prompt);
+        ObjectNode functionSchema = buildRecommendationSchema();
+
+        String response = fallbackChatClient.callWithFunction(prompt, SUBMIT_RECOMMENDATIONS_FUNCTION, functionSchema);
 
         return parseRecommendations(response);
+    }
+
+    private ObjectNode buildRecommendationSchema() {
+        ObjectNode schema = objectMapper.createObjectNode();
+        schema.put("type", "object");
+        schema.put("description", "Submit recipe recommendations based on pantry and catalog");
+
+        ObjectNode properties = schema.putObject("properties");
+        ArrayNode recommendations = properties.putArray("recommendations");
+
+        ObjectNode itemSchema = objectMapper.createObjectNode();
+        itemSchema.put("type", "object");
+        itemSchema.put("description", "A single recipe recommendation");
+
+        ObjectNode itemProperties = itemSchema.putObject("properties");
+        itemProperties.putObject("recipeId").put("type", "integer").put("description", "Recipe ID from the available recipes list");
+        itemProperties.putObject("title").put("type", "string").put("description", "Recipe title");
+        itemProperties.putObject("coveragePercentage").put("type", "integer").put("minimum", 0).put("maximum", 100).put("description", "Percentage of recipe the user can make");
+        ObjectNode missingItems = itemProperties.putObject("missingIngredients");
+        missingItems.put("type", "array").put("description", "List of ingredient names the user is missing or doesn't have enough of");
+        missingItems.putObject("items").put("type", "string");
+        itemProperties.putObject("reasoning").put("type", "string").put("description", "Brief explanation of why this recipe fits");
+
+        ArrayNode required = itemSchema.putArray("required");
+        required.add("recipeId").add("title").add("coveragePercentage").add("missingIngredients").add("reasoning");
+
+        recommendations.add(itemSchema);
+
+        ArrayNode requiredArray = schema.putArray("required");
+        requiredArray.add("recommendations");
+
+        return schema;
     }
 
     private String formatPantry(List<PantryItemResponse> pantry) {
@@ -103,8 +136,16 @@ public class RecommendationService {
 
     private List<RecommendationResponse> parseRecommendations(String json) {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper()
-                    .readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<RecommendationResponse>>() {});
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode recommendations = root.path("recommendations");
+            if (!recommendations.isArray()) {
+                throw new RecommendationParseException("Expected 'recommendations' array in response: " + json, new IllegalArgumentException());
+            }
+
+            return objectMapper.readValue(
+                    recommendations.traverse(),
+                    new com.fasterxml.jackson.core.type.TypeReference<List<RecommendationResponse>>() {}
+            );
         } catch (Exception e) {
             throw new RecommendationParseException("Failed to parse LLM response: " + json, e);
         }

@@ -1,5 +1,7 @@
 package com.pantrybase.api.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.ratelimiter.RateLimiter;
@@ -8,6 +10,8 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -44,7 +48,20 @@ public class FallbackChatClient {
             try {
                 return executeWithResilience(provider, client, prompt);
             } catch (Exception e) {
-                // Log and try next provider
+                continue;
+            }
+        }
+        throw new AiFallbackException("All AI providers failed");
+    }
+
+    public String callWithFunction(Prompt prompt, String functionName, ObjectNode functionSchema) {
+        for (Map.Entry<String, ChatClient> entry : clientsByProvider.entrySet()) {
+            String provider = entry.getKey();
+            ChatClient client = entry.getValue();
+
+            try {
+                return executeWithFunction(provider, client, prompt, functionName, functionSchema);
+            } catch (Exception e) {
                 continue;
             }
         }
@@ -58,10 +75,37 @@ public class FallbackChatClient {
 
         Supplier<String> supplier = () -> callClient(client, prompt);
 
-        // Decorate with CircuitBreaker -> Retry -> RateLimiter
         Supplier<String> decoratedSupplier = CircuitBreaker.decorateSupplier(cb, () -> callClient(client, prompt));
         decoratedSupplier = Retry.decorateSupplier(retry, decoratedSupplier);
         decoratedSupplier = RateLimiter.decorateSupplier(rateLimiter, decoratedSupplier);
+
+        return decoratedSupplier.get();
+    }
+
+    private String executeWithFunction(String provider, ChatClient client, Prompt prompt, String functionName, ObjectNode functionSchema) {
+        CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker(provider);
+        Retry retry = retryRegistry.retry(provider);
+        RateLimiter rateLimiter = rateLimiterRegistry.rateLimiter(provider);
+
+        ToolCallback toolCallback = FunctionToolCallback.builder(functionName, (input) -> {
+            return input;
+        })
+                .description("Submit recipe recommendations")
+                .inputSchema(functionSchema.toString())
+                .build();
+
+        Supplier<String> supplier = () -> {
+            var call = client.prompt()
+                    .messages(prompt.getInstructions())
+                    .toolCallbacks(toolCallback)
+                    .call();
+            return call.content();
+        };
+
+        Supplier<String> decoratedSupplier = CircuitBreaker.decorateSupplier(
+                circuitBreakerRegistry.circuitBreaker(provider), supplier);
+        decoratedSupplier = Retry.decorateSupplier(retryRegistry.retry(provider), decoratedSupplier);
+        decoratedSupplier = RateLimiter.decorateSupplier(rateLimiterRegistry.rateLimiter(provider), decoratedSupplier);
 
         return decoratedSupplier.get();
     }
