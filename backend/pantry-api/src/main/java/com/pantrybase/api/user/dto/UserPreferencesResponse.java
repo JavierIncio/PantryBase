@@ -11,6 +11,5 @@ public record UserPreferencesResponse(
         FilterMode filterMode,
         Short coverageThreshold,
         Diet diet,
-        ThemeId themeId,
-        Boolean useAi
+        ThemeId themeId
 ) {}

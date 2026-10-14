@@ -33,7 +33,6 @@ import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSelect } from '@angular/material/select';
 import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
-import { MatSlideToggle } from '@angular/material/slide-toggle';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ChangePasswordRequest, toErrorResponse, UserResponse } from '../../core/auth/auth.models';
 import { AuthService } from '../../core/auth/auth.service';
@@ -131,7 +130,6 @@ class UsernameErrorStateMatcher implements ErrorStateMatcher {
     MatButtonToggleGroup,
     MatSlider,
     MatSliderThumb,
-    MatSlideToggle,
     ReactiveFormsModule,
   ],
   templateUrl: './profile-page.html',
@@ -289,9 +287,6 @@ export class ProfilePage implements OnInit {
     ]),
     diet: this.fb.control<Diet>('BALANCED', Validators.required),
     themeId: this.fb.control<ThemeId>(DEFAULT_THEME, Validators.required),
-    // The recommender is on by default so a fresh account keeps the AI
-    // suggestions the backend offers until the user opts out.
-    useAi: this.fb.control(true),
   });
 
   protected readonly prefsLoading = signal(true);
@@ -470,13 +465,10 @@ export class ProfilePage implements OnInit {
    */
   private normalizePreferences(prefs: UserPreferences): UserPreferences {
     const themeId = (prefs.themeId ?? DEFAULT_THEME) as ThemeId;
-    // A response from an older backend or a proxy that dropped the flag defaults
-    // to "on", the same value a new account starts with.
-    const useAi = prefs.useAi ?? true;
     if (prefs.filterMode === 'STRICT' && prefs.coverageThreshold !== 100) {
-      return { ...prefs, coverageThreshold: 100, themeId, useAi };
+      return { ...prefs, coverageThreshold: 100, themeId };
     }
-    return { ...prefs, themeId, useAi };
+    return { ...prefs, themeId };
   }
 
   /** Sends the edited preferences; on success re-syncs the form with the server. */

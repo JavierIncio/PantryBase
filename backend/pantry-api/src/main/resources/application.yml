@@ -22,10 +22,6 @@ spring:
           google:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
-  ai:
-    # Spring AI wires the local, free Ollama model; no API key required.
-    ollama:
-      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   mail:
     host: ${MAIL_HOST:mailpit}
     port: 1025
@@ -40,76 +36,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,circuitbreakers,circuitbreakerevents,ratelimiters,retryevents
-  endpoint:
-    circuitbreakers:
-      enabled: true
-    ratelimiters:
-      enabled: true
-    retryevents:
-      enabled: true
-
-resilience4j:
-  circuitbreaker:
-    configs:
-      default:
-        slidingWindowSize: 10
-        minimumNumberOfCalls: 5
-        permittedNumberOfCallsInHalfOpenState: 3
-        automaticTransitionFromOpenToHalfOpenEnabled: true
-        waitDurationInOpenState: 30s
-        failureRateThreshold: 50
-        recordExceptions:
-          - java.io.IOException
-          - java.util.concurrent.TimeoutException
-      ollamaBase:
-        slidingWindowSize: 5
-        minimumNumberOfCalls: 3
-        failureRateThreshold: 40
-        waitDurationInOpenState: 60s
-    instances:
-      ollama:
-        baseConfig: ollamaBase
-  retry:
-    configs:
-      default:
-        maxAttempts: 3
-        waitDuration: 2s
-        enableExponentialBackoff: true
-        exponentialBackoffMultiplier: 2
-        retryExceptions:
-          - java.io.IOException
-          - java.util.concurrent.TimeoutException
-      ollamaBase:
-        maxAttempts: 2
-        waitDuration: 5s
-        enableExponentialBackoff: true
-        exponentialBackoffMultiplier: 2
-    instances:
-      ollama:
-        baseConfig: ollamaBase
-  ratelimiter:
-    configs:
-      default:
-        limitForPeriod: 10
-        limitRefreshPeriod: 60s
-        timeoutDuration: 5s
-      ollamaBase:
-        limitForPeriod: 5
-        limitRefreshPeriod: 60s
-    instances:
-      ollama:
-        baseConfig: ollamaBase
-  timelimiter:
-    configs:
-      default:
-        timeoutDuration: 30s
-        cancelRunningFuture: true
-      ollamaBase:
-        timeoutDuration: 60s
-    instances:
-      ollama:
-        baseConfig: ollamaBase
+        include: health,info,prometheus
 
 server:
   port: ${PORT:8080}
@@ -125,11 +52,6 @@ app:
     secret: ${JWT_SECRET}
     access-ttl: 15m
     refresh-ttl: 7d
-  ai:
-    # Free, local models only. Credentials/endpoints live under spring.ai.ollama.
-    providers:
-      - type: OLLAMA
-        model: llama3.1:8b
   security:
     cookie:
       secure: false

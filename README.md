@@ -1,6 +1,6 @@
 # PantryBase
 
-Recetario inteligente que recomienda recetas en función de lo que el usuario tiene en su despensa (ingredientes y cantidades registradas), con información nutricional y de alérgenos, modo cocina con seguimiento de progreso y descontado automático de stock, y recomendaciones generadas por LLM.
+Recetario inteligente que recomienda recetas en función de lo que el usuario tiene en su despensa (ingredientes y cantidades registradas), con información nutricional y de alérgenos, y modo cocina con seguimiento de progreso y descontado automático de stock.
 
 **Estado:** planificación. Ver [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -8,7 +8,7 @@ Recetario inteligente que recomienda recetas en función de lo que el usuario ti
 
 ## Visión general
 
-El usuario registra su inventario de ingredientes con cantidades en medidas estandarizadas. PantryBase consulta catálogos externos de alimentos y recetas —**USDA FoodData Central** para el catálogo de ingredientes y **TheMealDB** para las recetas—, las filtra según la disponibilidad real de la despensa (modo estricto o laxo) y le ayuda a cocinar paso a paso: al marcar la receta como finalizada se descuentan automáticamente las cantidades consumidas. Un asistente basado en LLM (gratuito, multi-proveedor con rotación y fallback) complementa la recomendación.
+El usuario registra su inventario de ingredientes con cantidades en medidas estandarizadas. PantryBase consulta catálogos externos de alimentos y recetas —**USDA FoodData Central** para el catálogo de ingredientes y **TheMealDB** para las recetas—, las filtra según la disponibilidad real de la despensa (modo estricto o laxo) y le ayuda a cocinar paso a paso: al marcar la receta como finalizada se descuentan automáticamente las cantidades consumidas.
 
 ### Funcionalidades principales
 
@@ -22,7 +22,6 @@ El usuario registra su inventario de ingredientes con cantidades en medidas esta
 - **Modo cocina:** estados de progreso de la sesión (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`); al finalizar se descuentan las cantidades del inventario, con confirmación previa si falta stock (la primera llamada responde `409` con el plan de descuento y, al aceptar, se descuenta lo disponible y la línea queda a cero). También descontado manual sin sesión.
 - **Temas de usuario:** cinco paletas de color (azul, verde, ámbar, rosa, neutro) sobre el theming M3 de Angular Material; la elegida se guarda en las preferencias y se aplica a toda la UI (incluidos diálogos, menús y tooltips) sin recargar.
 - **Social y personal:** recetas favoritas, guardadas, publicadas e historial de recetas realizadas.
-- **Recomendación con LLM:** asistente que sugiere recetas a partir del inventario (gratis, multi-proveedor con rotación y fallback).
 - **Preferencias de usuario:** exclusión de alérgenos, dieta, modo de filtrado por defecto y tema visual.
 
 ---
@@ -39,8 +38,6 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 | BBDD           | Flyway (+)                              | Migraciones versionadas del esquema                          |
 | Backend        | Spring Data JPA                         | Acceso a datos                                               |
 | Cache / RL     | Redis                                   | Rate limiting y caché de respuestas de proveedores externos (USDA FDC, TheMealDB) |
-| Resiliencia    | Resilience4j (+)                        | Circuit breaker, retry y rate limiter para proveedores externos (USDA FDC, TheMealDB) y LLMs |
-| LLM            | Spring AI (+)                           | Capa multi-proveedor con rotación de modelos gratuitos       |
 | Docs API       | springdoc-openapi (+)                   | Contrato OpenAPI                                             |
 | Frontend       | Angular 22.1 (activa) + Angular Material | SPA                                                          |
 | CI/CD          | Jenkins                                 | Pipeline build, test, quality gates y deploy                 |
@@ -53,8 +50,6 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 ### Justificación de adiciones
 
 - **PostgreSQL + Flyway:** base relacional robusta para el dominio (inventario, conversiones, sesiones) con esquema versionado. Mejor que MySQL/H2 para consultas con joins y filtros complejos.
-- **Resilience4j:** USDA FDC, TheMealDB y los proveedores de LLM son servicios externos; el circuit breaker evita cascadas y habilita la rotación de fallos de forma controlada.
-- **Spring AI:** abstrae el acceso a los LLMs; el recomendador usa únicamente modelos gratuitos locales (Ollama), sin claves de API ni coste.
 - **Testcontainers:** tests de integración repetibles contra PostgreSQL/Redis reales, sin acoplar a un entorno local.
 - **springdoc-openapi:** documentación viva de la API y cliente generable para Angular.
 
@@ -69,21 +64,21 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 ## Arquitectura
 
 ```
-                       ┌──────────────────────── externos ──────────────────────────┐
-                       │  USDA FDC · TheMealDB             LLMs gratuitos (rotación)│
-                       └───────────────┬──────────────────────┬─────────────────────┘
-                                       │ REST (Retry/Circuit) │ Spring AI (fallback)
-                                       ▼                      ▼
+                       ┌──────────────────────── externos ───────────────────────────┐
+                       │                    USDA FDC · TheMealDB                     │
+                       └───────────────────────────────┬─────────────────────────────┘
+                                                       │ REST
+                                                       ▼
 ┌────────────┐   JWT    ┌──────────────────────────────── Spring Boot ──────────────────────────────┐
 │ Frontend   │ ───────► │                                                                           │
-│ Angular+Mat│ ◄─────── │  Modulos: Security · Catalog · Pantry · Recipes · Cooking · Social · AI   │
+│ Angular+Mat│ ◄─────── │  Modulos: Security · Catalog · Pantry · Recipes · Cooking · Social         │
 └────────────┘ Rest/JSON│                                                                           │
-                        └───┬──────────────┬───────────────┬───────────────┬───────────────┬────────┘
-                            │              │               │               │               │
-                            ▼              ▼               ▼               ▼               ▼
+                        └───┬──────────────┬───────────────┬───────────────┬───────────────────────┘
+                            │              │               │               │
+                            ▼              ▼               ▼               ▼
                        PostgreSQL      Redis (cache +   Micrometer ───► Prometheus ──► Grafana
                         (Flyway)       rate limiting)      │
-                                                           └─► métricas de endpoint, DB, LLM
+                                                           └─► métricas de endpoint, DB
 
 Jenkins: build → test (JaCoCo) → quality gate → build Docker → deploy (docker compose / compose-swarm)
 ```
@@ -131,15 +126,7 @@ Tres unidades canónicas:
 - **USDA FoodData Central (catálogo de ingredientes):** búsqueda (`GET/POST /foods/search` con filtro de `dataType`), detalle (`GET /food/{fdcId}`) y lote (`GET /foods?fdcIds=`, ids en la query string y troceados en llamadas de 100). Los resultados analíticos (`Foundation`, `SR Legacy`) se cachean como `Ingredient` con nutrientes por 100 g (1003 proteína, 1004 grasa, 1005 carbohidratos, 1008 energía) y **porciones domésticas con peso en gramos** (`foodPortions`), que alimentan la tabla de densidades. La forma real del provider es particular y está verificada contra la API, no contra los records del adapter: el id de nutriente viene anidado en `foodNutrients[].nutrient.id` y la cantidad se llama `amount`; el nombre de la unidad de una porción está en `foodPortions[].modifier` mientras `measureUnit.name` vale `"undetermined"`; y el lote responde un array JSON, no un objeto `{"foods": [...]}`. Los fixtures de `FdcFoodCatalogClientTest` son un recorte literal de una respuesta real (`GET /food/168894`) precisamente para que un cambio de wire rompa un test en vez de devolver nulos en silencio. `Branded` queda para el escaneo por código de barras (`gtinUpc`). La cuota (~1.000 req/h por IP con key propia; 30 req/h con `DEMO_KEY`) hace que la caché sea obligatoria: el detalle se resuelve desde `ingredients` mientras `synced_at` esté dentro de `app.catalog.fdc.cache-ttl` (24 h por defecto), y si el proveedor falla se sirve esa copia hasta `app.catalog.fdc.max-stale` (30 d), tras lo cual responde 502. La búsqueda se cachea en Redis porque es la única consulta sin copia local. Un 429 lanza `FdcRateLimitException`: se sirve la copia local sin reintentar (reintentar solo gastaría cuota inexistente) y se cuenta en `pantry.catalog.fdc.quota.exhausted`. El refresco sobrescribe solo las columnas del proveedor; `density_class` y `ingredient_measures` son datos curados y nunca se tocan. La key viaja **siempre** en la query string porque la API no admite otra forma, así que las URLs de error se sanean antes de entrar en el mensaje de `FdcProviderException` (que se loguea): sin ese paso, el primer 5xx del proveedor escribiría la key en los logs. Sin `USDA_FDC_API_KEY` en el entorno se usa `DEMO_KEY`, que funciona pero está limitada a 30 req/h, y `FdcClientConfig` lo avisa por log al arrancar. `FdcProperties` se valida al inicio: key o `base-url` en blanco, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos abortan el arranque en lugar de fallar en caliente contra el proveedor.
 - **TheMealDB (recetas):** búsqueda por nombre (`search.php?s=`) e ingrediente (`filter.php?i=`), y detalle completo (`lookup.php?i=`). Las recetas se **materializan en BBDD** como entidades propias (`Recipe.source = THE_MEAL_DB`) con refresco por TTL: así los ids son estables para favoritos, sesiones e historial, la nutrición por ración se calcula una sola vez y el dominio no depende del proveedor en caliente. El usuario puede aportar recetas propias en el mismo modelo (`source = USER`).
 - **Nutrición y alérgenos:** TheMealDB no ofrece nutrientes por ración, dietas ni alérgenos; USDA FDC tampoco garantiza campo de alérgenos. La nutrición se calcula localmente en la hidratación (medidas del proveedor → `UnitConverter` → gramos canónicos → nutrientes del catálogo USDA por ración); dietas y alérgenos se derivan con un mapeo interno mantenido por nosotros.
-- Las respuestas de ambas APIs se cachean en BBDD/Redis para controlar cuotas y latencia. Toda llamada externa pasa por Resilience4j (retry + circuit breaker) y rate limiting.
-
----
-
-## LLM de recomendación (gratuito)
-
-- **Spring AI** con **Ollama** (local, 100 % gratis): el recomendador usa solo modelos gratuitos que corren en tu máquina, sin claves de API ni gasto. La cadena se declara en `app.ai.providers`. Los proveedores gratuitos en la nube (OpenRouter `:free`, Groq, Gemini) quedan **aplazados** porque exigen cuenta/API key.
-- **Rotación y fallback automático:** si un proveedor responde error, quota agotada o time-out, se rota al siguiente de la cola; un circuit breaker aísla al proveedor degradado y se reintenta tras un cooldown.
-- El LLM **no inventa recetas**: opera sobre el catálogo real (recetas persistidas de TheMealDB y del usuario ++ inventario) mediante tool-calling/prompt estructurado que devuelve JSON con ids de recetas y justificación de cobertura.
+- Las respuestas de ambas APIs se cachean en BBDD/Redis para controlar cuotas y latencia.
 
 ---
 
@@ -157,14 +144,13 @@ PantryBase/
 ├── backend/
 │   └── pantry-api/            # Spring Boot
 │       └── src/main/java/com/pantrybase/api/
-│           ├── config/        # seguridad, openapi, redis, ai
+│           ├── config/        # seguridad, openapi, redis
 │           ├── user/          # auth, preferencias
 │           ├── catalog/       # ingredientes, medidas, conversiones, alergenos
 │           ├── pantry/        # inventario
 │           ├── recipes/       # recetas (TheMealDB y propias), filtrado
 │           ├── cooking/       # sesiones, estados, descontado
 │           ├── social/        # favoritas, guardadas, publicadas, historial
-│           ├── ai/            # recomendador LLM (rotación/fallback)
 │           └── common/        # utilidades, mappers
 ├── frontend/
 │   └── pantry-web/            # Angular + Material
@@ -185,7 +171,7 @@ docker compose -f infra/docker-compose.yml up -d
 
 # 2. Backend
 cd backend/pantry-api
-./mvnw spring-boot:run          # conf.vía env: DB, Redis, USDA_FDC_API_KEY, LLM providers
+./mvnw spring-boot:run          # conf.vía env: DB, Redis, USDA_FDC_API_KEY
 
 # 3. Frontend
 cd frontend/pantry-web
@@ -194,14 +180,14 @@ npm install && npm start        # dev server con proxy a la API
 # API docs en http://localhost:8080/swagger-ui.html
 ```
 
-Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`, `OLLAMA_BASE_URL`. El recomendador funciona solo con **modelos gratuitos locales (Ollama)**: no hay claves de API ni gasto. TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
+Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`. TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
 
 ---
 
 ## Observabilidad
 
-- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a USDA FDC y TheMealDB y a cada proveedor LLM, tasa de fallback entre modelos, tamaño del inventario, sesiones de cocina completadas. **Métricas por proveedor LLM** (`ai.provider.latency`, `ai.provider.calls`, `ai.provider.fallbacks`) con tags `provider` y `result` expuestas en `/actuator/prometheus`.
-- **Dashboards en Grafana** para: salud de servicios, cuotas de APIs externas, uso de la despensa y rendimiento del recomendador.
+- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a USDA FDC y TheMealDB, tamaño del inventario y sesiones de cocina completadas.
+- **Dashboards en Grafana** para: salud de servicios, cuotas de APIs externas y uso de la despensa.
 - **Rate limiting** implementado en Redis (por usuario y por endpoint) y expuesto en métricas para detectar abusos.
 
 ---
@@ -210,4 +196,4 @@ Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDI
 
 Ver el detalle de fases, tareas y criterios de aceptación en [docs/ROADMAP.md](docs/ROADMAP.md).
 
-Principales etapas: **H0 Fundación → H1 Auth → H2 Catálogo y unidades → H3 Inventario → H4 Recetas y filtrado → H5 Modo cocina → H6 Temas de usuario → H7 Recomendador con LLM (completado) → H8 Social → H9 Producción**.
+Principales etapas: **H0 Fundación → H1 Auth → H2 Catálogo y unidades → H3 Inventario → H4 Recetas y filtrado → H5 Modo cocina → H6 Temas de usuario → H8 Social → H9 Producción**. (H7, el recomendador con LLM, se retiró del alcance.)

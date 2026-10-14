@@ -66,14 +66,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-// The AI toggle explains what it disables; the hint belongs to the control, so
-// it sits directly under it and shares the muted helper style of the page.
-.toggle-hint {
-  margin: -0.5rem 0 0;
-  color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
-}
-
 .allergen-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));

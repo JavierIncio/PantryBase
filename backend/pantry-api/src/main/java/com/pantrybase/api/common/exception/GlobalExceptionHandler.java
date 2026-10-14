@@ -1,6 +1,5 @@
 package com.pantrybase.api.common.exception;
 
-import com.pantrybase.api.ai.FallbackChatClient;
 import com.pantrybase.api.catalog.exception.FdcProviderException;
 import com.pantrybase.api.catalog.exception.DensityClassNotFoundException;
 import com.pantrybase.api.catalog.exception.DensityClassRequiredException;
@@ -257,22 +256,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
-    }
-
-    /**
-     * Maps an AI provider chain with no reachable provider to 503.
-     *
-     * <p>503 and not 500: the service itself is healthy, its upstream model is not, and
-     * the caller should retry later. With a single free local provider there is no
-     * fallback left, so every recommendation fails this way while Ollama is down.</p>
-     */
-    @ExceptionHandler
-    public ResponseEntity<ErrorResponse> handleAiFallback(FallbackChatClient.AiFallbackException ex,
-                                                          HttpServletRequest request) {
-        log.warn("AI provider chain unavailable on {}: {}", request.getRequestURI(), ex.getMessage());
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(ErrorResponseFactory.of(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request));
     }
 
     /** Maps a missing recipe to 404. */

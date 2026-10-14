@@ -20,7 +20,6 @@ const PREFERENCES: UserPreferences = {
   coverageThreshold: 80,
   diet: 'LOW_FAT',
   themeId: 'blue',
-  useAi: true,
 };
 
 const EXCLUSIONS: AllergyExclusions = {
@@ -68,25 +67,6 @@ describe('ProfileService', () => {
     req.flush(PREFERENCES);
 
     await expect(result).resolves.toEqual(PREFERENCES);
-  });
-
-  it('updatePreferences carries useAi so the required PUT body is never incomplete', async () => {
-    const disabled: UserPreferences = { ...PREFERENCES, useAi: false };
-    const result = firstValueFrom(service.updatePreferences(disabled));
-
-    const req = http.expectOne('/api/users/preferences');
-    // The backend rejects a PUT missing any of the five fields with a 400, so
-    // the off state must travel explicitly rather than being omitted.
-    expect(req.request.body).toEqual({
-      filterMode: 'STRICT',
-      coverageThreshold: 80,
-      diet: 'LOW_FAT',
-      themeId: 'blue',
-      useAi: false,
-    });
-    req.flush(disabled);
-
-    await expect(result).resolves.toEqual(disabled);
   });
 
   it('getAllergyExclusions returns the current exclusion list', async () => {

@@ -1,13 +1,6 @@
 spring:
   application:
     name: pantry-api
-  ai:
-    enabled: false
-    ollama:
-      base-url: http://localhost:11434
-  autoconfigure:
-    exclude:
-      - org.springframework.ai.autoconfigure.ollama.OllamaAutoConfiguration
   datasource:
     url: jdbc:postgresql://localhost:5432/pantrybase
     username: pantry

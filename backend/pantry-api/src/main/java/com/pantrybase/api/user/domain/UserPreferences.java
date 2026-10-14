@@ -49,9 +49,6 @@ public class UserPreferences implements Persistable<Long> {
     @Column(name = "theme_id")
     private ThemeId themeId = ThemeId.BLUE;
 
-    @Column(name = "use_ai", nullable = false)
-    private boolean useAi = true;
-
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -107,14 +104,6 @@ public class UserPreferences implements Persistable<Long> {
 
     public void setThemeId(ThemeId themeId) {
         this.themeId = themeId;
-    }
-
-    public boolean isUseAi() {
-        return useAi;
-    }
-
-    public void setUseAi(boolean useAi) {
-        this.useAi = useAi;
     }
 
     public Instant getCreatedAt() {

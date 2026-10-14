@@ -99,11 +99,6 @@
         <button mat-stroked-button type="button" class="suggest-recipes" (click)="suggest()">
           Suggest
         </button>
-        @if (useAi()) {
-          <button mat-stroked-button type="button" class="ai-suggest-recipes" (click)="suggestAi()">
-            AI suggestions
-          </button>
-        }
       </div>
 
       @if (strict()) {
@@ -132,59 +127,6 @@
       <p>Nothing to suggest yet — stock some ingredients or nothing matched them.</p>
     </mat-card-content>
   </mat-card>
-} @else if (mode() === 'ai' && aiLoading()) {
-  <div class="recipes-status"><mat-spinner diameter="40" /></div>
-} @else if (mode() === 'ai' && aiError(); as message) {
-  <div class="recipes-status recipes-error">
-    <mat-icon class="recipes-error-icon" aria-hidden="true">error</mat-icon>
-    <p class="recipes-error-message">{{ message }}</p>
-    <button mat-stroked-button type="button" class="retry-ai" (click)="retryAi()">Retry</button>
-  </div>
-} @else if (mode() === 'ai' && aiEmpty()) {
-  <mat-card class="recipes-empty">
-    <mat-card-content>
-      <mat-icon class="recipes-empty-icon" aria-hidden="true">auto_awesome</mat-icon>
-      <h2>No AI suggestions yet</h2>
-      <p>
-        The recommender found nothing worth cooking right now — stock some ingredients, or check
-        that AI suggestions are enabled in your profile.
-      </p>
-    </mat-card-content>
-  </mat-card>
-} @else if (mode() === 'ai') {
-  <div class="recipe-grid">
-    @for (recommendation of aiRecommendations(); track recommendation.recipeId) {
-      <mat-card
-        class="recipe-card ai-recommendation-card"
-        [class]="recommendationCoverage(recommendation.coveragePercentage)"
-        [routerLink]="['/recipes', recommendation.recipeId]"
-      >
-        <mat-card-header>
-          <mat-card-title>{{ recommendation.title }}</mat-card-title>
-        </mat-card-header>
-
-        <mat-card-content>
-          <div class="recipe-badges">
-            <span
-              class="recipe-badge coverage-badge {{
-                recommendationCoverage(recommendation.coveragePercentage)
-              }}"
-            >
-              {{ recommendation.coveragePercentage }}%
-            </span>
-          </div>
-
-          @if (recommendation.missingIngredients.length > 0) {
-            <p class="recipe-missing recommendation-missing">
-              Missing: {{ recommendation.missingIngredients.join(', ') }}
-            </p>
-          }
-
-          <p class="recommendation-reasoning">{{ recommendation.reasoning }}</p>
-        </mat-card-content>
-      </mat-card>
-    }
-  </div>
 } @else if (loading()) {
   <div class="recipes-status"><mat-spinner diameter="40" /></div>
 } @else if (loadError(); as message) {

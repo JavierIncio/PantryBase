@@ -3,7 +3,6 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { provideRouter } from '@angular/router';
-import { Recommendation } from '../../core/ai/ai.models';
 import { IngredientDetail, IngredientSearchHit } from '../../core/catalog/catalog.models';
 import { RecipeSummary } from '../../core/recipes/recipes.models';
 import { RecipesPage } from './recipes-page';
@@ -97,15 +96,6 @@ const CABBAGE_DISH: RecipeSummary = {
   matchScore: 1,
   missingCount: 0,
   allergenCodes: [],
-};
-
-/** One AI suggestion, as `POST /api/ai/recommend` answers it. */
-const AI_RECOMMENDATION: Recommendation = {
-  recipeId: 1,
-  title: 'Spaghetti alla Carbonara',
-  coveragePercentage: 80,
-  missingIngredients: ['Pancetta'],
-  reasoning: 'Your pantry covers most of it; only the cured meat is missing.',
 };
 
 describe('RecipesPage', () => {
@@ -823,120 +813,5 @@ describe('RecipesPage', () => {
     expect(document.querySelector('.mat-mdc-autocomplete-panel mat-option')).toBeNull();
     // A failed catalog search is not a failed recipe search: the grid is intact.
     expect(root(fixture).querySelector('.recipes-error')).toBeNull();
-  });
-
-  it('offers the AI suggestions button while the useAi preference is on', async () => {
-    const fixture = await render();
-
-    expect(root(fixture).querySelector('.ai-suggest-recipes')).toBeTruthy();
-    expect(text(root(fixture).querySelector('.ai-suggest-recipes'))).toBe('AI suggestions');
-  });
-
-  it('hides the AI suggestions button when the useAi preference is off', async () => {
-    await configure();
-    const fixture = TestBed.createComponent(RecipesPage);
-    fixture.detectChanges();
-    http.expectOne('/api/users/preferences').flush({
-      filterMode: 'LAX',
-      coverageThreshold: 70,
-      diet: 'BALANCED',
-      themeId: 'blue',
-      useAi: false,
-    });
-    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes')).flush([PASTA]);
-    fixture.detectChanges();
-
-    // A disabled recommender would only ever answer [], so the entry point is
-    // removed instead of offering a button that can say nothing.
-    expect(root(fixture).querySelector('.ai-suggest-recipes')).toBeNull();
-    // The pantry-driven Suggest button is independent and stays.
-    expect(root(fixture).querySelector('.suggest-recipes')).toBeTruthy();
-  });
-
-  it('shows a spinner while the AI request is in flight and then the recommendations', async () => {
-    const fixture = await render();
-
-    click(fixture, '.ai-suggest-recipes');
-
-    expect(root(fixture).querySelector('.recipes-status mat-spinner')).toBeTruthy();
-
-    const req = http.expectOne('/api/ai/recommend');
-    expect(req.request.method).toBe('POST');
-    expect(req.request.body).toBeNull();
-    req.flush([AI_RECOMMENDATION]);
-    fixture.detectChanges();
-
-    const card = root(fixture).querySelector('.ai-recommendation-card') as HTMLElement;
-    expect(text(card.querySelector('.mat-mdc-card-title'))).toBe('Spaghetti alla Carbonara');
-    expect(text(card.querySelector('.coverage-badge'))).toBe('80%');
-    expect(text(card.querySelector('.recommendation-missing'))).toContain('Pancetta');
-    expect(text(card.querySelector('.recommendation-reasoning'))).toBe(
-      'Your pantry covers most of it; only the cured meat is missing.',
-    );
-    // The whole card links to the recipe's existing detail route.
-    const router = TestBed.inject(Router);
-    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
-    card.click();
-    fixture.detectChanges();
-    expect(navigate).toHaveBeenCalledTimes(1);
-    expect(navigate.mock.calls[0][0]).toEqual(router.createUrlTree(['/recipes', 1]));
-    // The AI rows are their own grid: the search grid is not drawn underneath.
-    expect(root(fixture).querySelectorAll('.recipe-card:not(.ai-recommendation-card)').length).toBe(
-      0,
-    );
-  });
-
-  it('shows a dedicated empty state when the AI returns no suggestions', async () => {
-    const fixture = await render();
-
-    click(fixture, '.ai-suggest-recipes');
-    http.expectOne('/api/ai/recommend').flush([]);
-    fixture.detectChanges();
-
-    expect(text(root(fixture).querySelector('.recipes-empty h2'))).toBe('No AI suggestions yet');
-    expect(root(fixture).querySelector('.ai-recommendation-card')).toBeNull();
-    // An empty answer is a state, not an error: no error block is rendered.
-    expect(root(fixture).querySelector('.recipes-error')).toBeNull();
-  });
-
-  it('shows the provider error for a failed AI request and retries on demand', async () => {
-    const fixture = await render();
-
-    click(fixture, '.ai-suggest-recipes');
-    http.expectOne('/api/ai/recommend').flush(errorResponse(502, 'All AI providers failed'), {
-      status: 502,
-      statusText: 'Bad Gateway',
-    });
-    fixture.detectChanges();
-
-    expect(text(root(fixture).querySelector('.recipes-error-message'))).toBe(
-      'All AI providers failed',
-    );
-    expect(root(fixture).querySelector('.recipes-empty')).toBeNull();
-
-    click(fixture, '.retry-ai');
-    http.expectOne('/api/ai/recommend').flush([AI_RECOMMENDATION]);
-    fixture.detectChanges();
-
-    expect(text(root(fixture).querySelector('.ai-recommendation-card .mat-mdc-card-title'))).toBe(
-      'Spaghetti alla Carbonara',
-    );
-  });
-
-  it('drops a late AI answer when a newer search has taken over', async () => {
-    const fixture = await render();
-
-    click(fixture, '.ai-suggest-recipes');
-    // A search fires while the AI request is still travelling.
-    click(fixture, '.toggle-allergen-safe button');
-    const search = expectSearch();
-    // The AI answer lands late: it must not draw over the search's rows.
-    http.expectOne('/api/ai/recommend').flush([AI_RECOMMENDATION]);
-    fixture.detectChanges();
-    expect(root(fixture).querySelector('.ai-recommendation-card')).toBeNull();
-
-    search.flush([PASTA]);
-    fixture.detectChanges();
-    expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara']);
   });
 });

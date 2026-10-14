@@ -23,8 +23,6 @@
 | Spring Framework  | 7.0.x                                  | Gestionada por Boot (**BOM**), no versionar                                                                                                                           |
 | Jackson           | 3.2.x                                  | Spring Boot 4 usa **Jackson 3** (`tools.jackson.*`). (**BOM**, no versionar manual)                                                                                   |
 | springdoc-openapi | **3.1.1**                              | Artefacto `springdoc-openapi-starter-webmvc-ui`; línea 3.x solo para Boot 4                                                                                           |
-| Spring AI         | **2.0.0**                              | Requiere Spring Boot 4.x; soporta multi-proveedor (artefactos `spring-ai-starter-model-*`)                                                                           |
-| Resilience4j      | **2.4.0**                              | Usar artefacto `resilience4j-spring-boot4` (compatibilidad Boot 4)                                                                                                    |
 | Flyway            | **13.7.0** (standalone)                | En el proyecto usar `spring-boot-starter-flyway` (**BOM**)                                                                                                            |
 | JWT (JJWT)        | **0.13.0**                             | **Stack único de JWT** (decidido en H1 frente a `oauth2-jose`/Nimbus): `jjwt-api`, `jjwt-impl`, `jjwt-jackson` (0.13.0, verificada ago 2025)                          |
 | Spring Security   | (BOM)                                  | `spring-boot-starter-security`: cadena de filtros, autenticación sin estado y BCrypt via `spring-security-crypto` (H1)                                                |
@@ -75,14 +73,13 @@
 
 ---
 
-## APIs externas y LLM
+## APIs externas
 
 | Recurso                    | Detalle                                                                                                                                                                     |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | USDA FDC — FoodData Central v1 | Ingredientes: búsqueda (`GET/POST /foods/search` con `dataType`), detalle `GET /food/{fdcId}`, lote `POST /foods` (≤ 20 ids). Nutrientes por `nutrientId` (por 100 g) y porciones domésticas con peso (→ densidades). Key api.data.gov como `api_key` (1.000 req/h/IP; `DEMO_KEY` 30/h para pruebas; 429 + bloqueo 1 h al exceder). |
 | TheMealDB v1                 | Recetas: búsqueda por nombre (`search.php?s=`) e ingrediente (`filter.php?i=`), detalle `lookup.php?i=`; pares `strIngredientN`/`strMeasureN` (N=1..20). Test key pública `1` en la URL; gratis para uso educativo y desarrollo; sin cuota publicada. Recetas materializadas en BBDD (`Recipe.source`) y nutrición calculada localmente desde USDA FDC. |
-| LLM gratuitos              | Ollama (local, 100 % gratis) vía `spring-ai-starter-model-ollama`; endpoint en `spring.ai.ollama` (`OLLAMA_BASE_URL`). Sin claves de API ni coste. OpenRouter (`:free`), Groq y Gemini **aplazados**: requieren cuenta/API key, así que las dependencias `spring-ai-starter-model-openai` y `spring-ai-starter-model-google-genai` quedan **retiradas del `pom.xml`** hasta que se usen. Orden de la cadena declarado en `app.ai.providers`. |
-| Rate limiting              | Redis (resilience4j) por usuario + endpoint; cuotas externas vigiladas en Grafana.                                                                                          |
+| Rate limiting              | Redis por usuario + endpoint; cuotas externas vigiladas en Grafana.                                                                                                         |
 
 ---
 
