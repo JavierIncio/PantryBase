@@ -280,11 +280,31 @@ Dos niveles de cubo de fichas sobre el mismo script Lua: los endpoints autentica
 
 **Pendiente del bloque:** nada.
 
+### Bloque H9-2 — Alertas de Prometheus con Alertmanager (cerrado 18-oct-2026)
+
+Cinco reglas en `infra/prometheus/rules.yml` (validadas con `promtool check rules`: 5 rules found) sobre las series que el scrape real expone: `ApiDown` (crítico, 2 min sin scrapear), `ApiHighErrorRate` (>10 % de 5xx durante 5 min; sin tráfico no hay división, así que una API ociosa no alerta), `FdcQuotaExhausted` (cuota de USDA FDC agotada en 15 min), `FdcServingStale` (catalog sirviendo caché obsoleta) y `CookingSessionsStuck` (sesión colgada 30 min). **Ajuste honesto al texto del hito:** «circuito abierto» y «cuota de LLM» ya no existen tras retirar H7; su hueco lo ocupan las dos alertas de degradación del proveedor FDC. **Prerrequisito implementado:** no había forma de detectar «sesiones colgadas», así que se añade el gauge `pantry.cooking.sessions.stuck` (`CookingService` + `CookingSessionRepository.countByStatusAndStartedAtBefore`): sesiones `IN_PROGRESS` abiertas hace más de 1 h, evaluado **en el scrape** (un COUNT por pull, sin tarea programada). Alertmanager (`prom/alertmanager:v0.34.1`, config validada con `amtool check-config`) enruta todo por correo a Mailpit (`smtp_require_tls: false`), de modo que el aviso se ve en `http://localhost:8025`. **Verificación end-to-end real:** parar `pantry-api` → `ApiDown` pasa a `firing` en Prometheus → `active` en Alertmanager con receiver `local-mailpit` → correo **«[FIRING:1] ApiDown»** entregado en Mailpit; al reiniciar la API las alertas quedan limpias. Test del gauge en `CookingControllerIntegrationTest` (se lee del `MeterRegistry`: los starters de test de Boot 4 **desactivan la exportación de métricas en tests** a propósito, así que `/actuator/prometheus` no existe en el contexto de test pero sí en el runtime — verificado contra el contenedor). **Suite backend 321 tests verdes** (el test del gauge sustituye a ningún otro). Dependencia nueva: imagen Alertmanager (anotada en `VERSIONS.md`).
+
+- [x] Reglas de alerta para 5xx, caída, degradación del proveedor FDC y sesiones colgadas.
+- [x] Alertmanager enroutando avisos por correo a Mailpit, con entrega verificada de extremo a extremo.
+- [x] Gauge de sesiones colgadas con test (sin tarea programada: se evalúa en el scrape).
+
+**Pendiente del bloque:** nada.
+
+### Bloque H9-3 — Dashboards de Grafana provisionados (cerrado 18-oct-2026)
+
+Dos dashboards **versionados como código** en `infra/grafana/dashboards/` y cargados por el provider `infra/grafana/provisioning/dashboards/dashboards.yml` (namespace Grafana 13: los ficheros se montan en `/etc/grafana/dashboards`): **PantryBase / Health** (uptime, CPU, heap, hilos, tráfico por estado, latencia media, pool Hikari, carga del host) y **PantryBase / Operations** (sesiones colgadas, ratio 5xx, cuota FDC, tasa de completadas/abandonadas, duración media de sesión, degradación del proveedor). Los paneles referencian el datasource con la **variable `${datasource}`** en vez de un `uid` fijo: el `uid` de un datasource provisionado lo genera Grafana en cada instalación (aquí `PBFA97CFB590B2093`), y fijarlo en YAML **rompe el arranque en Grafana 13.0.9** con `Datasource provisioning error: data source not found` (incidencia real durante este bloque). **Límites documentados:** los timers HTTP y de sesiones son *summaries* (count/sum/max), no histogramas, así que la latencia se muestra como **media**, no p90/p95; no hay métricas de cuota de TheMealDB, cobertura de despensa ni rendimiento del recomendador, así que esos paneles del texto original **no se fabrican**. Verificado: los dos dashboards aparecen vía API de Grafana (`/api/search`) y el datasource se resuelve.
+
+- [x] Dashboards de salud y operación provisionados como JSON versionado.
+- [x] Datasource referenciado por variable (reproducible en cualquier instalación).
+- [x] Contenido honesto: solo series que el scrape expone de verdad; el resto, anotado como pendiente.
+
+**Pendiente del bloque:** nada.
+
 ---
 
 - [ ] Hardening de seguridad: rate limiting por IP (hecho en H9-1), auditoría de llamadas externas, secretos en Vault/CI. Hecho en H2-B-5: la key de USDA FDC viaja en la query string (la API no admite otra forma) y ya no se escribe en los logs, porque las URLs de error se sanean antes de entrar en `FdcProviderException`; además `FdcProperties` está validada al arrancar, de modo que una key ausente, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos rompen el arranque en lugar de degradarse en silencio, y la caída a `DEMO_KEY` (30 req/h) emite un warning. Pendiente: auditoría y Vault/CI.
-- [ ] Dashboards de Grafana finales: salud, cuotas de APIs externas (USDA FDC, TheMealDB, LLM), cobertura de despensa, rendimiento del recomendador.
-- [ ] Alertas (Prometheus Alertmanager) para: errores 5xx, circuito abierto, cuota de LLM agotada, sesiones colgadas.
+- [ ] Dashboards de Grafana finales: salud y operación (hecho en H9-3: dos dashboards en `infra/grafana/dashboards/`, con `PantryBase / Health` y `PantryBase / Operations`). No hay series de cuota de TheMealDB, cobertura de despensa ni recomendador: no se inventan paneles (o se añaden cuando existan métricas). La cuota de USDA FDC sí está cubierta.
+- [ ] Alertas (Prometheus Alertmanager) para: errores 5xx, caída de la API, degradación del proveedor FDC y sesiones colgadas (hecho en H9-2; «circuito abierto» y «cuota de LLM» se retiraron con H7, su hueco lo cubren las alertas FDC).
 - [ ] Carga y escalado: índices de BBDD analizados con `EXPLAIN` y test de concurrencia sobre descontado (hecho en H9-4: sin V24, `idx_pantry_items_user_id` anotado como redundante y `CookingCompletionConcurrencyIntegrationTest` con invariantes). Pendiente: caché Redis efectiva (medición).
 - [ ] Backups de PostgreSQL + estrategia de restauración.
 - [ ] Pipeline de promoción a producción con gates de calidad.

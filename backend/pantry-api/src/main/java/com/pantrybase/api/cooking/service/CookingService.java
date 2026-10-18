@@ -23,6 +23,7 @@ import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
 import com.pantrybase.api.recipe.repository.RecipeRepository;
 import com.pantrybase.api.social.service.SocialService;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Service;
@@ -74,6 +75,9 @@ public class CookingService {
     private final Counter abandonedCounter;
     private final Timer sessionDuration;
 
+    /** After this long still IN_PROGRESS, a session is considered abandoned mid-cook. */
+    private static final Duration STUCK_AFTER = Duration.ofHours(1);
+
     public CookingService(CookingSessionRepository cookingSessionRepo,
                           RecipeRepository recipeRepo,
                           RecipeIngredientRepository recipeIngredientRepo,
@@ -91,6 +95,16 @@ public class CookingService {
         this.abandonedCounter = meterRegistry.counter("pantry.cooking.sessions.abandoned");
         this.sessionDuration = Timer.builder("pantry.cooking.sessions.duration")
                 .description("Time from a cooking session starting to finishing or being abandoned")
+                .register(meterRegistry);
+        // A scrape-time gauge, not a scheduled task: one COUNT per Prometheus pull is
+        // cheaper than a background job nobody asked for, and the reading is always
+        // fresh. The metered object is the repository bean — Micrometer keeps only a
+        // weak reference to it, but the bean lives for the whole context, so the gauge
+        // can never go stale through garbage collection.
+        Gauge.builder("pantry.cooking.sessions.stuck", cookingSessionRepo,
+                        repo -> repo.countByStatusAndStartedAtBefore(
+                                CookingSessionStatus.IN_PROGRESS, Instant.now().minus(STUCK_AFTER)))
+                .description("Cooking sessions still IN_PROGRESS one hour after they started")
                 .register(meterRegistry);
     }
 

@@ -613,16 +613,27 @@ Formato de la respuesta de error (`common/dto/ErrorResponse.java`):
 
 ## 17. Observabilidad
 
-**Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos.
+**Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos; las alertas vigilan esas métricas y avisan por correo cuando algo se sale de rango.
 
 | Componente | Ubicación |
 |---|---|
 | Endpoints del actuator | `/actuator/health`, `/actuator/info`, `/actuator/prometheus` |
-| Prometheus (recoge las métricas) | `infra/prometheus/prometheus.yml` → servicio `prometheus` de `docker-compose.yml` |
-| Grafana (representa las métricas) | `infra/grafana/provisioning/datasources/datasource.yml` → servicio `grafana` |
-| Métricas de negocio | `pantry.catalog.fdc.stale.served`, `pantry.catalog.fdc.quota.exhausted`, `pantry.cooking.sessions.completed`/`.abandoned` (contadores) y `pantry.cooking.sessions.duration` (timer) |
+| Prometheus (recoge las métricas y evalúa las reglas) | `infra/prometheus/prometheus.yml` y `infra/prometheus/rules.yml` → servicio `prometheus` de `docker-compose.yml` |
+| Alertmanager (decide a quién avisar) | `infra/alertmanager/alertmanager.yml` → servicio `alertmanager` (puerto 9093) |
+| Grafana (dashboards provisionados) | `infra/grafana/provisioning/` (datasource + provider) y `infra/grafana/dashboards/*.json` → servicio `grafana` |
+| Métricas de negocio | `pantry.catalog.fdc.stale.served`, `pantry.catalog.fdc.quota.exhausted`, `pantry.cooking.sessions.completed`/`.abandoned` (contadores), `pantry.cooking.sessions.duration` (timer) y `pantry.cooking.sessions.stuck` (gauge) |
 
 Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `prometheus.yml` apunta a `host.docker.internal:8080`.
+
+**Gauge de sesiones colgadas.** `pantry.cooking.sessions.stuck` cuenta las sesiones que siguen `IN_PROGRESS` más de una hora después de empezar. Se registra en `CookingService` (constructor) apoyado en `CookingSessionRepository.countByStatusAndStartedAtBefore`; es un *gauge de scrape*: el recuento se ejecuta cuando Prometheus consulta, sin tarea programada. El umbral (1 hora) es la constante `STUCK_AFTER` de `CookingService`.
+
+**Reglas de alerta** (`infra/prometheus/rules.yml`, validado con `promtool check rules`): `ApiDown` (crítico, 2 min sin scrapear), `ApiHighErrorRate` (>10 % de respuestas 5xx durante 5 min), `FdcQuotaExhausted` (cuota de USDA FDC agotada en 15 min), `FdcServingStale` (catalog sirviendo datos obsoletos) y `CookingSessionsStuck` (alguna sesión colgada durante 30 min).
+
+**Enrutado de avisos.** `infra/alertmanager/alertmanager.yml` manda todas las alertas por correo a Mailpit (`smtp_smarthost: mailpit:1025`, `smtp_require_tls: false`), así que el aviso se ve en `http://localhost:8025`. Para producción solo hay que cambiar el receptor por un proveedor real.
+
+**Dashboards.** Dos dashboards JSON versionados en `infra/grafana/dashboards/` y cargados por el provider `infra/grafana/provisioning/dashboards/dashboards.yml`: **PantryBase / Health** (uptime, CPU, heap, threads, tráfico por estado, latencia media, pool Hikari, carga del host) y **PantryBase / Operations** (sesiones colgadas, ratio 5xx, cuota FDC, tasa de sesiones completadas/abandonadas, duración media, degradación del proveedor). Los paneles referencian el datasource con la **variable `${datasource}`** en lugar de un `uid` fijo, porque el `uid` de un datasource provisionado lo genera Grafana en cada instalación. Nota de campo: añadir `uid: …` al datasource provisionado en Grafana 13.0.9 rompe el arranque (`Datasource provisioning error: data source not found`); por eso no se fija.
+
+**Advertencias honestas:** los timers HTTP y de sesiones son *summaries* (count/sum/max), no histogramas, así que los paneles de latencia muestran **medias**, no percentiles. No hay métricas de cuota de TheMealDB, ni de cobertura de despensa/rendimiento del recomendador: no se inventan paneles vacíos.
 
 ---
 

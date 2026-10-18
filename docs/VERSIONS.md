@@ -66,7 +66,8 @@
 | PostgreSQL              | **18.6** (13 ago 2026)  | Imagen `postgres:18-alpine`                                                                                             |
 | Redis                   | serie **8.x** (OSS 8.6) | Imagen `redis:8-alpine`; caché de respuestas de proveedores externos (USDA FDC, TheMealDB) + rate limiting              |
 | Prometheus              | **3.14.0**              | Imagen `prom/prometheus:v3.14.0`; 3.13 es la línea LTS actual                                                           |
-| Grafana                 | **13.0.9**              | Imagen `grafana/grafana:13.0.9`; provisioning de datasource Prometheus (`infra/grafana/provisioning/`, `apiVersion: 1`) |
+| Alertmanager            | **0.34.1**              | Imagen `prom/alertmanager:v0.34.1`; reglas en `infra/prometheus/rules.yml`, avisos por correo a Mailpit (`infra/alertmanager/`) |
+| Grafana                 | **13.0.9**              | Imagen `grafana/grafana:13.0.9`; provisioning de datasource Prometheus y de dashboards (`infra/grafana/provisioning/`, `infra/grafana/dashboards/`) |
 | Jenkins                 | LTS 2.x                 | Imagen `jenkins/jenkins:lts-jdk21`; despliegue del servidor CI pendiente (H0 local)                                     |
 | Mailpit                 | v1.31.0                 | Imagen `axllent/mailpit:v1.31.0`; SMTP dev (1025) + UI (8025); correo de reset (B3)                                                                                       |
 | OpenTelemetry Collector | opcional                | Solo si se decide adopción de OTel en vez de scrape directo                                                             |

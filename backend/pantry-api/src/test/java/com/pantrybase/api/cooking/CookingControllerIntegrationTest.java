@@ -19,6 +19,8 @@ import com.pantrybase.api.recipe.domain.Recipe;
 import com.pantrybase.api.recipe.domain.RecipeIngredient;
 import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
 import com.pantrybase.api.recipe.repository.RecipeRepository;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +67,8 @@ class CookingControllerIntegrationTest extends AbstractIntegrationTest {
     private RecipeIngredientRepository recipeIngredientRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @BeforeEach
     void cleanRecipeData() {
@@ -392,6 +396,31 @@ class CookingControllerIntegrationTest extends AbstractIntegrationTest {
 
         assertThat(summary(mine).getBody().totalSessions()).isEqualTo(2);
         assertThat(summary(theirs).getBody().totalSessions()).isEqualTo(1);
+    }
+
+    @Test
+    void stuckSessionsGauge_countsOnlySessionsOpenForOverAnHour() {
+        HttpHeaders headers = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("Risotto");
+        line(recipe, rice, "200", 0);
+
+        long twoHoursOpen = createSession(headers, recipe.getId());
+        long justOverAnHour = createSession(headers, recipe.getId());
+        createSession(headers, recipe.getId()); // fresh: not stuck
+        backdate(twoHoursOpen, 7_200);
+        backdate(justOverAnHour, 3_661);
+
+        // Read from the registry rather than scraping /actuator/prometheus: Spring Boot 4
+        // test starters deliberately disable metrics export in tests, so the Prometheus
+        // endpoint does not exist in this context (it does at runtime — the scrape was
+        // verified against the running container). value() runs the gauge's supplier,
+        // which is exactly the count query under test.
+        Gauge gauge = meterRegistry.find("pantry.cooking.sessions.stuck").gauge();
+
+        assertThat(gauge).isNotNull();
+        // The fresh session stays out of the count: the gauge draws the line at one hour.
+        assertThat(gauge.value()).isEqualTo(2.0);
     }
 
     // ============ HELPERS ============

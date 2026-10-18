@@ -1,8 +1,10 @@
 package com.pantrybase.api.cooking.repository;
 
 import com.pantrybase.api.cooking.domain.CookingSession;
+import com.pantrybase.api.cooking.domain.CookingSessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,4 +19,12 @@ public interface CookingSessionRepository extends JpaRepository<CookingSession, 
     Optional<CookingSession> findByIdAndUserId(Long id, Long userId);
 
     List<CookingSession> findAllByUserIdOrderByCreatedAtDesc(Long userId);
+
+    /**
+     * Counts the sessions an operator would call "stuck": still open and started before
+     * {@code startedBefore}. {@code startedAt} rather than a modification timestamp — the
+     * entity deliberately has no {@code updatedAt}, and a cook who walks away leaves no
+     * later stamp anyway.
+     */
+    long countByStatusAndStartedAtBefore(CookingSessionStatus status, Instant startedBefore);
 }

@@ -1,0 +1,53 @@
+# Alert rules for pantry-api. Validated with `promtool check rules` (prom/prometheus image).
+# Metric and series names verified against the real /actuator/prometheus scrape: HTTP
+# timers are summaries (count/sum, no histogram buckets), so latency alerts work over
+# averages, not percentiles.
+groups:
+  - name: pantry-api
+    rules:
+      - alert: ApiDown
+        expr: up{job="pantry-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "pantry-api target is down"
+          description: "Prometheus has not been able to scrape pantry-api for 2 minutes; the API is unavailable."
+
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="pantry-api",status=~"5.."}[5m]))
+            /
+          sum(rate(http_server_requests_seconds_count{job="pantry-api"}[5m]))
+            > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 10% of pantry-api responses are 5xx"
+          description: "The 5xx ratio has been above 10% for 5 minutes (current value: {{ $value | humanizePercentage }}). No traffic means no division result, so an idle API never alerts."
+
+      - alert: FdcQuotaExhausted
+        expr: increase(pantry_catalog_fdc_quota_exhausted_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "USDA FDC quota exhausted"
+          description: "The catalog hit the USDA FoodData Central rate limit; reads may fall back to DEMO_KEY or stale cache."
+
+      - alert: FdcServingStale
+        expr: increase(pantry_catalog_fdc_stale_served_total[15m]) > 0
+        labels:
+          severity: info
+        annotations:
+          summary: "Catalog is serving stale FDC data"
+          description: "A catalog read was answered from the stale cache because the live provider was unreachable or too old."
+
+      - alert: CookingSessionsStuck
+        expr: pantry_cooking_sessions_stuck > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cooking sessions stuck IN_PROGRESS"
+          description: "{{ $value }} session(s) have been IN_PROGRESS for over an hour; a user probably abandoned a cook mid-way."
