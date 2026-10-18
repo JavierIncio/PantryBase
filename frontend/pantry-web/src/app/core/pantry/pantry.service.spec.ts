@@ -30,7 +30,7 @@ const SUMMARY: PantrySummary = {
   // client is allowed to have a say in.
   byCategory: [
     { category: 'Grains', items: 12 },
-    { category: 'Sin categoría', items: 1 },
+    { category: 'Uncategorized', items: 1 },
   ],
   byUnitType: [
     { category: 'WEIGHT', items: 20 },

@@ -2,7 +2,7 @@
 
 Recetario inteligente que recomienda recetas en función de lo que el usuario tiene en su despensa (ingredientes y cantidades registradas), con información nutricional y de alérgenos, y modo cocina con seguimiento de progreso y descontado automático de stock.
 
-**Estado:** planificación. Ver [docs/ROADMAP.md](docs/ROADMAP.md).
+**Estado:** en desarrollo. H0–H6 y H8 (social y personalización) completados, con backend y frontend operativos; H7 (recomendador con LLM) retirado del alcance. Ver [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
@@ -21,8 +21,8 @@ El usuario registra su inventario de ingredientes con cantidades en medidas esta
   - _Laxo:_ recetas parcialmente cubiertas, con porcentaje de cobertura configurable (slider 0-100%).
 - **Modo cocina:** estados de progreso de la sesión (`IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED`); al finalizar se descuentan las cantidades del inventario, con confirmación previa si falta stock (la primera llamada responde `409` con el plan de descuento y, al aceptar, se descuenta lo disponible y la línea queda a cero). También descontado manual sin sesión.
 - **Temas de usuario:** cinco paletas de color (azul, verde, ámbar, rosa, neutro) sobre el theming M3 de Angular Material; la elegida se guarda en las preferencias y se aplica a toda la UI (incluidos diálogos, menús y tooltips) sin recargar.
-- **Social y personal:** recetas favoritas, guardadas, publicadas e historial de recetas realizadas.
-- **Preferencias de usuario:** exclusión de alérgenos, dieta, modo de filtrado por defecto y tema visual.
+- **Social y personal (H8):** favoritos (corazón) y guardadas (marcador) como dos conceptos distintos —`PUT`/`DELETE /api/recipes/{id}/favorite|saved` (idempotentes) y `GET /api/favorites|/api/saved`—, historial de recetas realizadas (`GET /api/history`, escrito al completar una sesión de cocina en la misma transacción e idempotente por sesión), estadísticas de perfil (`GET /api/users/me/stats`: sesiones completadas, recetas distintas y top de ingredientes) y publicación de recetas propias (`POST`/`DELETE /api/recipes/{id}/publish`, `GET /api/recipes/published`; solo el autor y solo recetas `USER`, con `403`/`400` en caso contrario). El listado de recetas propias se sirve en `GET /api/recipes/mine` (privadas y publicadas, más recientes primero, sin filtro por cobertura). En el frontend: navegación mediante **barra superior global** con menú de usuario, toggles de favorito/guardada en la grid y el detalle, página **«Mi recetario»** (favoritos, guardadas y **recetas propias** en tres pestañas), **«Historial»** (sesiones vivas y pasadas con nombre e imagen de la receta y «Cook again») y formulario de receta propia en `/recipes/new`.
+- **Preferencias de usuario:** exclusión de alérgenos, dieta, modo de filtrado por defecto y tema visual. La dieta se **filtra de verdad** en la búsqueda: el backend deriva las etiquetas (`HIGH_PROTEIN`, `LOW_CARB`, `LOW_FAT`) de los nutrientes por ración de cada receta y las guarda en `recipe_diets`, y `GET /api/recipes`/`/recommend` aceptan `diet`. `BALANCED` significa «sin filtro».
 
 ---
 

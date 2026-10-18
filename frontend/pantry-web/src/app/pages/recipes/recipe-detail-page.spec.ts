@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router } from '@angular/router';
 import { provideRouter } from '@angular/router';
 import { Subject } from 'rxjs';
@@ -96,6 +97,10 @@ const DETAIL: RecipeDetail = {
   nutrients: { energyKcal: 500, proteinG: 20, fatG: 11.5, carbsG: 40 },
   allergenCodes: ['EGG', 'MILK'],
   matchScore: 1,
+  favorite: false,
+  saved: false,
+  owned: false,
+  published: false,
 };
 
 /**
@@ -146,6 +151,7 @@ const OWN_RECIPE: RecipeDetail = {
   nutrients: { energyKcal: null, proteinG: 8, fatG: null, carbsG: 30 },
   allergenCodes: [],
   matchScore: null,
+  owned: true,
 };
 
 /**
@@ -199,6 +205,7 @@ describe('RecipeDetailPage', () => {
   let routeId = '1';
   let dialogOpen: ReturnType<typeof vi.fn>;
   let startClosed: Subject<boolean | undefined>;
+  let snackBar: { open: ReturnType<typeof vi.fn> };
 
   const configure = async (id: string) => {
     routeId = id;
@@ -206,6 +213,7 @@ describe('RecipeDetailPage', () => {
     // reports the user's answer back to a controllable subject.
     startClosed = new Subject<boolean | undefined>();
     dialogOpen = vi.fn().mockReturnValue({ afterClosed: () => startClosed });
+    snackBar = { open: vi.fn() };
     await TestBed.configureTestingModule({
       imports: [RecipeDetailPage],
       providers: [
@@ -213,6 +221,7 @@ describe('RecipeDetailPage', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         { provide: MatDialog, useValue: { open: dialogOpen } },
+        { provide: MatSnackBar, useValue: snackBar },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => routeId } } } },
       ],
     }).compileComponents();
@@ -245,6 +254,10 @@ describe('RecipeDetailPage', () => {
   const nodes = (fixture: ComponentFixture<RecipeDetailPage>, selector: string): Element[] => [
     ...root(fixture).querySelectorAll(selector),
   ];
+
+  /** The publish toggle's button, or null when the recipe is not publishable. */
+  const publishButton = (fixture: ComponentFixture<RecipeDetailPage>): HTMLButtonElement | null =>
+    root(fixture).querySelector('.publish-toggle button');
 
   afterEach(() => {
     const pending = http?.match(() => true) ?? [];
@@ -573,5 +586,114 @@ describe('RecipeDetailPage', () => {
       'You have everything you need for this recipe',
     );
     expect(root(fixture).querySelector('.availability-group')).toBeNull();
+  });
+
+  it('hides the publish toggle on a provider recipe', async () => {
+    const provider = await render(DETAIL);
+    // A provider recipe is already public and belongs to nobody here.
+    expect(root(provider).querySelector('.publish-toggle')).toBeNull();
+  });
+
+  it('hides the publish toggle on a user recipe the caller does not own', async () => {
+    // Someone else's recipe is not ours to publish: the control would only
+    // ever answer with a 403.
+    const foreign = await render({ ...OWN_RECIPE, id: 9, owned: false }, '9');
+
+    expect(root(foreign).querySelector('.publish-toggle')).toBeNull();
+  });
+
+  it('shows the publish toggle, switched off, on an own private recipe', async () => {
+    const own = await render(OWN_RECIPE, '2');
+    const toggle = publishButton(own);
+    expect(toggle).not.toBeNull();
+    // Owned but private: the toggle starts off.
+    expect(toggle?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('publishes an own recipe with an optimistic flip and keeps it on success', async () => {
+    const fixture = await render(OWN_RECIPE, '2');
+
+    publishButton(fixture)!.click();
+    fixture.detectChanges();
+
+    // The flip is optimistic: the request is one round trip, the intent is not.
+    const toggle = publishButton(fixture);
+    expect(toggle?.getAttribute('aria-checked')).toBe('true');
+    expect(toggle?.disabled).toBe(true);
+
+    const req = http.expectOne('/api/recipes/2/publish');
+    expect(req.request.method).toBe('POST');
+    req.flush({ ...OWN_RECIPE, published: true });
+    fixture.detectChanges();
+
+    expect(publishButton(fixture)?.getAttribute('aria-checked')).toBe('true');
+    expect(publishButton(fixture)?.disabled).toBe(false);
+  });
+
+  it('takes an own published recipe back to private with a DELETE', async () => {
+    const fixture = await render({ ...OWN_RECIPE, published: true }, '2');
+
+    publishButton(fixture)!.click();
+    fixture.detectChanges();
+
+    const req = http.expectOne('/api/recipes/2/publish');
+    expect(req.request.method).toBe('DELETE');
+    req.flush({ ...OWN_RECIPE, published: false });
+    fixture.detectChanges();
+
+    expect(publishButton(fixture)?.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('reverts the flip and reports the backend wording when publishing is refused', async () => {
+    const fixture = await render(OWN_RECIPE, '2');
+
+    publishButton(fixture)!.click();
+    fixture.detectChanges();
+    http
+      .expectOne('/api/recipes/2/publish')
+      .flush(errorResponse(403, 'Recipe 2 belongs to another user'), {
+        status: 403,
+        statusText: 'Forbidden',
+      });
+    fixture.detectChanges();
+
+    // The refusal puts the toggle back exactly where it was and says why.
+    expect(publishButton(fixture)?.getAttribute('aria-checked')).toBe('false');
+    expect(publishButton(fixture)?.disabled).toBe(false);
+    expect(snackBar.open).toHaveBeenCalledWith('Recipe 2 belongs to another user', 'OK', {
+      duration: 8000,
+    });
+  });
+
+  it('falls back to a status-specific message when the refusal carries none', async () => {
+    const fixture = await render(OWN_RECIPE, '2');
+
+    publishButton(fixture)!.click();
+    fixture.detectChanges();
+    // A 400 means "not a user recipe" by contract; without a message the UI
+    // still names the fact instead of showing nothing.
+    http
+      .expectOne('/api/recipes/2/publish')
+      .flush(errorResponse(400, ''), { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+
+    expect(snackBar.open).toHaveBeenCalledWith('Only your own recipes can be published.', 'OK', {
+      duration: 8000,
+    });
+  });
+
+  it('refuses a second publish click while one is still in flight', async () => {
+    const fixture = await render(OWN_RECIPE, '2');
+
+    publishButton(fixture)!.click();
+    fixture.detectChanges();
+    // The button is already disabled, and the guard refuses in code as well —
+    // a double click must not spend two requests.
+    publishButton(fixture)!.click();
+    fixture.detectChanges();
+
+    const pending = http.match(() => true);
+    expect(pending).toHaveLength(1);
+    pending[0].flush({ ...OWN_RECIPE, published: true });
   });
 });

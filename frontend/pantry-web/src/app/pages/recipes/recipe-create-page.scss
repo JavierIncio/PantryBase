@@ -1,0 +1,101 @@
+// Recipe create: a heading, one card for the recipe's own fields, one card for
+// the ingredient lines and the action row. Same rhythm as the profile cards —
+// each card owns one concern and the submit is the page's only outcome.
+.create-heading {
+  margin-bottom: 1.25rem;
+
+  h1 {
+    margin: 0;
+    font-size: var(--mat-sys-headline-medium-size);
+  }
+
+  p {
+    margin: 0.25rem 0 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.recipe-card,
+.ingredients-card {
+  margin-bottom: 1.5rem;
+
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+// Name, category, area and servings share a line on wide screens and wrap
+// when there is no room; the instructions and the image URL always span the
+// card.
+.recipe-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+
+  mat-form-field {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+}
+
+.wide-field {
+  width: 100%;
+}
+
+// One ingredient line: the search box takes the spare width, the amount and
+// the unit keep a fixed readable size, and the remove button hugs the row's
+// end. Stacked on small screens so no field is squeezed below its label.
+.ingredient-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .ingredient-field {
+    flex: 1 1 16rem;
+    min-width: 0;
+  }
+
+  .amount-field {
+    flex: 0 0 7rem;
+  }
+
+  .unit-field {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+
+  .remove-row {
+    flex: 0 0 auto;
+    margin-top: 0.25rem;
+  }
+}
+
+// The trailing spinner must not squeeze the input it decorates.
+.ingredient-field {
+  mat-spinner[matSuffix] {
+    width: 18px;
+    height: 18px;
+    margin-right: 0.5rem;
+  }
+}
+
+.create-error {
+  margin: 0 0 1rem;
+  color: var(--mat-sys-error);
+}
+
+.create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

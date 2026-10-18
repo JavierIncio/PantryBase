@@ -1,0 +1,177 @@
+<header class="create-heading">
+  <h1>New recipe</h1>
+  <p>Your own dishes: a name, the steps and the catalog ingredients with their amounts.</p>
+</header>
+
+<form [formGroup]="form" (ngSubmit)="submit()">
+  <mat-card class="recipe-card">
+    <mat-card-header>
+      <mat-card-title>Recipe</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <mat-form-field class="wide-field">
+        <mat-label>Name</mat-label>
+        <input matInput formControlName="name" placeholder="e.g. Lentil stew" />
+        @if (form.controls.name.touched && form.controls.name.hasError('required')) {
+          <mat-error>The recipe needs a name.</mat-error>
+        } @else if (form.controls.name.touched && form.controls.name.hasError('maxlength')) {
+          <mat-error>Use 255 characters or fewer.</mat-error>
+        }
+      </mat-form-field>
+
+      <div class="recipe-fields">
+        <mat-form-field>
+          <mat-label>Category (optional)</mat-label>
+          <input matInput formControlName="category" placeholder="e.g. Stews" />
+          @if (form.controls.category.touched && form.controls.category.hasError('maxlength')) {
+            <mat-error>Use 100 characters or fewer.</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Origin (optional)</mat-label>
+          <input matInput formControlName="area" placeholder="e.g. Homemade" />
+          @if (form.controls.area.touched && form.controls.area.hasError('maxlength')) {
+            <mat-error>Use 100 characters or fewer.</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field>
+          <mat-label>Servings (optional)</mat-label>
+          <input matInput type="number" inputmode="numeric" formControlName="servings" />
+          @if (form.controls.servings.touched && form.controls.servings.hasError('min')) {
+            <mat-error>At least one serving.</mat-error>
+          }
+        </mat-form-field>
+      </div>
+
+      <mat-form-field class="wide-field">
+        <mat-label>Preparation</mat-label>
+        <textarea matInput formControlName="instructions" rows="6"></textarea>
+      </mat-form-field>
+
+      <mat-form-field class="wide-field">
+        <mat-label>Image URL (optional)</mat-label>
+        <input matInput formControlName="imageUrl" placeholder="https://…" />
+        @if (form.controls.imageUrl.touched && form.controls.imageUrl.hasError('maxlength')) {
+          <mat-error>Use 512 characters or fewer.</mat-error>
+        }
+      </mat-form-field>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card class="ingredients-card">
+    <mat-card-header>
+      <mat-card-title>Ingredients</mat-card-title>
+      <mat-card-subtitle
+        >Search each food in the catalog and set its amount and unit</mat-card-subtitle
+      >
+    </mat-card-header>
+    <mat-card-content>
+      <div class="ingredient-rows" formArrayName="ingredients">
+        @for (row of ingredients.controls; track $index) {
+          <div class="ingredient-row" [formGroupName]="$index">
+            <mat-form-field class="ingredient-field">
+              <mat-label>Ingredient</mat-label>
+              <input
+                matInput
+                formControlName="ingredient"
+                [matAutocomplete]="rowAuto"
+                [errorStateMatcher]="errorStateFor(row)"
+                placeholder="e.g. chicken"
+                autocomplete="off"
+              />
+              @if (searching(row)) {
+                <mat-spinner matSuffix diameter="18" />
+              }
+              @if (rowError(row); as message) {
+                <mat-error>{{ message }}</mat-error>
+              } @else if (
+                row.controls.ingredient.touched && row.controls.ingredient.hasError('unresolved')
+              ) {
+                <mat-error>Pick an ingredient from the catalog.</mat-error>
+              }
+              <mat-autocomplete
+                #rowAuto="matAutocomplete"
+                [displayWith]="displayIngredient"
+                (optionSelected)="onIngredientSelected(row, $event)"
+              >
+                @for (hit of hitsFor(row); track hit.fdcId) {
+                  <mat-option [value]="hit">{{ hit.name }}</mat-option>
+                }
+              </mat-autocomplete>
+            </mat-form-field>
+
+            <mat-form-field class="amount-field">
+              <mat-label>Amount</mat-label>
+              <input
+                matInput
+                type="number"
+                step="any"
+                inputmode="decimal"
+                formControlName="amount"
+              />
+              @if (row.controls.amount.touched && row.controls.amount.hasError('required')) {
+                <mat-error>Enter an amount.</mat-error>
+              } @else if (row.controls.amount.touched && row.controls.amount.hasError('positive')) {
+                <mat-error>It must be greater than zero.</mat-error>
+              }
+            </mat-form-field>
+
+            <mat-form-field class="unit-field">
+              <mat-label>Unit</mat-label>
+              <mat-select formControlName="unitCode">
+                @for (group of unitGroups(); track group.category) {
+                  <mat-optgroup [label]="group.title">
+                    @for (option of group.options; track option.code) {
+                      <mat-option [value]="option.code">{{ option.label }}</mat-option>
+                    }
+                  </mat-optgroup>
+                }
+              </mat-select>
+              @if (row.controls.unitCode.touched && row.controls.unitCode.hasError('required')) {
+                <mat-error>Pick a unit.</mat-error>
+              }
+            </mat-form-field>
+
+            <button
+              mat-icon-button
+              type="button"
+              class="remove-row"
+              aria-label="Remove ingredient"
+              [disabled]="ingredients.length <= 1"
+              (click)="removeRow($index)"
+            >
+              <mat-icon aria-hidden="true">delete</mat-icon>
+            </button>
+          </div>
+        }
+      </div>
+
+      <button mat-stroked-button type="button" class="add-row" (click)="addRow()">
+        <mat-icon aria-hidden="true">add</mat-icon>
+        Add ingredient
+      </button>
+    </mat-card-content>
+  </mat-card>
+
+  @if (formError(); as message) {
+    <p class="create-error">{{ message }}</p>
+  }
+
+  <div class="create-actions">
+    <a mat-stroked-button routerLink="/recipes">Cancel</a>
+    <button
+      mat-flat-button
+      type="submit"
+      class="submit-create"
+      [disabled]="submitting() || form.invalid"
+    >
+      @if (submitting()) {
+        <mat-spinner diameter="20" />
+      } @else {
+        Create recipe
+      }
+    </button>
+  </div>
+</form>

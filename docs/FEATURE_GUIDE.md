@@ -4,7 +4,7 @@ Documento de referencia que explica **qué hace cada parte de la aplicación y q
 
 No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROADMAP.md` (plan de trabajo). Aquí no se explica *por qué* se eligió una tecnología, sino *cómo funciona* la funcionalidad y dónde vive.
 
-**Estado actual:** hay funcionalidad terminada de H0 a H3 (base del proyecto, autenticación, usuario, catálogo de ingredientes con motor de unidades, y despensa) y el bloque H4 (recetas y filtrado por disponibilidad) con backend y frontend operativos. Los apartados que describen cada pieza indican si esa funcionalidad existe ya o si está planificada; el resto de áreas de producto todavía no existe y sus páginas web son marcadores de posición.
+**Estado actual:** hay funcionalidad terminada de H0 a H6 (base del proyecto, autenticación, catálogo de ingredientes con motor de unidades, despensa, recetas, modo cocina y temas de usuario) y el bloque H8 (social y personalización: favoritos, guardadas, historial, estadísticas de perfil y publicación de recetas propias) con backend y frontend operativos. H7 (recomendador con LLM) se retiró del alcance. Los apartados que describen cada pieza indican si esa funcionalidad existe ya o si está planificada; el resto de áreas de producto todavía no existe y sus páginas web son marcadores de posición.
 
 ---
 
@@ -23,15 +23,16 @@ No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROA
 11. [Despensa: inventario del usuario (H3-1 y H3-2)](#11-despensa-inventario-del-usuario-h3-1-y-h3-2)
 12. [Recetas: búsqueda y cobertura (H4)](#12-recetas-búsqueda-y-cobertura-h4)
 13. [Modo cocina (H5)](#13-modo-cocina-h5)
-14. [Rate limiting](#14-rate-limiting)
-15. [Manejo de errores de la API](#15-manejo-de-errores-de-la-api)
-16. [Observabilidad](#16-observabilidad)
-17. [Correo de desarrollo (Mailpit)](#17-correo-de-desarrollo-mailpit)
-18. [Frontend: sesión, guardas y estructura](#18-frontend-sesión-guardas-y-estructura)
-19. [Migraciones de base de datos](#19-migraciones-de-base-de-datos)
-20. [Tests](#20-tests)
-21. [CI/CD e imágenes Docker](#21-cicd-e-imágenes-docker)
-22. [Zona horaria y notas de mantenimiento](#22-zona-horaria-y-notas-de-mantenimiento)
+14. [Social y personalización (H8)](#14-social-y-personalización-h8)
+15. [Rate limiting](#15-rate-limiting)
+16. [Manejo de errores de la API](#16-manejo-de-errores-de-la-api)
+17. [Observabilidad](#17-observabilidad)
+18. [Correo de desarrollo (Mailpit)](#18-correo-de-desarrollo-mailpit)
+19. [Frontend: sesión, guardas y estructura](#19-frontend-sesión-guardas-y-estructura)
+20. [Migraciones de base de datos](#20-migraciones-de-base-de-datos)
+21. [Tests](#21-tests)
+22. [CI/CD e imágenes Docker](#22-cicd-e-imágenes-docker)
+23. [Zona horaria y notas de mantenimiento](#23-zona-horaria-y-notas-de-mantenimiento)
 
 ---
 
@@ -54,6 +55,10 @@ com.pantrybase.api
 ├── auth/        autenticación, tokens, recuperación de contraseña
 ├── user/        perfil, preferencias, alérgenos
 ├── catalog/     catálogo de ingredientes, unidades y densidades
+├── pantry/      despensa: inventario y libro de movimientos
+├── recipe/      recetas (TheMealDB y propias), cobertura y publicación
+├── cooking/     sesiones de cocina y descontado de stock
+├── social/      favoritos, guardadas, historial y estadísticas de perfil
 ├── common/      configuración transversal, seguridad, rate limiting, errores
 └── PantryApiApplication.java   clase que arranca Spring Boot
 ```
@@ -196,7 +201,7 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 | `User` | Identidad, correo, nombre, hash de la contraseña, roles y lista de alérgenos excluidos. |
 | `UserPreferences` | Preferencias de filtrado y aspecto (`filterMode`, `coverageThreshold`, `diet`, `themeId`). Viven en **otra tabla** que comparte la clave primaria con el usuario (`@MapsId`), de modo que guardar una preferencia no reescribe la fila de la cuenta. |
 | `FilterMode` | `STRICT` exige cobertura total de los ingredientes; `LAX` aplica el umbral configurado. |
-| `Diet` | Preferencia de dieta. Está marcada como provisional en el código porque TheMealDB no expone etiquetas de dieta y el mapeo aún no está validado. |
+| `Diet` | Preferencia de dieta del perfil: `BALANCED`, `HIGH_PROTEIN`, `LOW_CARB` o `LOW_FAT`. Solo modela la **preferencia**; las etiquetas que se pueden filtrar se **derivan de los nutrientes** de cada receta (ver H8-F). Las dietas no derivables (alta en fibra, baja en sodio) no se modelan: solo se guardan energía, proteína, grasa y carbohidratos por ración. |
 | `ThemeId` | Paleta de color elegida (`BLUE`, `GREEN`, `AMBER`, `ROSE`, `NEUTRAL`). Es el único enum que se serializa en **minúsculas** (`@JsonValue`), porque su valor es literalmente el atributo `data-theme` del frontend. |
 | `Allergen` / `user_allergy_exclusions` | Catálogo de alérgenos y lista de exclusión por usuario. Los alérgenos se eligen de un catálogo cerrado, no se escriben como texto libre. |
 
@@ -212,7 +217,7 @@ El usuario derivado de Google recibe un **nombre de usuario único derivado del 
 
 Las preferencias y las exclusiones se guardan con semántica de **reemplazo completo** (se manda la lista entera y sustituye a la anterior), no de parcheo. Un código de alérgeno desconocido produce `400`: si se aceptara, el filtro de recetas dejaría de excluir algo y el usuario creería que está protegido. El mismo `400` protege un `themeId` que el enum no pueda parsear.
 
-El `themeId` es la única preferencia puramente de presentación: el backend solo lo guarda y lo devuelve en minúsculas, y el frontend lo aplica como `data-theme` (ver §18). Se mantiene como predeterminado `BLUE` tanto en la entidad como en la columna. Ver H6 en `ROADMAP.md`.
+El `themeId` es la única preferencia puramente de presentación: el backend solo lo guarda y lo devuelve en minúsculas, y el frontend lo aplica como `data-theme` (ver §19). Se mantiene como predeterminado `BLUE` tanto en la entidad como en la columna. Ver H6 en `ROADMAP.md`.
 
 ---
 
@@ -412,19 +417,20 @@ Dos detalles del esquema que parecen rarezas y son deliberados: `consumption_ent
 | Tablas | `db/migration/V13__recipes.sql`, `V14__recipe_ingredient_matching.sql` (cobertura honesta) |
 | Tests | `recipe/RecipeControllerIntegrationTest.java` |
 
-**Endpoints:** `GET /api/recipes` (parámetros `name`, `ingredientId`, `strict`, `threshold` y `allergenSafe`), `GET /api/recipes/recommend` (sugerencia por despensa; mismos filtros salvo `threshold`, que el servidor fuerza a 0), `GET /api/recipes/{id}` y `POST /api/recipes` (`201`). Todos exigen usuario autenticado y el propietario sale del token, nunca del cuerpo.
+**Endpoints:** `GET /api/recipes` (parámetros `name`, `ingredientId`, `diet`, `strict`, `threshold` y `allergenSafe`), `GET /api/recipes/recommend` (sugerencia por despensa; mismos filtros salvo `threshold`, que el servidor fuerza a 0), `GET /api/recipes/{id}` y `POST /api/recipes` (`201`). Todos exigen usuario autenticado y el propietario sale del token, nunca del cuerpo.
 
 **La regla central es la cobertura binaria: un ingrediente o está cubierto entero o no está cubierto.** No hay crédito parcial: 99 g disponibles frente a 100 g necesarios no cuenta como «casi». El motivo es que recortar un gramo de harina no acerca el plato a poder cocinarse, y un score con crédito parcial sugeriría que sí. `matchScore` es simplemente *ingredientes cubiertos / total* (`1.0` cuando los tienen todos), y el **total es el de todas las líneas**: una que no se pudo medir contra el catálogo cuenta como faltante y nunca se esconde del denominador (ver materialización). La comparación es canónica contra canónica: la línea de receta guarda la cantidad convertida con `UnitConverter.toStorageUnit(...)` —el mismo puerto que la despensa, como preveía H3—, así que «2 tazas» y los gramos disponibles se comparan sin conversiones en cada request. El borde está testeado en ambos lados: 200/200 cubre, 99/100 no.
 
 - **`strict` y `threshold` no son lo mismo.** `strict=true` exige `matchScore == 1.0` sin mirar el umbral. Sin estricto, manda `threshold` (50 si no llega): el resultado se filtra servidor con ese umbral, y el slider del frontend recalcula el resto **en cliente** sobre `matchScore`/`missingCount`, sin nueva llamada.
 - **Orden de candidatos, en un solo mapa:** primero recetas `USER`, después las `THE_MEAL_DB` ya materializadas, y solo si la petición trae un filtro explícito (`name` y/o `ingredientId`) una búsqueda fresca en TheMealDB (con caché TTL en Redis, `search.php` para nombre y `filter.php` por palabra para ingrediente). Un listado sin filtrar es puramente local. El mapa (`LinkedHashMap` + `putIfAbsent`) evita que una receta alcanzable por dos ramas —p. ej. recién materializada— se puntúe dos veces en la grid.
 - **Los alérgenos son opt-in:** `allergenSafe=true` descarta recetas cuyo `recipe_allergens` intersecta `user_allergy_exclusions` (la tabla que nació en `V3`, no una nueva). Los códigos de receta se derivan del mapa propio `allergen_mapping` —sembrado en `V13` con los códigos EU de `V3`— al crear la receta, porque ni USDA ni TheMealDB prometen alérgenos fiables.
+- **La dieta es otro filtro de `diet` (H8-F):** `diet=HIGH_PROTEIN|LOW_CARB|LOW_FAT` descarta recetas que no llevan esa etiqueta en `recipe_diets` (V22); `diet=BALANCED` —el default cuando no llega filtro— **no filtra nada**, porque «comer equilibrado» no excluye un plato. Ver «Filtro por dieta» en el §14 para el criterio de derivación.
 - **La receta propia (`POST`) valida ingredientes existentes, canoniza cantidades, deriva alérgenos y calcula los nutrientes por ración** en la misma transacción; un `ingredientId` desconocido o un nombre en blanco devuelven `400`, y el detalle de una receta inexistente `404`.
 - **Sin paginación, a propósito:** una grid de recetas para una despensa doméstica cabe entera, y paginar obligaría al cliente a reagrupar scores que dependen de la despensa viva.
 - **Refresco por TTL:** la migración `V15__recipe_refresh.sql` añade `refreshed_at` (NOT NULL, default `now()`) y `app.recipe.refresh-ttl: 24h` fija el sello máximo. Una fila `THE_MEAL_DB` cuya `refreshed_at` quedó fuera de ese margen se re-consulta al proveedor **in-place** —mismo `Recipe.id`, sin invalidar URLs ni claves de candidatos— al abrir el detalle (`GET /api/recipes/{id}`) o en búsquedas filtradas; el listado sin filtrar es siempre local y solo refresca sus filas cuando alguien las abre. El re-materializado reutiliza la tubería de creación en `REQUIRES_NEW` (borra y reinserta líneas y alérgenos, re-deriva nutrientes) y, si el proveedor ya no sirve la receta o ninguna línea casa, conserva la copia local y simplemente avanza el sello para no volver a intentarlo en la siguiente búsqueda. `RecipeIngredientRepository.deleteByRecipeId` precisó `@Modifying` al estrenarlo (un `@Query` de borrado sin `@Modifying` se ejecuta como select y revienta con `InvalidDataAccessApiUsageException`); el `refreshed_at` nunca puede quedar nulo en INSERT, porque `Recipe` sella el sello en `@PrePersist` —el default de la columna solo aplica si la columna se omite, y Hibernate la escribe con null.
 
 **Cómo se materializa una receta de TheMealDB.** `TheMealDbClient.lookupById` lee los pares `strIngredient1..20`/`strMeasure1..20` del JSON crudo del *lookup* (como `Map`, no como un record de cuarenta campos), y `RecipeService.matchAndConvert` hace el resto:
-- **Emparejado por contención de tokens:** cada palabra del nombre del proveedor debe aparecer como palabra completa en el nombre del catálogo («Whole Milk» ↔ «Milk, whole»); las palabras vacías («of», «and»…) se ignoran y el plural se reduce («eggs» → «egg»). Entre varios candidatos gana el nombre más corto y, en empate, el alfabético, para que el resultado sea determinista y no dependa del orden de lectura de la base. **Una línea que no empareja no se descarta: se persiste igualmente** con `matched=false`, `ingredient_id` nulo y el texto tal cual lo escribió el proveedor en `ingredient_name`, y solo si **ninguna** línea empareja se omite la receta entera. El motivo del persistido completo es la honestidad de la cobertura: un estofado de veinte ingredientes del que el catálogo entiende uno debe puntuar 1/20, no 100 %. El contraejemplo real que destapó el fallo es «Apple Pie» (id 53575) con una despensa de quinoa-flour y huevo: el «Flour» genérico del plato casaba por tokens con «Quinoa Flour» y, al descartarse las otras cinco líneas, el resto afirmaba factibilidad sin comprobarla.
+- **Emparejado por contención de tokens:** cada palabra del nombre del proveedor debe aparecer como palabra completa en el nombre del catálogo («Whole Milk» ↔ «Milk, whole»); las palabras vacías («of», «and»…) se ignoran y el plural se reduce («eggs» → «egg»). Entre varios candidatos gana el nombre más corto y, en empate, el alfabético, para que el resultado sea determinista y no dependa del orden de lectura de la base. **Una línea que no empareja no se descarta: se persiste igualmente** con `matched=false`, `ingredient_id` nulo y el texto tal cual lo escribió el proveedor en `ingredient_name`, y solo si **ninguna** línea empareja se omite la receta entera. El motivo del persistido completo es la honestidad de la cobertura: un estofado de veinte ingredientes del que el catálogo entiende uno debe puntuar 1/20, no 100 %. El contraejemplo real que destapó el fallo es «Apple Pie» (id 53575) con una despensa de quinoa-flour y huevo: el «Flour» genérico del plato casaba por tokens con «Quinoa Flour» y, al descartarse las otras cinco líneas, el resto afirmaba factibilidad sin comprobarla. Toda línea guarda su **nombre de presentación** en `ingredient_name`: el del catálogo cuando empareja y el del proveedor cuando no, porque de ahí lo leen el ranking de ingredientes del perfil y las etiquetas del descuento de cocina.
 - **Medida → cantidad canónica:** `parseMeasure` traduce «1 1/2 cups», «200g» o «2» a (cantidad, unidad); una unidad no reconocida con cantidad se trata como `UNIT` («2 eggs») y una medida sin cantidad («to taste») deja la línea sin canónico —se persiste con `matched=false`, como la de un ingrediente sin emparejar—, porque sin cantidad no hay nada que comparar. La cantidad se canoniza con el mismo `UnitConverter.toStorageUnit` de la despensa, de modo que la cobertura sigue comparando canónico contra canónico.
 - **Escritura en `REQUIRES_NEW`:** la materialización se invoca desde `search`, que corre en una transacción de solo lectura y cuya auto-invocación no pasa por ningún proxy transaccional; por eso la persistencia va en un `TransactionTemplate` con propagación `REQUIRES_NEW` que suspende la transacción externa. La idempotencia la arbitran la comprobación previa y el `UNIQUE (source, external_id)`: una carrera concurrente se revierte y se ignora.
 
@@ -492,11 +498,65 @@ Si `hasGaps` (alguno de bajo, ausente o no catalogado), el botón «Start cookin
 
 **Resumen y métricas (H5-c).** `GET /api/cooking/sessions/summary` pliega las sesiones del usuario en **un solo** recuento (`CookingService.summary`): totales por estado, `averageDurationSeconds` y `completionRate`. El `totalSessions` es la suma de los cuatro estados por construcción, así que no puede discrepar de ellos. La duración media solo mira las sesiones cerradas (`completedAt` no nulo), y la tasa de finalización es `completed / (completed + abandoned)`: las sesiones abiertas no entran en el denominador (tener un plato al fuego no es un fracaso), y ambos campos son `null` cuando aún no ha terminado ninguna —una tasa o media sobre el conjunto vacío es indefinida, no cero. Además, `CookingService` lleva contadores Micrometer `pantry.cooking.sessions.completed`/`.abandoned` y un `Timer` `pantry.cooking.sessions.duration`: los contadores dicen cómo se usa el servidor en total, el resumen dice cómo va la cocina de un usuario.
 
-**Frontend (H5).** `core/cooking/` reproduce el patrón de `RecipesService`: `cooking.service.ts` tipa los endpoints y `cooking.models.ts` publica el contrato con uniones de literales. La pieza delicada es el **409 de carencia**: su cuerpo no es el `ErrorResponse` de siempre, así que el helper `asCompletionDeduction()` lo discrimina por forma (`hasShortage` + `lines`) y lo trata como una pregunta al usuario, no como un fallo. La ruta `/cooking` es la **lista de sesiones** (vivas primero, luego historial) y `/cooking/:id` la sesión activa, que pide la sesión y la receta, trocea `instructions` en pasos para una **checklist local que no se persiste** —el backend solo guarda el estado— y ofrece Pause/Resume/Complete/Abandon según la máquina. Al completar, si llega el 409-plane, un **diálogo Material** lista las líneas cortas y ofrece «Cook anyway» (reenvía con `acceptShortage=true`) o cancelar; la respuesta con `deduction` muestra lo descontado. Las líneas que se **quedan vacías** (`runsOut()`, es decir `deducted > 0` y `remaining === 0`) se marcan con un aviso «Runs out» tanto en el diálogo de carencia como en el resumen de deducción. El botón «Start cooking» del detalle de receta ahora crea la sesión y navega a `/cooking/:sessionId`. El origen `COOKING_SESSION` se añadió a los modelos y etiquetas del libro mayor de la despensa. **266 tests de frontend verdes (28 ficheros).**
+**Frontend (H5).** `core/cooking/` reproduce el patrón de `RecipesService`: `cooking.service.ts` tipa los endpoints y `cooking.models.ts` publica el contrato con uniones de literales. La pieza delicada es el **409 de carencia**: su cuerpo no es el `ErrorResponse` de siempre, así que el helper `asCompletionDeduction()` lo discrimina por forma (`hasShortage` + `lines`) y lo trata como una pregunta al usuario, no como un fallo. La **lista de sesiones** (vivas primero, luego historial) vive ahora dentro de **Historial** (`/history`), y `/cooking/:id` sigue siendo la sesión activa: pide la sesión y la receta, trocea `instructions` en pasos para una **checklist local que no se persiste** —el backend solo guarda el estado— y ofrece Pause/Resume/Complete/Abandon según la máquina. Al completar, si llega el 409-plane, un **diálogo Material** lista las líneas cortas y ofrece «Cook anyway» (reenvía con `acceptShortage=true`) o cancelar; la respuesta con `deduction` muestra lo descontado. Las líneas que se **quedan vacías** (`runsOut()`, es decir `deducted > 0` y `remaining === 0`) se marcan con un aviso «Runs out» tanto en el diálogo de carencia como en el resumen de deducción. El botón «Start cooking» del detalle de receta ahora crea la sesión y navega a `/cooking/:sessionId`. El origen `COOKING_SESSION` se añadió a los modelos y etiquetas del libro mayor de la despensa. **266 tests de frontend verdes (28 ficheros).**
 
 ---
 
-## 14. Rate limiting
+## 14. Social y personalización (H8)
+
+**Qué hace:** guarda la relación personal del usuario con las recetas —cuáles marca como favoritas, cuáles guarda para cocinar después, qué ha cocinado—, resume su actividad en estadísticas de perfil y permite publicar sus recetas propias para que formen parte del catálogo común.
+
+| Pieza | Ruta |
+|---|---|
+| `SocialController` (`/api/recipes/{id}/favorite`, `…/saved`, `/api/favorites`, `/api/saved`) | `social/web/SocialController.java` |
+| `HistoryController` (`/api/history`) | `social/web/HistoryController.java` |
+| `StatsController` (`/api/users/me/stats`) | `social/web/StatsController.java` |
+| `SocialService` (favoritos, guardadas, historial) | `social/service/SocialService.java` |
+| `StatsService` (totales y ranking de ingredientes) | `social/service/StatsService.java` |
+| Puerto `SocialFlagsPort` / adaptador | `recipe/port/SocialFlagsPort.java`, `social/service/SocialFlagsAdapter.java` |
+| Entidades | `social/domain/` (`UserFavorite`, `UserSaved`, `RecipeHistory` y sus ids compuestos) |
+| Repositorios | `social/repository/` |
+| DTOs | `social/dto/` (`HistoryItemResponse`, `UserStatsResponse`, `IngredientUsageResponse`) |
+| Excepción de publicación | `recipe/exception/RecipeNotOwnedException.java` (403), `recipe/exception/RecipeNotPublishableException.java` (400) |
+| Tablas | `db/migration/V18__add_social.sql`, `V19__add_recipe_history.sql`, `V20__recipe_publish.sql`, `V21__recipe_owner.sql`, `V22__recipe_diets.sql` |
+| Etiquetas de dieta derivadas | `recipe/domain/RecipeDiet.java`, `recipe/domain/RecipeDietId.java`, `recipe/repository/RecipeDietRepository.java` |
+| Tests | `social/SocialControllerIntegrationTest.java`, `social/StatsControllerIntegrationTest.java`, `social/SocialRepositoryIntegrationTest.java`, `recipe/RecipeControllerIntegrationTest.java` (derivación y filtro de dieta) |
+
+**Endpoints:** `PUT`/`DELETE /api/recipes/{recipeId}/favorite` y `…/saved` (idempotentes, `204`, `404` si la receta no existe), `GET /api/favorites` y `GET /api/saved` (arrays de ids de receta), `GET /api/history`, `GET /api/users/me/stats`, `POST`/`DELETE /api/recipes/{recipeId}/publish` (devuelven el detalle de la receta), `GET /api/recipes/published` (`RecipeSummary[]`) y `GET /api/recipes/mine` (`RecipeSummary[]`, las recetas propias privadas o publicadas). Todos exigen usuario autenticado y toman el propietario del token.
+
+**Favorito y guardada son dos cosas distintas.** «Favorito» (corazón) es «me gusta»; «guardada» (marcador) es «quiero cocinarla». Son dos tablas (`user_favorites`, `user_saved`) con clave primaria compuesta `(user_id, recipe_id)`: la unicidad la garantiza la base de datos, no una comprobación previa, así que marcar dos veces no duplica ni falla. Los endpoints `PUT`/`DELETE` son idempotentes —poner y quitar es fijar el estado, no un `toggle`—, lo que los hace seguros de reintentar. Los listados `GET /api/favorites` y `GET /api/saved` devuelven **solo ids**: el nombre y la imagen se resuelven contra `GET /api/recipes/{id}`, porque la lista de ids no puede quedarse obsoleta respecto al catálogo. El `GET /api/recipes` y el detalle incorporan `favorite`/`saved` del usuario actual para que los toggles puedan pintarse sin una petición extra.
+
+**El historial lo escribe la propia cocina, en su transacción.** Al pasar una `CookingSession` a `COMPLETED`, `CookingService` llama a `SocialService.recordCompletion(…)` dentro de la misma transacción, de modo que historial y sesión no pueden divergir. Un abandono **no** registra (abandonar no es cocinar), y completar dos veces no duplica porque `recipe_history` lleva un `UNIQUE` por sesión y el servicio comprueba `existsByCookingSessionId` antes de insertar. `GET /api/history` devuelve las filas más recientes primero; cada fila guarda la sesión y la receta (`recipeId`), no el contenido de receta, así que una receta desaparecida deja una fila huérfana que el frontend salta en lugar de pintar un hueco.
+
+**Estadísticas de perfil.** `GET /api/users/me/stats` devuelve `{cookedSessions, distinctRecipes, topIngredients}`. `cookedSessions` cuenta las sesiones completadas y `distinctRecipes` las recetas distintas detrás de ellas; no se derivan una de la otra a propósito, porque repetir una receta mueve solo la primera. `topIngredients` es el top-5 por uso: cada cocción pondera una vez por ingrediente, y las líneas sin `ingredientId` (no emparejadas con el catálogo) se saltan porque no hay a qué apuntar. El ranking se ordena por uso descendente y, en empate, por nombre ascendente, para que el orden sea determinista. La **etiqueta** de cada ingrediente sale de `recipe_ingredients.ingredient_name`, la columna que ahora se rellena en **todas** las líneas (nombre del catálogo cuando están emparejadas, texto del proveedor cuando no); antes solo se escribía en las no emparejadas, así que el top llegaba con el nombre en blanco y `V23` rellenó las líneas antiguas. Los consumidores que pintan una línea sin pasar por el catálogo —este ranking y las etiquetas del descuento de cocina— leen esa columna directamente.
+
+**Publicar = un flag, no una entidad nueva.** La publicación se modela como `recipes.published_at` (`V20`; `NULL` = privada), reutilizando el modelo de recetas de H4 en lugar de duplicar la receta en otro sitio. Solo se puede publicar una receta **propia** (`recipes.owner_id`, añadido en `V21`) y **de usuario** (`source = USER`): publicar una ajena responde `403` (`RecipeNotOwnedException`) y una de TheMealDB `400` (`RecipeNotPublishableException`), porque en ese caso la operación no tiene sentido, no es cuestión de permiso. Ambos `POST` y `DELETE` son idempotentes y devuelven el detalle actualizado.
+
+**Por qué el `search` acota las recetas de usuario.** Añadir `owner_id` a `recipes` cambió la visibilidad del listado: una receta `USER` privada solo debe verla su autor. Las consultas de recetas por nombre/ingrediente filtran las filas `USER` a **las propias más las publicadas ajenas** (`owner_id = :userId OR published_at IS NOT NULL`); `GET /api/recipes/published` lista las publicadas de todos los autores para que aparezcan en el catálogo común. Las filas `USER` anteriores a `V21` (con `owner_id` nulo) quedan invisibles: no hay forma de saber de quién eran, y adivinar sería peor que ocultarlas.
+
+**Las recetas propias tienen su propio listado.** `GET /api/recipes/mine` (`RecipeService.listMine`, `RecipeRepository.findUserRecipesOwnedBy`) devuelve las recetas `USER` **del autor**, publicadas o aún privadas, más recientes primero. No reutiliza `search` porque este **puntúa y descarta por cobertura**: un borrador privado con poca despensa desaparecería de un listado que existe precisamente para mostrarlo. El endpoint alimenta la pestaña «Created» de «Mi recetario»; la cobertura solo se usa aquí para **anotar** cada fila con su `matchScore`, nunca para filtrarla.
+
+**Por qué las estadísticas viven en `social` y no en `user`.** El endpoint se sirve bajo `/api/users/me/stats`, pero el paquete que lo implementa es `social`. El motivo es evitar un ciclo de dependencias: `recipe` ya depende de `user` (su servicio usa `User` y `UserRepository`), así que si `user` importara `recipe` para contar cocinas se cerraría el ciclo. `social` sí puede depender de `recipe` (lo hace para leer recetas del historial y de los favoritos) y de nadie al revés. La URL pertenece al recurso «mi perfil»; el paquete, a la funcionalidad.
+
+**Filtro por dieta (H8-F).** `diet` se **deriva de los nutrientes por ración** en vez de pedírselo al proveedor: TheMealDB no expone etiquetas de dieta y el USDA tampoco, así que cualquier valor llegaría inventado. `RecipeService.deriveAndStoreDiets(...)` evalúa los umbrales por ración —`HIGH_PROTEIN_MIN_G = 20`, `LOW_CARB_MAX_G = 20`, `LOW_FAT_MAX_G = 10`— y materializa las etiquetas en `recipe_diets` (clave primaria compuesta `(recipe_id, diet)` e índice por `diet`, `V22__recipe_diets.sql`), con el **mismo patrón que `recipe_allergens`**: se recalcula al crear la receta, al refrescarla por TTL y al materializarla, porque el refresco cambia los nutrientes. Una receta puede recibir **varias etiquetas** a la vez (una ensalada con pollo es a la vez alta en proteína y baja en carbohidratos); una receta sin nutrientes —ninguna línea ponderable— **no recibe ninguna**, en lugar de dar por buena la de «equilibrada». `BALANCED` **nunca se almacena**: no es una etiqueta sino la ausencia de filtro, de modo que `recipe_diets` solo guarda lo que sí excluye algo.
+
+**Los filtros que no se derivan se quitan, no se maquillan.** El perfil incluía `HIGH_FIBER` y `LOW_SODIUM` desde H1, pero `recipe_nutrients` solo guarda energía, proteína, grasa y carbohidratos: derivarlos habría significado inventar el dato (el sodio de un ingrediente crudo no es el sodio de la receta). Ambos se eliminaron del enum `Diet`, del selector del perfil y de los envíos del frontend en el mismo cambio, y `V22__recipe_diets.sql` normaliza las preferencias ya persistidas con esos valores a `BALANCED`, porque nadie los estaba filtrando de verdad.
+
+El filtro se aplica dentro de `scoreAndFilter`, que comparten `search` y `recommend`, así que `GET /api/recipes` y `GET /api/recipes/recommend` respetan el mismo `diet`.
+
+**Frontend.** `RecipesService` incorpora `toggleFavorite`/`toggleSaved`, `favoriteIds`/`savedIds`, `history`, `published`, `mine`, `publish`/`unpublish` y `create`; `ProfileService.stats()` sirve las estadísticas. La UI añade:
+
+- **Toggles de favorito y guardada** en las tarjetas de la grid y en el detalle, con actualización **optimista** (se pinta el cambio al instante y se revierte con un aviso si el servidor falla) y botón deshabilitado mientras hay una petición en vuelo.
+- **Página «Mi recetario»** (`/saved`) que unifica en **tres pestañas** (`mat-tab-group`) los favoritos, las guardadas y **«Created»** (las recetas propias, servidas por `GET /api/recipes/mine`). Favoritos y guardadas llegan como ids y se resuelven por detalle (las filas huérfanas se saltan, y el detalle evita el descarte por cobertura del `search`), mientras que «Created» ya recibe `RecipeSummary[]` y se pinta directo. La lista de sesiones se fusionó en **Historial** (`/history`), que muestra **nombre e imagen** de cada receta (una sola lectura del catálogo local) además del estado, la fecha y «Cook again». No existe pestaña ni ruta «Social»: esa pestaña era un placeholder que se retiró, y `PlaceholderPage` sigue en pie solo para el `not-found`.
+- **Navegación superior global.** El antiguo cajón lateral (`mat-sidenav`) se sustituyó por una **barra superior** (`mat-toolbar`) con la marca, los enlaces de `NAV_ITEMS` (`core/nav/nav-item.ts`: Pantry, Recipes, My cookbook, History) y el menú de usuario (Profile / Log out); «Cooking» dejó de ser una entrada propia al fusionarse su lista en Historial (`/cooking` redirige a `/history`, y `/cooking/:id` sigue vivo). Todo el texto visible del frontend está **en inglés** a la espera de la capa i18n.
+- **Selector `Diet` en la página de recetas:** el `diet` de `GET /api/users/preferences` fija su valor al abrir, puede cambiarse allí mismo y re-lanza tanto la búsqueda como el `Suggest`, con `DIET_OPTIONS` compartido con el perfil (`core/user/profile.models.ts`). Los labels del selector están **en inglés** (`Diet`, `Strict mode`, `Allergen-safe`, `Coverage`, y las etiquetas `Balanced` / `High protein` / `Low carb` / `Low fat`) para ser coherente con los controles hermanos de la misma página y con el selector `Diet` del perfil. El envío omite `diet` cuando es `BALANCED`, para no saturar la query string con el caso sin filtro.
+- **Perfil en una columna con índice lateral.** La página (`/profile`) pasa a un `profile-layout` de dos columnas: un índice fijo (`profile-index`) con anclas a Estadísticas, Alérgenos, Preferencias, Identidad y Contraseña, y las secciones apiladas al lado. Las anclas usan `routerLink`+`fragment` (no `href="#…"`, que con `<base href="/">` resolvía a la raíz y saltaba a la despensa) con `withInMemoryScrolling({ anchorScrolling: 'enabled' })`; el desfase contra la barra superior lo da el `scroll-margin-top` de cada sección. En móvil el índice se pliega a una fila encima.
+- **Tarjeta de estadísticas** en la página de perfil, con estados de carga, error y vacío.
+- **Formulario de receta propia** (`/recipes/new`): el alta tiene un `FormArray` de líneas de ingrediente, cada una con autocompletado contra el catálogo (el `fdcId` de la búsqueda se resuelve a `id` interno antes de enviar) y su unidad; al guardar crea la receta privada y navega a su detalle. El botón «Create recipe» vive en la cabecera de la grid. Publicar es una decisión posterior desde el detalle, y la receta creada aparece en la pestaña «Created» de «Mi recetario».
+
+---
+
+## 15. Rate limiting
 
 **Qué hace:** protege la API de abuso limitando cuántas peticiones puede hacer un cliente en una ventana de tiempo.
 
@@ -520,7 +580,7 @@ Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-
 
 ---
 
-## 15. Manejo de errores de la API
+## 16. Manejo de errores de la API
 
 **Qué hace:** convierte los errores internos en respuestas HTTP consistentes, con un formato único para toda la API.
 
@@ -546,7 +606,7 @@ Formato de la respuesta de error (`common/dto/ErrorResponse.java`):
 
 ---
 
-## 16. Observabilidad
+## 17. Observabilidad
 
 **Qué hace:** expone la salud de la aplicación y métricas que se pueden consultar y representar en gráficos.
 
@@ -561,7 +621,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 17. Correo de desarrollo (Mailpit)
+## 18. Correo de desarrollo (Mailpit)
 
 **Qué hace:** captura los correos que envía la aplicación en lugar de mandarlos de verdad, y los muestra en una interfaz web.
 
@@ -571,7 +631,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 
 ---
 
-## 18. Frontend: sesión, guardas y estructura
+## 19. Frontend: sesión, guardas y estructura
 
 **Qué hace:** gestiona la sesión en el navegador y decide a qué páginas puede entrar el usuario.
 
@@ -592,8 +652,10 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 | Servicio y reglas de recetas | `src/app/core/recipes/` (`recipes.service.ts`, `recipes.models.ts`, `recipe-matching.ts`) |
 | Página «Recipes» (grid y filtros) | `src/app/pages/recipes/recipes-page.{ts,html,scss}` |
 | Detalle de receta | `src/app/pages/recipes/recipe-detail-page.{ts,html,scss}` |
+| Formulario de receta propia | `src/app/pages/recipes/recipe-create-page.{ts,html,scss}` |
 | Servicio y modelos de cocina | `src/app/core/cooking/` (`cooking.service.ts`, `cooking.models.ts`, `cooking-steps.ts`) |
-| Lista de sesiones y sesión activa | `src/app/pages/cooking/cooking-page.{ts,html,scss}`, `src/app/pages/cooking/cooking-session-page.{ts,html,scss}` |
+| Sesión activa de cocina | `src/app/pages/cooking/cooking-session-page.{ts,html,scss}` |
+| Página «Mi recetario» (favoritos/guardadas/propias) e «Historial» (sesiones) | `src/app/pages/collection/collection-page.{ts,html,scss}`, `src/app/pages/history/history-page.{ts,html,scss}` |
 | Proxy de desarrollo | `proxy.conf.json` |
 
 **Las cuatro piezas de la sesión y por qué están separadas:**
@@ -603,7 +665,7 @@ Prometheus se ejecuta en un contenedor y consulta la API desde fuera, por eso `p
 - **`auth.guard`** protege las rutas del producto. Un usuario anónimo no es expulsado sin más: como la cookie de refresco es la única credencial del lado del cliente, el guard intenta **restaurar la sesión** (renovar el token y cargar el perfil) antes de rendirse. Si tampoco funciona, recuerda la URL visitada como `returnUrl` para devolver al usuario allí tras identificarse.
 - **`proxy.conf.json`** redirige `/api` y `/oauth2` al backend durante el desarrollo, de modo que el navegador solo habla con el puerto 4200 y no aparece el problema de CORS.
 
-**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil, «Mi despensa», «Recipes» (grid + detalle), «Cooking» (lista de sesiones + sesión activa) y la página «no encontrado» están implementadas. El área `social` existe como ruta pero muestra un marcador de posición pendiente de su hito. Las decisiones del área de recetas viven en `## 12` y las de cocina en `## 13`.
+**Estado actual de las páginas:** login, registro, recuperación de contraseña, perfil (en una columna con índice de secciones y tarjeta de estadísticas), «Mi despensa», «Recipes» (grid + detalle + formulario de receta propia), «Mi recetario» (favoritos, guardadas y recetas propias en tres pestañas), «Historial» (sesiones vivas y pasadas, con nombre e imagen de la receta y «Cook again»), la sesión activa en `/cooking/:id` y la página «no encontrado» están implementadas. La navegación es una barra superior global. Las decisiones del área de recetas viven en `## 12`, las de cocina en `## 13` y las sociales en `## 14`.
 
 **Temas de usuario (H6).** El color de la app lo decide un único atributo `data-theme` en `<html>`, que apunta a uno de cinco ids en minúsculas (`blue`, `green`, `amber`, `rose`, `neutral`). `styles.scss` compila **un tema M3 de Angular Material por paleta** con `mat.theme(...)`, y cada bloque va bajo `:root[data-theme='<id>']`; cambiar el atributo intercambia el juego completo de tokens `--mat-sys-*` sin recargar y lo heredan también los *overlays* (diálogos, menús, tooltips), que se proyectan fuera del componente. Las piezas:
 
@@ -650,7 +712,7 @@ Dos decisiones que conviene conocer: el tema se aplica en **dos tiempos** para e
 
 ---
 
-## 19. Migraciones de base de datos
+## 20. Migraciones de base de datos
 
 **Qué hace:** crea y modifica el esquema de la base de datos de forma versionada y reproducible.
 
@@ -675,12 +737,18 @@ Las migraciones son ficheros SQL numerados en `backend/pantry-api/src/main/resou
 | `V15__recipe_refresh.sql` | `recipes.refreshed_at` (NOT NULL, default `now()`): el sello que el refresco por TTL de TheMealDB comprueba y avanza. |
 | `V16__cooking_sessions.sql` | `cooking_sessions` (`user_id`, `recipe_id`, `status`, `started_at`, `completed_at`, `created_at`) con sus claves foráneas y el check de estados. |
 | `V17__user_theme.sql` | `user_preferences.theme_id` (VARCHAR, NOT NULL, default `BLUE`): la paleta elegida por el usuario (H6). El valor es el nombre del enum en mayúsculas; la API lo expone en minúsculas. |
+| `V18__add_social.sql` | `user_favorites` y `user_saved`, cada una con clave primaria compuesta `(user_id, recipe_id)` y FK en cascada (H8-A). |
+| `V19__add_recipe_history.sql` | `recipe_history` (una fila por sesión de cocina completada, con `UNIQUE` por `cooking_session_id`). |
+| `V20__recipe_publish.sql` | `recipes.published_at` (NULL = receta privada). |
+| `V21__recipe_owner.sql` | `recipes.owner_id` (NULL para recetas de proveedor, FK a `users`) con su índice; base de la visibilidad de recetas de usuario. |
+| `V22__recipe_diets.sql` | `recipe_diets` (clave primaria compuesta `(recipe_id, diet)` + índice por `diet`): etiquetas de dieta derivadas de los nutrientes por ración (H8-F). Además normaliza `user_preferences.diet` con el valor `HIGH_FIBER` o `LOW_SODIUM` a `BALANCED`, porque esos dos filtros dejaron de existir al no derivarse de ningún dato. |
+| `V23__backfill_recipe_ingredient_names.sql` | Rellena `recipe_ingredients.ingredient_name` en las líneas ya emparejadas (`ingredient_id` no nulo) tomando el nombre del catálogo. El nombre solo se escribía en las líneas del proveedor sin emparejar, así que las estadísticas y las etiquetas del descuento salían en blanco. |
 
 **Regla importante:** una migración ya aplicada **no se edita jamás**; se añade una nueva. Editarla dejaría los entornos desincronizados sin que nada avise. Por eso la procedencia de los valores de `FLOUR`/`SUGAR`/`OIL` no se corrigió en `V5` sino que se documentó en `V11`.
 
 ---
 
-## 20. Tests
+## 21. Tests
 
 **Qué se prueba y cómo:**
 
@@ -694,7 +762,7 @@ Los tests Java replican la estructura del código principal: un test de `catalog
 
 **Los tests de integración no usan bases de datos de mentira.** `TestcontainersConfiguration` arranca un PostgreSQL y un Redis reales en contenedores, de modo que las migraciones, las claves foráneas y las consultas se ejecutan tal como en producción. Un test que pasa contra un motor de base de datos falso puede fallar en producción por una diferencia sutil de sintaxis SQL.
 
-**`AbstractIntegrationTest` limpia `pantry_items` antes que `users`, y también introduce las recetas y las sesiones de cocina.** El orden importa: la despensa es la única tabla que a la vez contiene datos y es referenciada por las dos que otros tests vacían; las recetas y sus líneas van después, porque una `recipe_ingredient` sobrante referencia un `ingredient` y los tests de despensa vacían el catálogo entero —si se quedara, borrar un usuario o un ingrediente fallaría por la clave foránea y el fallo parecería un error en el borrado en lugar de un orden de limpieza equivocado.
+**`AbstractIntegrationTest` limpia `pantry_items` antes que `users`, y también introduce las recetas y las sesiones de cocina.** El orden importa: la despensa es la única tabla que a la vez contiene datos y es referenciada por las dos que otros tests vacían; las recetas y sus líneas van después, porque una `recipe_ingredient` sobrante referencia un `ingredient` y los tests de despensa vacían el catálogo entero —si se quedara, borrar un usuario o un ingrediente fallaría por la clave foránea y el fallo parecería un error en el borrado en lugar de un orden de limpieza equivocado. Desde H8 la limpieza empieza por las tablas sociales (`recipe_history`, `user_favorites`, `user_saved`) y las sesiones de cocina, porque las tres referencian a la vez recetas y usuarios: vaciarlas antes que ellas evita el mismo fallo de clave foránea por orden. `recipe_diets` entra en la misma regla que `recipe_allergens`: se vacía **antes** que `recipes`, porque su clave primaria apunta a la receta.
 
 Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra `StubFoodCatalogPort` como `@Primary`, de manera que el USDA real no se invoca nunca y no se gasta cuota. El `src/test/resources/application.yml` desactiva además la recarga del cubo de fichas (`refill-interval-millis: 3600000`) para que los tests que cuentan tokens exactos no se vuelvan intermitentes; la recarga se cubre por separado en `TokenBucketRefillIntegrationTest`, que sobrescribe ese intervalo.
 
@@ -702,7 +770,7 @@ Para los tests que necesitan el catálogo, `StubFoodCatalogPortConfig` registra 
 
 ---
 
-## 21. CI/CD e imágenes Docker
+## 22. CI/CD e imágenes Docker
 
 **Qué hace:** construye, prueba y publica la imagen de la API automáticamente.
 
@@ -719,7 +787,7 @@ La razón es el tamaño y la superficie: la imagen final no incluye Maven, ni el
 
 ---
 
-## 22. Zona horaria y notas de mantenimiento
+## 23. Zona horaria y notas de mantenimiento
 
 - **Zona horaria:** la aplicación trabaja en UTC. `TimeConfig` expone un bean `Clock` en lugar de llamar a `Instant.now()` directamente en el código, lo que permite sustituir el reloj en los tests y comprobar vencimientos de tokens y de caché sin esperar en tiempo real.
 - **Los secretos nunca se versionan:** viven en `infra/.env`, ignorado por git. En `infra/.env.example` solo aparecen los nombres de las variables.

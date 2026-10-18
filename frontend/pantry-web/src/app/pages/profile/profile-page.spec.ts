@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { provideRouter, Router } from '@angular/router';
 import { ProfilePage } from './profile-page';
 import { ProfileService } from '../../core/user/profile.service';
 import { Allergen, AllergyExclusions, UserPreferences } from '../../core/user/profile.models';
@@ -80,13 +81,14 @@ type ServiceStub = {
   getAllergyExclusions: ReturnType<typeof vi.fn>;
   updateAllergyExclusions: ReturnType<typeof vi.fn>;
   updateProfile: ReturnType<typeof vi.fn>;
+  stats: ReturnType<typeof vi.fn>;
 };
 
 const saveButton = (fixture: ComponentFixture<ProfilePage>, cls: string) =>
   fixture.nativeElement.querySelector(`button.${cls}`) as HTMLButtonElement;
 
 describe('ProfilePage', () => {
-  let service: ServiceStub;
+  let service: ServiceStub & { stats: ReturnType<typeof vi.fn> };
   let authStub: { changePassword: ReturnType<typeof vi.fn> };
   let snackBar: { open: ReturnType<typeof vi.fn> };
 
@@ -101,16 +103,22 @@ describe('ProfilePage', () => {
       getAllergyExclusions: vi.fn(),
       updateAllergyExclusions: vi.fn(),
       updateProfile: vi.fn(),
+      stats: vi.fn(),
     };
     authStub = { changePassword: vi.fn() };
     snackBar = { open: vi.fn() };
     service.getPreferences.mockReturnValue(of(PREFERENCES));
     service.getAllergenCatalog.mockReturnValue(of(CATALOG));
     service.getAllergyExclusions.mockReturnValue(of(EXCLUSIONS));
+    service.stats.mockReturnValue(
+      of({ cookedSessions: 0, distinctRecipes: 0, topIngredients: [] }),
+    );
 
     return TestBed.configureTestingModule({
       imports: [ProfilePage],
       providers: [
+        // The section index binds routerLink + fragment, which needs a Router.
+        provideRouter([]),
         { provide: ProfileService, useValue: service },
         { provide: AuthService, useValue: authStub },
         { provide: MatSnackBar, useValue: snackBar },
@@ -149,6 +157,57 @@ describe('ProfilePage', () => {
     );
     const fishIndex = CATALOG.findIndex((allergen) => allergen.code === 'FISH');
     expect(component.exclusions.at(fishIndex).value).toBe(false);
+  });
+
+  it('links the section index to /profile with a fragment instead of a bare hash', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER);
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const router = TestBed.inject(Router);
+
+    const links = [...host.querySelectorAll('.profile-index-link')] as HTMLAnchorElement[];
+    expect(links.map((link) => link.textContent?.trim())).toEqual([
+      'Statistics',
+      'Allergens',
+      'Preferences',
+      'Identity',
+      'Password',
+    ]);
+    // A bare `href="#statistics"` would resolve against `<base href="/">` to
+    // the app root and bounce to /pantry; the router links keep /profile and
+    // carry the fragment for the in-memory scroller.
+    const fragments = ['statistics', 'allergens', 'preferences', 'identity', 'password'];
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(
+      fragments.map((fragment) => router.createUrlTree(['/profile'], { fragment }).toString()),
+    );
+  });
+
+  it('offers the four diets with the shared labels', async () => {
+    await configure();
+    await TestBed.compileComponents();
+    TestBed.inject(SessionState).restore(USER);
+
+    const fixture = TestBed.createComponent(ProfilePage);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // The diet select is the second one of the Preferences card (filter mode
+    // first); its choices come from the list shared with the recipes filter.
+    const trigger = host
+      .querySelectorAll('mat-select')[1]
+      .querySelector('.mat-mdc-select-trigger') as HTMLElement;
+    trigger.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const options = [...document.querySelectorAll('.mat-mdc-select-panel mat-option')].map((node) =>
+      node.textContent?.trim(),
+    );
+    expect(options).toEqual(['Balanced', 'High protein', 'Low carb', 'Low fat']);
   });
 
   it('keeps all Save buttons disabled while nothing has changed', async () => {
@@ -208,7 +267,7 @@ describe('ProfilePage', () => {
       firstName: null,
       lastName: 'Lovelace',
     });
-    expect(snackBar.open).toHaveBeenCalledWith('Perfil actualizado', 'OK', { duration: 3000 });
+    expect(snackBar.open).toHaveBeenCalledWith('Profile updated', 'OK', { duration: 3000 });
   });
 
   it('encodes an emptied username as null (backend keeps the current one)', async () => {
@@ -603,7 +662,7 @@ describe('ProfilePage', () => {
 
     // confirmPassword is client-only: the request carries the two real fields.
     expect(authStub.changePassword).toHaveBeenCalledWith('oldpass', 'newpass42');
-    expect(snackBar.open).toHaveBeenCalledWith('Contraseña actualizada', 'OK', { duration: 3000 });
+    expect(snackBar.open).toHaveBeenCalledWith('Password updated', 'OK', { duration: 3000 });
 
     fixture.detectChanges();
     // Reset cleared the secrets and re-disabled Save via the required fields.

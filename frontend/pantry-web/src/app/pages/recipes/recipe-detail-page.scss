@@ -137,6 +137,12 @@
   font-weight: 600;
 }
 
+// The publish toggle is a labelled control, not a badge: it keeps its own
+// width at the start of the row instead of stretching across the column.
+.publish-toggle {
+  align-self: flex-start;
+}
+
 .detail-links {
   display: flex;
   flex-wrap: wrap;

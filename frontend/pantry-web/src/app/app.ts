@@ -34,16 +34,23 @@ export class App implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
+    let wasAuthenticated = false;
     toObservable(this.sessionState.isAuthenticated)
-      .pipe(
-        distinctUntilChanged(),
-        filter((authenticated) => authenticated),
-        switchMap(
-          () => this.profileService.getPreferences().pipe(catchError(() => EMPTY)), // keep cached/default theme on failure
-        ),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((prefs) => this.themeService.apply(prefs.themeId));
+      .pipe(distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe((authenticated) => {
+        if (authenticated) {
+          wasAuthenticated = true;
+          this.profileService
+            .getPreferences()
+            .pipe(catchError(() => EMPTY))
+            .subscribe((prefs) => this.themeService.apply(prefs.themeId));
+        } else {
+          if (wasAuthenticated) {
+            wasAuthenticated = false;
+            this.themeService.reset();
+          }
+        }
+      });
   }
 
   ngOnInit(): void {

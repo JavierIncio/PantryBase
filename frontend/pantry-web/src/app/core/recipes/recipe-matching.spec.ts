@@ -26,6 +26,10 @@ const recipe = (id: number, matchScore: number | null): RecipeSummary => ({
   matchScore,
   missingCount: null,
   allergenCodes: [],
+  favorite: false,
+  saved: false,
+  owned: true,
+  published: false,
 });
 
 describe('coveragePercent', () => {
@@ -229,6 +233,10 @@ describe('recipeAvailability', () => {
     allergenCodes: [],
     matchScore: null,
     coverage,
+    favorite: false,
+    saved: false,
+    owned: true,
+    published: false,
   });
 
   it('splits matched lines into covered, low and missing by stock', () => {

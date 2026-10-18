@@ -22,6 +22,12 @@ import java.math.BigDecimal;
  * {@link #ingredientName}. Keeping it makes the coverage denominator the real recipe
  * rather than the subset the catalog happened to understand: a stew of twenty
  * ingredients with one matching line must score 1/20, never 100%.</p>
+ *
+ * <p>{@link #ingredientName} is the line's display name for <em>every</em> line, not just
+ * the unmatched ones: the catalog name when matched ({@link #ingredientId} set) and the
+ * provider wording otherwise. Consumers that render a line without going through the
+ * catalog —cooking deductions and profile statistics— read it directly, so a matched line
+ * left without a name would surface as a blank label.</p>
  */
 @Entity
 @Table(

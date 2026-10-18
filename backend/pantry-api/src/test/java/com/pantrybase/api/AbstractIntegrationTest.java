@@ -7,9 +7,13 @@ import com.pantrybase.api.common.dto.ErrorResponse;
 import com.pantrybase.api.cooking.repository.CookingSessionRepository;
 import com.pantrybase.api.pantry.repository.PantryItemRepository;
 import com.pantrybase.api.recipe.repository.RecipeAllergenRepository;
+import com.pantrybase.api.recipe.repository.RecipeDietRepository;
 import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
 import com.pantrybase.api.recipe.repository.RecipeNutrientsRepository;
 import com.pantrybase.api.recipe.repository.RecipeRepository;
+import com.pantrybase.api.social.repository.RecipeHistoryRepository;
+import com.pantrybase.api.social.repository.UserFavoriteRepository;
+import com.pantrybase.api.social.repository.UserSavedRepository;
 import com.pantrybase.api.user.domain.Role;
 import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.repository.UserPreferencesRepository;
@@ -74,7 +78,15 @@ public abstract class AbstractIntegrationTest {
     @Autowired
     protected RecipeAllergenRepository recipeAllergenRepository;
     @Autowired
+    protected RecipeDietRepository recipeDietRepository;
+    @Autowired
     protected RecipeNutrientsRepository recipeNutrientsRepository;
+    @Autowired
+    protected UserFavoriteRepository userFavoriteRepository;
+    @Autowired
+    protected UserSavedRepository userSavedRepository;
+    @Autowired
+    protected RecipeHistoryRepository recipeHistoryRepository;
 
     @BeforeEach
     void setUp() {
@@ -82,11 +94,16 @@ public abstract class AbstractIntegrationTest {
         // by the two the other tests wipe. Left in place, deleting a user or an ingredient
         // fails on the foreign key and the failure would look like a bug in the delete.
         // Cooking sessions reference a user (and a recipe), so they go before both.
+        // Social rows reference users, recipes and sessions, so they precede all three.
+        recipeHistoryRepository.deleteAll();
+        userFavoriteRepository.deleteAll();
+        userSavedRepository.deleteAll();
         cookingSessionRepository.deleteAll();
         // Recipes and their children go next: a leftover recipe_ingredient references an
         // ingredient, and the pantry suites wipe the whole catalog. Clearing them here
         // rather than per suite keeps test order from deciding whether a run is green.
         recipeAllergenRepository.deleteAll();
+        recipeDietRepository.deleteAll();
         recipeNutrientsRepository.deleteAll();
         recipeIngredientRepository.deleteAll();
         recipeRepository.deleteAll();

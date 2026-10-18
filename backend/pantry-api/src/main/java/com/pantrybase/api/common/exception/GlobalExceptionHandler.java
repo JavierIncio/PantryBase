@@ -19,6 +19,8 @@ import com.pantrybase.api.pantry.exception.InsufficientStockException;
 import com.pantrybase.api.pantry.exception.PantryItemNotFoundException;
 import com.pantrybase.api.pantry.exception.ZeroAdjustmentException;
 import com.pantrybase.api.recipe.exception.RecipeNotFoundException;
+import com.pantrybase.api.recipe.exception.RecipeNotOwnedException;
+import com.pantrybase.api.recipe.exception.RecipeNotPublishableException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -265,6 +267,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponseFactory.of(HttpStatus.NOT_FOUND, ex.getMessage(), request));
+    }
+
+    /** Maps publishing somebody else's recipe to 403. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleRecipeNotOwnedException(RecipeNotOwnedException ex,
+                                                                       HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ErrorResponseFactory.of(HttpStatus.FORBIDDEN, ex.getMessage(), request));
+    }
+
+    /** Maps publishing a provider recipe to 400: only user recipes have an author. */
+    @ExceptionHandler
+    public ResponseEntity<ErrorResponse> handleRecipeNotPublishableException(RecipeNotPublishableException ex,
+                                                                             HttpServletRequest request) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponseFactory.of(HttpStatus.BAD_REQUEST, ex.getMessage(), request));
     }
 
     /**

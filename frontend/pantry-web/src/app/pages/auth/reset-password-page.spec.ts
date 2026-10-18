@@ -61,7 +61,7 @@ describe('ResetPasswordPage', () => {
 
     expect(fixture.componentInstance.missingToken).toBe(true);
     expect(host.querySelector('form')).toBeNull();
-    expect(host.textContent).toContain('El enlace de restablecimiento no es válido');
+    expect(host.textContent).toContain('The reset link is invalid');
     expect(host.querySelector('a[href="/login"]')).toBeTruthy();
   });
 
@@ -103,7 +103,7 @@ describe('ResetPasswordPage', () => {
     fixture.detectChanges();
 
     expect(authStub.resetPassword).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('Las contraseñas no coinciden');
+    expect(fixture.nativeElement.textContent).toContain('Passwords do not match');
   });
 
   it('rejects a password shorter than 8 characters without calling the API', async () => {
@@ -118,7 +118,7 @@ describe('ResetPasswordPage', () => {
     fixture.detectChanges();
 
     expect(authStub.resetPassword).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('Usa al menos 8 caracteres.');
+    expect(fixture.nativeElement.textContent).toContain('Use at least 8 characters.');
   });
 
   it('surfaces an invalid or expired token 400 on the form', async () => {
@@ -152,6 +152,6 @@ describe('ResetPasswordPage', () => {
 
     const link = fixture.nativeElement.querySelector('a[href="/login"]') as HTMLAnchorElement;
     expect(link).toBeTruthy();
-    expect(link.textContent).toContain('Volver al inicio de sesión');
+    expect(link.textContent).toContain('Back to sign in');
   });
 });

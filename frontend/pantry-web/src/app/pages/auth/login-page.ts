@@ -65,7 +65,7 @@ export class LoginPage {
    * the single navigation, so a hard refresh or re-login never repeats it.
    */
   readonly resetSuccessMessage = this.router.getCurrentNavigation()?.extras.state?.['resetSuccess']
-    ? 'Contraseña restablecida. Inicia sesión con tu nueva contraseña.'
+    ? 'Password reset. Sign in with your new password.'
     : null;
 
   /** Sends the credentials and navigates away on success. */

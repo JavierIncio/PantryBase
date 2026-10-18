@@ -10,6 +10,7 @@
  * (`RecipeSummaryResponse` becomes {@link RecipeSummary}), the same way
  * `pantry.models.ts` names `PantryItemResponse`.
  */
+import { type Diet } from '../user/profile.models';
 
 /** Where a recipe came from, matching the `RecipeSource` enum of the API. */
 export type RecipeSource = 'USER' | 'THE_MEAL_DB';
@@ -27,6 +28,12 @@ export type RecipeSource = 'USER' | 'THE_MEAL_DB';
  * unknown, so a caller must resolve a hit through `CatalogService.getIngredient`
  * before it can be sent. `name` and `ingredientId` are independent filters and
  * may travel together or on their own.
+ *
+ * `diet` is a {@link Diet} name kept only when it narrows the answer:
+ * `BALANCED` — like an absent value — means "no diet filter", and any other
+ * name keeps just the recipes whose per-serving nutrients satisfy it. The
+ * derivation lives server-side (the client never holds the nutrients), so the
+ * grid uses it as a server-side filter and re-queries when it changes.
  */
 export interface RecipeSearchQuery {
   /** Free-text name filter; a blank value is never sent. */
@@ -39,6 +46,8 @@ export interface RecipeSearchQuery {
   readonly threshold?: number;
   /** Excludes recipes containing any allergen the user has excluded. */
   readonly allergenSafe?: boolean;
+  /** Diet name to filter by; `BALANCED` (or absent) means no diet filter. */
+  readonly diet?: Diet;
 }
 
 /**
@@ -71,6 +80,14 @@ export interface RecipeSummary {
   readonly missingCount: number | null;
   /** EU allergen codes (`EGG`, `MILK`, ...); empty when the recipe has none. */
   readonly allergenCodes: string[];
+  /** Whether the signed-in user has marked this recipe as favorite. */
+  readonly favorite: boolean | null;
+  /** Whether the signed-in user has saved this recipe. */
+  readonly saved: boolean | null;
+  /** Whether this recipe belongs to the signed-in user. */
+  readonly owned: boolean | null;
+  /** Whether this recipe is published. */
+  readonly published: boolean | null;
 }
 
 /**
@@ -110,6 +127,14 @@ export interface RecipeDetail {
   readonly matchScore: number | null;
   /** Coverage of each ingredient against the signed-in user's pantry. */
   readonly coverage: IngredientCoverage[];
+  /** Whether the signed-in user has marked this recipe as favorite. */
+  readonly favorite: boolean | null;
+  /** Whether the signed-in user has saved this recipe. */
+  readonly saved: boolean | null;
+  /** Whether this recipe belongs to the signed-in user. */
+  readonly owned: boolean | null;
+  /** Whether this recipe is published. */
+  readonly published: boolean | null;
 }
 
 /**
@@ -184,4 +209,89 @@ export interface IngredientCoverage {
   readonly availableAmount: number;
   readonly availableUnitCode: string;
   readonly fullyCovered: boolean;
+}
+
+/**
+ * Body of `POST /api/recipes` (roadmap H4-b): a recipe authored here.
+ *
+ * `ingredientId` is the catalog's **internal** id, not the provider `fdcId`:
+ * the recipe store addresses its own rows, while the catalog search speaks in
+ * `fdcId`, so a caller must materialize the food through
+ * `CatalogService.getIngredient` and use the `id` that detail answers with.
+ * `unitCode` must belong to the fixed unit catalog. Optional text fields are
+ * `null` rather than absent —" replacement semantics: the backend stores what
+ * arrives, and there is no "leave as is" in a create.
+ *
+ * `position` orders the lines inside the recipe; the client sends it
+ * explicitly so the list renders exactly as authored and never depends on
+ * array order surviving serialization.
+ */
+export interface CreateRecipeIngredientRequest {
+  readonly ingredientId: number;
+  readonly amount: number;
+  readonly unitCode: string;
+  readonly position: number;
+}
+
+/** Full request body for `POST /api/recipes`. */
+export interface CreateRecipeRequest {
+  readonly name: string;
+  readonly category: string | null;
+  readonly area: string | null;
+  readonly instructions: string | null;
+  readonly imageUrl: string | null;
+  readonly videoUrl: string | null;
+  readonly tags: string[] | null;
+  readonly servings: number | null;
+  readonly sourceUrl: string | null;
+  readonly ingredients: CreateRecipeIngredientRequest[];
+}
+
+/**
+ * One row of the caller's cooking history, `GET /api/history`.
+ *
+ * The entry records *that* a recipe was cooked (through
+ * `cookingSessionId`), not its content: the recipe name and image have to be
+ * resolved by id, and a recipe that has since disappeared leaves an orphan
+ * row the UI must skip rather than render as a hole. `createdAt` is the ISO
+ * instant the session completed, and the list is ordered newest first by the
+ * backend.
+ */
+export interface HistoryItem {
+  readonly id: number;
+  readonly userId: number;
+  readonly recipeId: number;
+  readonly cookingSessionId: number;
+  readonly createdAt: string;
+}
+
+/**
+ * How often one ingredient appeared in the user's completed cooks,
+ * as ranked by `GET /api/users/me/stats`.
+ *
+ * Each cooking session weighs in, so a recurring ingredient counts once per
+ * session rather than once per recipe line. `ingredientId` is the catalog's
+ * internal id (the same id {@link RecipeIngredient} carries), kept so a
+ * consumer could link onward; the label the card renders is `name`.
+ */
+export interface IngredientUsage {
+  readonly ingredientId: number;
+  readonly name: string;
+  readonly count: number;
+}
+
+/**
+ * Cooking totals of the signed-in user, `GET /api/users/me/stats`.
+ *
+ * `cookedSessions` counts completed sessions (the true "how often do I cook"
+ * figure) while `distinctRecipes` counts the different recipes behind them
+ * (the breadth figure); the two are deliberately not derived from each other
+ * because repeating a recipe moves only the first one. `topIngredients` is
+ * capped server-side (top five), so an empty array is a normal outcome and
+ * means "no completed session yet", never "nothing found".
+ */
+export interface UserStats {
+  readonly cookedSessions: number;
+  readonly distinctRecipes: number;
+  readonly topIngredients: IngredientUsage[];
 }

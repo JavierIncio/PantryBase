@@ -30,13 +30,13 @@ export const routes: Routes = [
   {
     // Path fixed by the backend email link: `{base}/auth/reset-password?token=`.
     path: 'auth/forgot-password',
-    title: 'Recuperar contraseña',
+    title: 'Forgot password',
     loadComponent: () =>
       import('./pages/auth/forgot-password-page').then((m) => m.ForgotPasswordPage),
   },
   {
     path: 'auth/reset-password',
-    title: 'Restablecer contraseña',
+    title: 'Reset password',
     loadComponent: () =>
       import('./pages/auth/reset-password-page').then((m) => m.ResetPasswordPage),
   },
@@ -57,26 +57,44 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/recipes/recipes-page').then((m) => m.RecipesPage),
       },
       {
+        // Declared before `recipes/:id` on purpose: `new` is a literal the
+        // parameter route would otherwise swallow as an id (and 404 on).
+        path: 'recipes/new',
+        title: 'New recipe',
+        loadComponent: () =>
+          import('./pages/recipes/recipe-create-page').then((m) => m.RecipeCreatePage),
+      },
+      {
         path: 'recipes/:id',
         title: 'Recipe',
         loadComponent: () =>
           import('./pages/recipes/recipe-detail-page').then((m) => m.RecipeDetailPage),
       },
       {
-        path: 'cooking',
-        title: 'Cooking',
-        loadComponent: () => import('./pages/cooking/cooking-page').then((m) => m.CookingPage),
-      },
-      {
+        // The session detail keeps the `/cooking/:id` URL (it is also where the
+        // "Start cooking" action lands), even though the cooking list was merged
+        // into History.
         path: 'cooking/:id',
         title: 'Cooking session',
         loadComponent: () =>
           import('./pages/cooking/cooking-session-page').then((m) => m.CookingSessionPage),
       },
       {
-        path: 'social',
-        title: 'Social',
-        loadComponent: () => import('./pages/social/social-page').then((m) => m.SocialPage),
+        // Old bookmarks in `/cooking` land on the merged page instead of 404.
+        path: 'cooking',
+        pathMatch: 'full',
+        redirectTo: 'history',
+      },
+      {
+        path: 'saved',
+        title: 'My cookbook',
+        loadComponent: () =>
+          import('./pages/collection/collection-page').then((m) => m.CollectionPage),
+      },
+      {
+        path: 'history',
+        title: 'History',
+        loadComponent: () => import('./pages/history/history-page').then((m) => m.HistoryPage),
       },
       {
         path: 'profile',

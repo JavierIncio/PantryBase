@@ -9,6 +9,7 @@ import com.pantrybase.api.recipe.service.RecipeService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -45,9 +46,11 @@ public class RecipeController {
      * Searches recipes, scored against the caller's pantry.
      *
      * <p>The optional filters ({@code name}, {@code ingredientId}, {@code strict},
-     * {@code threshold}, {@code allergenSafe}) are query parameters rather than a JSON
-     * body because a GET keeps the result cacheable and shareable as a URL — a search
-     * with a body cannot be bookmarked or linked.</p>
+     * {@code threshold}, {@code allergenSafe}, {@code diet}) are query parameters rather
+     * than a JSON body because a GET keeps the result cacheable and shareable as a URL —
+     * a search with a body cannot be bookmarked or linked. {@code diet} is a
+     * {@link com.pantrybase.api.user.domain.Diet} name; {@code BALANCED} (or its absence)
+     * means no diet filter.</p>
      */
     @GetMapping
     public List<RecipeSummaryDto> search(@AuthenticationPrincipal Long userId,
@@ -69,6 +72,24 @@ public class RecipeController {
         return recipeService.recommend(userId, request);
     }
 
+    /** Lists published user recipes from every author, newest first. */
+    @GetMapping("/published")
+    public List<RecipeSummaryDto> published(@AuthenticationPrincipal Long userId) {
+        return recipeService.listPublished(userId);
+    }
+
+    /**
+     * Lists the caller's own recipes, private or published, newest first.
+     *
+     * <p>This is the "Created" listing of the cookbook: only recipes authored by the
+     * authenticated user, with no coverage filter, so a private draft always shows up
+     * regardless of how much of its ingredient list the pantry covers.</p>
+     */
+    @GetMapping("/mine")
+    public List<RecipeSummaryDto> mine(@AuthenticationPrincipal Long userId) {
+        return recipeService.listMine(userId);
+    }
+
     /**
      * Returns one recipe with its per-ingredient coverage breakdown.
      *
@@ -83,11 +104,25 @@ public class RecipeController {
                 .orElseThrow(() -> new RecipeNotFoundException(recipeId));
     }
 
-    /** Creates a recipe owned by nobody but visible to everybody, as source USER. */
+    /** Creates a private recipe owned by the caller, as source USER. */
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping
     public RecipeDetailDto create(@AuthenticationPrincipal Long userId,
                                   @Valid @RequestBody CreateRecipeRequest request) {
         return recipeService.createUserRecipe(userId, request);
+    }
+
+    /** Publishes one of the caller's own recipes, idempotently. */
+    @PostMapping("/{recipeId}/publish")
+    public RecipeDetailDto publish(@AuthenticationPrincipal Long userId,
+                                   @PathVariable long recipeId) {
+        return recipeService.publish(userId, recipeId);
+    }
+
+    /** Takes one of the caller's own recipes back to private, idempotently. */
+    @DeleteMapping("/{recipeId}/publish")
+    public RecipeDetailDto unpublish(@AuthenticationPrincipal Long userId,
+                                     @PathVariable long recipeId) {
+        return recipeService.unpublish(userId, recipeId);
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,6 +15,9 @@ import java.util.Optional;
 public interface RecipeIngredientRepository extends JpaRepository<RecipeIngredient, Long> {
 
     List<RecipeIngredient> findByRecipeIdOrderByPositionAsc(Long recipeId);
+
+    /** All ingredient lines for a batch of recipes, in one round trip. */
+    List<RecipeIngredient> findByRecipeIdIn(Collection<Long> recipeIds);
 
     @Modifying
     @Transactional

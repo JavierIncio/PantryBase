@@ -75,6 +75,12 @@ public class Recipe {
     @Column(name = "refreshed_at", nullable = false)
     private Instant refreshedAt;
 
+    @Column(name = "published_at")
+    private Instant publishedAt;
+
+    @Column(name = "owner_id")
+    private Long ownerId;
+
     // --- enum for source (kept as String in DB, but type-safe here) ---
     public enum Source { THE_MEAL_DB, USER }
 
@@ -125,6 +131,12 @@ public class Recipe {
 
     public Instant getRefreshedAt() { return refreshedAt; }
     public void setRefreshedAt(Instant refreshedAt) { this.refreshedAt = refreshedAt; }
+
+    public Instant getPublishedAt() { return publishedAt; }
+    public void setPublishedAt(Instant publishedAt) { this.publishedAt = publishedAt; }
+
+    public Long getOwnerId() { return ownerId; }
+    public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
 
     public Source getSourceEnum() {
         return source != null ? Source.valueOf(source) : null;

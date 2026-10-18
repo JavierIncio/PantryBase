@@ -52,6 +52,16 @@
           </span>
         }
       </div>
+      @if (canPublish()) {
+        <mat-slide-toggle
+          class="publish-toggle"
+          [checked]="recipe.published === true"
+          [disabled]="publishPending()"
+          (change)="togglePublish($event)"
+        >
+          Public recipe
+        </mat-slide-toggle>
+      }
       @if (recipe.allergenCodes.length > 0) {
         <mat-chip-set class="detail-allergens" aria-label="Allergens">
           @for (code of recipe.allergenCodes; track code) {
@@ -59,6 +69,28 @@
           }
         </mat-chip-set>
       }
+      <div class="detail-actions-inline">
+        <button
+          mat-icon-button
+          type="button"
+          class="favorite-toggle"
+          [aria-label]="favoriteAria(recipe.favorite)"
+          [disabled]="favoritePending()"
+          (click)="toggleFavorite()"
+        >
+          <mat-icon aria-hidden="true">{{ favoriteIcon(recipe.favorite) }}</mat-icon>
+        </button>
+        <button
+          mat-icon-button
+          type="button"
+          class="saved-toggle"
+          [aria-label]="savedAria(recipe.saved)"
+          [disabled]="savedPending()"
+          (click)="toggleSaved()"
+        >
+          <mat-icon aria-hidden="true">{{ savedIcon(recipe.saved) }}</mat-icon>
+        </button>
+      </div>
       @if (recipe.videoUrl || recipe.sourceUrl) {
         <div class="detail-links">
           @if (recipe.sourceUrl; as sourceUrl) {

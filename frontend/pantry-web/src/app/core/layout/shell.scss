@@ -1,49 +1,66 @@
-.shell {
-  height: 100%;
+:host {
+  display: block;
+}
 
-  &-sidenav {
-    width: 240px;
-  }
+.shell-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  gap: 0.25rem;
+}
 
-  &-brand {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 1rem 1rem 0.75rem;
-    font: var(--mat-sys-title-medium);
-  }
+.shell-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: inherit;
+  text-decoration: none;
+  font: var(--mat-sys-title-medium);
+  white-space: nowrap;
+}
 
-  &-toolbar-title {
-    margin-left: 0.25rem;
-  }
+// On the primary toolbar the links must inherit the on-primary colour instead
+// of picking up the default button ink.
+.shell-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
 
-  // Pushes the user area to the right edge of the toolbar.
-  &-toolbar-spacer {
-    flex: 1 1 auto;
-  }
+.shell-nav-link {
+  color: inherit;
+  border-radius: var(--mat-sys-corner-full);
 
-  // User area as an M3 pill so the button reads as a tappable control, not as
-  // bare text; hover/focus feedback comes from the mat-button state layer.
-  &-user-button {
-    color: inherit;
-    border-radius: var(--mat-sys-corner-full);
-  }
-
-  // Long usernames truncate instead of pushing the menu trigger off screen.
-  &-username {
-    max-width: 14rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &-content {
-    box-sizing: border-box;
-    padding: 1rem;
-  }
-
-  .active-link {
+  // The active route is marked by RouterLinkActive; on the primary surface the
+  // secondary container still reads as a selected pill.
+  &.active-link {
     background-color: var(--mat-sys-secondary-container);
     color: var(--mat-sys-on-secondary-container);
   }
+}
+
+// User area as an M3 pill so the button reads as a tappable control, not as
+// bare text; hover/focus feedback comes from the mat-button state layer.
+.shell-user-button {
+  color: inherit;
+  border-radius: var(--mat-sys-corner-full);
+}
+
+// Long usernames truncate instead of pushing the menu trigger off screen.
+.shell-username {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-content {
+  box-sizing: border-box;
+  padding: 1rem;
+}
+
+.shell-toolbar-spacer {
+  flex: 1 1 auto;
 }

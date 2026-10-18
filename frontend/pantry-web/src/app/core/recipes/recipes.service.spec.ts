@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
-import { RecipeDetail, RecipeSummary } from './recipes.models';
+import { CreateRecipeRequest, HistoryItem, RecipeDetail, RecipeSummary } from './recipes.models';
 import { RecipesService } from './recipes.service';
 
 const HIT: RecipeSummary = {
@@ -17,6 +17,10 @@ const HIT: RecipeSummary = {
   matchScore: 1,
   missingCount: 0,
   allergenCodes: ['EGG', 'MILK'],
+  favorite: true,
+  saved: false,
+  owned: false,
+  published: false,
 };
 
 const DETAIL: RecipeDetail = {
@@ -37,6 +41,31 @@ const DETAIL: RecipeDetail = {
   allergenCodes: ['EGG'],
   matchScore: 1,
   coverage: [],
+  favorite: false,
+  saved: false,
+  owned: true,
+  published: true,
+};
+
+const HISTORY_ITEM: HistoryItem = {
+  id: 7,
+  userId: 1,
+  recipeId: 1,
+  cookingSessionId: 3,
+  createdAt: '2026-10-12T18:30:00Z',
+};
+
+const CREATE_REQUEST: CreateRecipeRequest = {
+  name: 'My Carbonara',
+  category: 'Pasta',
+  area: 'Italian',
+  instructions: 'Boil, fry, mix.',
+  imageUrl: null,
+  videoUrl: null,
+  tags: ['quick'],
+  servings: 2,
+  sourceUrl: null,
+  ingredients: [{ ingredientId: 12, amount: 200, unitCode: 'G', position: 0 }],
 };
 
 describe('RecipesService', () => {
@@ -62,6 +91,10 @@ describe('RecipesService', () => {
    * empty-query form walks through the predicate the same way.
    */
   const expectSearch = () => http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes'));
+
+  /** The recommend path must be matched exactly: it also starts with `/api/recipes`. */
+  const expectRecommend = () =>
+    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
 
   it('searches with no query string when no filter was opened', async () => {
     const result = firstValueFrom(service.search());
@@ -155,6 +188,62 @@ describe('RecipesService', () => {
     await expect(result).resolves.toEqual([HIT]);
   });
 
+  it('sends the diet only when it actually narrows the search', async () => {
+    const result = firstValueFrom(service.search({ diet: 'LOW_CARB' }));
+
+    const req = expectSearch();
+    expect(req.request.params.keys()).toEqual(['diet']);
+    expect(req.request.params.get('diet')).toBe('LOW_CARB');
+    req.flush([HIT]);
+
+    await expect(result).resolves.toEqual([HIT]);
+  });
+
+  it('never sends a BALANCED diet, which the backend already reads as "no filter"', async () => {
+    const balanced = firstValueFrom(service.search({ diet: 'BALANCED' }));
+
+    const balancedReq = expectSearch();
+    // `diet=BALANCED` would ask for exactly the filter an absent param means.
+    expect(balancedReq.request.urlWithParams).toBe('/api/recipes');
+    balancedReq.flush([HIT]);
+    await expect(balanced).resolves.toEqual([HIT]);
+
+    const absent = firstValueFrom(service.search({ name: 'pasta', diet: undefined }));
+
+    const absentReq = expectSearch();
+    expect(absentReq.request.params.keys()).toEqual(['name']);
+    absentReq.flush([HIT]);
+    await expect(absent).resolves.toEqual([HIT]);
+  });
+
+  it('recommend sends the diet so the suggestions respect it', async () => {
+    const result = firstValueFrom(service.recommend({ diet: 'HIGH_PROTEIN' }));
+
+    const req = expectRecommend();
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.keys()).toEqual(['diet']);
+    expect(req.request.params.get('diet')).toBe('HIGH_PROTEIN');
+    req.flush([HIT]);
+
+    await expect(result).resolves.toEqual([HIT]);
+  });
+
+  it('recommend leaves a BALANCED diet out and sends the other filters alone', async () => {
+    const balanced = firstValueFrom(service.recommend({ diet: 'BALANCED', strict: true }));
+
+    const balancedReq = expectRecommend();
+    expect(balancedReq.request.params.keys()).toEqual(['strict']);
+    balancedReq.flush([HIT]);
+    await expect(balanced).resolves.toEqual([HIT]);
+
+    const none = firstValueFrom(service.recommend());
+
+    const noneReq = expectRecommend();
+    expect(noneReq.request.urlWithParams).toBe('/api/recipes/recommend');
+    noneReq.flush([HIT]);
+    await expect(none).resolves.toEqual([HIT]);
+  });
+
   it('getDetail GETs one recipe by its id', async () => {
     const result = firstValueFrom(service.getDetail(1));
 
@@ -180,5 +269,133 @@ describe('RecipesService', () => {
     );
 
     await expect(result).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('toggleFavorite PUTs to mark the recipe favorite, with no body and a 204 answer', async () => {
+    const result = firstValueFrom(service.toggleFavorite(1, true));
+
+    const req = http.expectOne('/api/recipes/1/favorite');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toBeNull();
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it('toggleFavorite DELETEs to clear the mark, with no body and a 204 answer', async () => {
+    const result = firstValueFrom(service.toggleFavorite(1, false));
+
+    const req = http.expectOne('/api/recipes/1/favorite');
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.body).toBeNull();
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it('toggleSaved PUTs to save the recipe, with no body and a 204 answer', async () => {
+    const result = firstValueFrom(service.toggleSaved(1, true));
+
+    const req = http.expectOne('/api/recipes/1/saved');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toBeNull();
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it('toggleSaved DELETEs to remove the saved mark, with no body and a 204 answer', async () => {
+    const result = firstValueFrom(service.toggleSaved(1, false));
+
+    const req = http.expectOne('/api/recipes/1/saved');
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.body).toBeNull();
+    req.flush(null, { status: 204, statusText: 'No Content' });
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it('favoriteIds GETs the caller favorite ids', async () => {
+    const result = firstValueFrom(service.favoriteIds());
+
+    const req = http.expectOne('/api/favorites');
+    expect(req.request.method).toBe('GET');
+    req.flush([3, 1]);
+
+    await expect(result).resolves.toEqual([3, 1]);
+  });
+
+  it('savedIds GETs the caller saved ids', async () => {
+    const result = firstValueFrom(service.savedIds());
+
+    const req = http.expectOne('/api/saved');
+    expect(req.request.method).toBe('GET');
+    req.flush([2]);
+
+    await expect(result).resolves.toEqual([2]);
+  });
+
+  it('history GETs the caller cooking history', async () => {
+    const result = firstValueFrom(service.history());
+
+    const req = http.expectOne('/api/history');
+    expect(req.request.method).toBe('GET');
+    req.flush([HISTORY_ITEM]);
+
+    await expect(result).resolves.toEqual([HISTORY_ITEM]);
+  });
+
+  it('published GETs every author published recipes', async () => {
+    const result = firstValueFrom(service.published());
+
+    const req = http.expectOne('/api/recipes/published');
+    expect(req.request.method).toBe('GET');
+    req.flush([HIT]);
+
+    await expect(result).resolves.toEqual([HIT]);
+  });
+
+  it('mine GETs the caller own recipes, private or published', async () => {
+    const result = firstValueFrom(service.mine());
+
+    const req = http.expectOne('/api/recipes/mine');
+    expect(req.request.method).toBe('GET');
+    req.flush([HIT]);
+
+    await expect(result).resolves.toEqual([HIT]);
+  });
+
+  it('publish POSTs with no body and maps the refreshed detail', async () => {
+    const published = { ...DETAIL, published: true };
+    const result = firstValueFrom(service.publish(1));
+
+    const req = http.expectOne('/api/recipes/1/publish');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    req.flush(published);
+
+    await expect(result).resolves.toEqual(published);
+  });
+
+  it('unpublish DELETEs and maps the refreshed detail', async () => {
+    const unpublished = { ...DETAIL, published: false };
+    const result = firstValueFrom(service.unpublish(1));
+
+    const req = http.expectOne('/api/recipes/1/publish');
+    expect(req.request.method).toBe('DELETE');
+    req.flush(unpublished);
+
+    await expect(result).resolves.toEqual(unpublished);
+  });
+
+  it('create POSTs the request body and maps the created detail', async () => {
+    const result = firstValueFrom(service.create(CREATE_REQUEST));
+
+    const req = http.expectOne('/api/recipes');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(CREATE_REQUEST);
+    req.flush(DETAIL);
+
+    await expect(result).resolves.toEqual(DETAIL);
   });
 });

@@ -101,17 +101,17 @@ describe('RegisterPage', () => {
     fixture.detectChanges();
 
     // Untouched field: no mismatch error yet, despite the form being invalid.
-    expect(host.textContent).not.toContain('Las contraseñas no coinciden');
+    expect(host.textContent).not.toContain('Passwords do not match');
 
     // Submitting marks every field touched, revealing the violation.
     submit(fixture);
     fixture.detectChanges();
-    expect(host.textContent).toContain('Las contraseñas no coinciden');
+    expect(host.textContent).toContain('Passwords do not match');
 
     // Correcting the confirm field clears the mismatch on the next validation.
     fixture.componentInstance.form.controls.confirmPassword.setValue('secret42');
     fixture.detectChanges();
-    expect(host.textContent).not.toContain('Las contraseñas no coinciden');
+    expect(host.textContent).not.toContain('Passwords do not match');
   });
 
   it('enables the button again once the passwords match and posts the plain payload', async () => {

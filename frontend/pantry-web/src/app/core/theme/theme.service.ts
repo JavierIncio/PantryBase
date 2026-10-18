@@ -49,4 +49,20 @@ export class ThemeService {
   private isValid(theme: unknown): theme is ThemeId {
     return typeof theme === 'string' && (THEMES as readonly string[]).includes(theme);
   }
+
+  /**
+   * Resets the theme to the default value and clears any cached preference.
+   *
+   * Used when there is no active session so anonymous screens show the
+   * application default theme.
+   */
+  reset(): void {
+    const themeId = DEFAULT_THEME;
+    (this.document.documentElement.dataset as DOMStringMap)['theme'] = themeId;
+    try {
+      this.document.defaultView?.localStorage?.removeItem(ThemeService.STORAGE_KEY);
+    } catch {
+      // Storage can be unavailable (private mode); only DOM matters.
+    }
+  }
 }

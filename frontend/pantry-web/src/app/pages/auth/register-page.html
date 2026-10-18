@@ -48,7 +48,7 @@
         [errorStateMatcher]="passwordMismatchErrorStateMatcher"
       />
       @if (form.controls.confirmPassword.touched && form.hasError('passwordMismatch')) {
-        <mat-error>Las contraseñas no coinciden.</mat-error>
+        <mat-error>Passwords do not match.</mat-error>
       } @else if (
         form.controls.confirmPassword.touched && form.controls.confirmPassword.hasError('required')
       ) {

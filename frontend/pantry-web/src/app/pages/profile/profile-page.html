@@ -3,318 +3,370 @@
   <p class="profile-email">{{ email() }}</p>
 </header>
 
-<div class="profile-cards">
-  <mat-card class="profile-card identity-card">
-    <mat-card-header>
-      <mat-card-title>Identidad</mat-card-title>
-      <mat-card-subtitle>Nombre de usuario y nombre público</mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <form [formGroup]="identityForm">
-        <mat-form-field>
-          <mat-label>Nombre de usuario</mat-label>
-          <input
-            matInput
-            formControlName="username"
-            autocomplete="username"
-            [errorStateMatcher]="usernameErrorStateMatcher"
-          />
-          @if (identityForm.controls.username.hasError('taken')) {
-            <mat-error>{{ identityForm.controls.username.getError('taken') }}</mat-error>
-          } @else if (
-            identityForm.controls.username.touched &&
-            identityForm.controls.username.hasError('minlength')
-          ) {
-            <mat-error>Usa al menos 3 caracteres.</mat-error>
-          } @else if (
-            identityForm.controls.username.touched &&
-            identityForm.controls.username.hasError('maxlength')
-          ) {
-            <mat-error>Usa como máximo 20 caracteres.</mat-error>
-          }
-        </mat-form-field>
+<div class="profile-layout">
+  <!-- Section index: on desktop it is a sticky column of anchors; on narrow
+       viewports it becomes a wrapping row above the sections. The links carry
+       an explicit routerLink + fragment: a bare `href="#id"` would resolve
+       against `<base href="/">` to the app root and bounce to /pantry. -->
+  <nav class="profile-index" aria-label="Profile sections">
+    <a class="profile-index-link" routerLink="/profile" fragment="statistics">Statistics</a>
+    <a class="profile-index-link" routerLink="/profile" fragment="allergens">Allergens</a>
+    <a class="profile-index-link" routerLink="/profile" fragment="preferences">Preferences</a>
+    <a class="profile-index-link" routerLink="/profile" fragment="identity">Identity</a>
+    <a class="profile-index-link" routerLink="/profile" fragment="password">Password</a>
+  </nav>
 
-        <mat-form-field>
-          <mat-label>Nombre</mat-label>
-          <input matInput formControlName="firstName" autocomplete="given-name" />
-          @if (
-            identityForm.controls.firstName.touched &&
-            identityForm.controls.firstName.hasError('maxlength')
-          ) {
-            <mat-error>Usa como máximo 50 caracteres.</mat-error>
-          }
-        </mat-form-field>
-
-        <mat-form-field>
-          <mat-label>Apellidos</mat-label>
-          <input matInput formControlName="lastName" autocomplete="family-name" />
-          @if (
-            identityForm.controls.lastName.touched &&
-            identityForm.controls.lastName.hasError('maxlength')
-          ) {
-            <mat-error>Usa como máximo 50 caracteres.</mat-error>
-          }
-        </mat-form-field>
-
-        @if (identitySaveError()) {
-          <p class="save-error">{{ identitySaveError() }}</p>
-        }
-      </form>
-      <div class="card-actions">
-        <button
-          mat-flat-button
-          type="button"
-          class="save-identity"
-          [disabled]="!identityChanged() || identityForm.invalid || identitySaving()"
-          (click)="saveIdentity()"
-        >
-          @if (identitySaving()) {
-            <mat-spinner diameter="20" />
-          } @else {
-            Guardar
-          }
-        </button>
-      </div>
-    </mat-card-content>
-  </mat-card>
-
-  <mat-card class="profile-card password-card">
-    <mat-card-header>
-      <mat-card-title>Cambiar contraseña</mat-card-title>
-      <mat-card-subtitle>Establece una nueva contraseña para tu cuenta</mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <form [formGroup]="passwordForm">
-        <mat-form-field>
-          <mat-label>Contraseña actual</mat-label>
-          <input
-            matInput
-            formControlName="currentPassword"
-            type="password"
-            autocomplete="current-password"
-          />
-          <mat-hint
-            >Si inicias sesión con Google y nunca pusiste contraseña, déjalo vacío.</mat-hint
-          >
-        </mat-form-field>
-
-        <mat-form-field>
-          <mat-label>Nueva contraseña</mat-label>
-          <input
-            matInput
-            formControlName="newPassword"
-            type="password"
-            autocomplete="new-password"
-          />
-          @if (
-            passwordForm.controls.newPassword.touched &&
-            passwordForm.controls.newPassword.hasError('required')
-          ) {
-            <mat-error>Introduce una contraseña.</mat-error>
-          } @else if (
-            passwordForm.controls.newPassword.touched &&
-            passwordForm.controls.newPassword.hasError('minlength')
-          ) {
-            <mat-error>Usa al menos 8 caracteres.</mat-error>
-          } @else if (
-            passwordForm.controls.newPassword.touched &&
-            passwordForm.controls.newPassword.hasError('maxlength')
-          ) {
-            <mat-error>Usa como máximo 72 caracteres.</mat-error>
-          }
-        </mat-form-field>
-
-        <mat-form-field>
-          <mat-label>Confirmar nueva contraseña</mat-label>
-          <input
-            matInput
-            formControlName="confirmPassword"
-            type="password"
-            autocomplete="new-password"
-            [errorStateMatcher]="passwordMismatchErrorStateMatcher"
-          />
-          @if (
-            passwordForm.controls.confirmPassword.touched &&
-            passwordForm.hasError('passwordMismatch')
-          ) {
-            <mat-error>Las contraseñas no coinciden.</mat-error>
-          } @else if (
-            passwordForm.controls.confirmPassword.touched &&
-            passwordForm.controls.confirmPassword.hasError('required')
-          ) {
-            <mat-error>Confirma tu contraseña.</mat-error>
-          }
-        </mat-form-field>
-
-        @if (passwordSaveError()) {
-          <p class="save-error">{{ passwordSaveError() }}</p>
-        }
-      </form>
-      <div class="card-actions">
-        <button
-          mat-flat-button
-          type="button"
-          class="save-password"
-          [disabled]="passwordForm.invalid || passwordSaving()"
-          (click)="savePassword()"
-        >
-          @if (passwordSaving()) {
-            <mat-spinner diameter="20" />
-          } @else {
-            Guardar
-          }
-        </button>
-      </div>
-    </mat-card-content>
-  </mat-card>
-
-  <mat-card class="profile-card preferences-card">
-    <mat-card-header>
-      <mat-card-title>Preferences</mat-card-title>
-      <mat-card-subtitle>Defaults used by the recipe filter</mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      @if (prefsLoading()) {
-        <div class="card-status"><mat-spinner diameter="32" /></div>
-      } @else if (prefsLoadError()) {
-        <div class="card-status card-error">
-          <p>{{ prefsLoadError() }}</p>
-          <button
-            mat-stroked-button
-            type="button"
-            class="retry-preferences"
-            (click)="loadPreferences()"
-          >
-            Retry
-          </button>
-        </div>
-      } @else {
-        <form [formGroup]="prefsForm">
-          <mat-form-field>
-            <mat-label>Filter mode</mat-label>
-            <mat-select formControlName="filterMode">
-              @for (option of filterModeOptions; track option.value) {
-                <mat-option [value]="option.value">{{ option.label }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-
-          <div class="threshold-row">
-            <span class="threshold-label">Coverage threshold</span>
-            <span class="threshold-value">{{ prefsForm.controls.coverageThreshold.value }}%</span>
-            <mat-slider
-              class="threshold-slider"
-              [discrete]="true"
-              [showTickMarks]="true"
-              min="0"
-              max="100"
-              step="1"
-              [disabled]="coverageLocked()"
-            >
-              <input matSliderThumb formControlName="coverageThreshold" />
-            </mat-slider>
-          </div>
-
-          <mat-form-field>
-            <mat-label>Diet</mat-label>
-            <mat-select formControlName="diet">
-              @for (option of dietOptions; track option.value) {
-                <mat-option [value]="option.value">{{ option.label }}</mat-option>
-              }
-            </mat-select>
-          </mat-form-field>
-
-          <div class="theme-section">
-            <span class="theme-label" id="theme-label">Theme</span>
-            <mat-button-toggle-group
-              formControlName="themeId"
-              name="theme"
-              class="theme-toggle-group"
-              aria-labelledby="theme-label"
-            >
-              @for (theme of themeOptions; track theme.id) {
-                <mat-button-toggle [value]="theme.id" class="theme-toggle">
-                  {{ theme.label }}
-                </mat-button-toggle>
-              }
-            </mat-button-toggle-group>
-            <div class="theme-preview" aria-hidden="true">
-              <span class="theme-swatch theme-swatch-primary"></span>
-              <span class="theme-swatch theme-swatch-tertiary"></span>
-              <span class="theme-swatch theme-swatch-surface"></span>
+  <div class="profile-sections">
+    <mat-card id="statistics" class="profile-card stats-card">
+      <mat-card-header>
+        <mat-card-title>Statistics</mat-card-title>
+        <mat-card-subtitle>A summary of your cooking sessions</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        @if (statsLoading()) {
+          <div class="stats-loading"><mat-spinner diameter="32" /></div>
+        } @else if (statsError(); as msg) {
+          <p class="save-error">{{ msg }}</p>
+        } @else if (stats(); as s) {
+          <div class="stats-figures">
+            <div class="stats-figure">
+              <span class="stats-value">{{ s.cookedSessions }}</span>
+              <span class="stats-label">Cooked sessions</span>
+            </div>
+            <div class="stats-figure">
+              <span class="stats-value">{{ s.distinctRecipes }}</span>
+              <span class="stats-label">Distinct recipes</span>
             </div>
           </div>
+          <h4 class="stats-subtitle">Top ingredients</h4>
+          @if (s.topIngredients.length === 0) {
+            <p class="stats-empty">You haven't cooked anything yet</p>
+          } @else {
+            <ul class="stats-list">
+              @for (item of s.topIngredients; track item.ingredientId) {
+                <li class="stats-list-item">
+                  <span class="stats-item-name">{{ item.name }}</span>
+                  <span class="stats-item-count">{{ item.count }}</span>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </mat-card-content>
+    </mat-card>
 
-          @if (prefsSaveError()) {
-            <p class="save-error">{{ prefsSaveError() }}</p>
+    <mat-card id="allergens" class="profile-card exclusions-card">
+      <mat-card-header>
+        <mat-card-title>Allergy exclusions</mat-card-title>
+        <mat-card-subtitle>Recipes containing these allergens are filtered out</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        @if (exclusionsLoading()) {
+          <div class="card-status"><mat-spinner diameter="32" /></div>
+        } @else if (exclusionsLoadError()) {
+          <div class="card-status card-error">
+            <p>{{ exclusionsLoadError() }}</p>
+            <button
+              mat-stroked-button
+              type="button"
+              class="retry-exclusions"
+              (click)="loadExclusions()"
+            >
+              Retry
+            </button>
+          </div>
+        } @else {
+          <div class="allergen-grid">
+            @for (allergen of allergens(); track allergen.code; let i = $index) {
+              <mat-checkbox [formControl]="exclusions.at(i)">{{ allergen.name }}</mat-checkbox>
+            }
+          </div>
+
+          @if (exclusionsSaveError()) {
+            <p class="save-error">{{ exclusionsSaveError() }}</p>
+          }
+
+          <div class="card-actions">
+            <button
+              mat-flat-button
+              type="button"
+              class="save-exclusions"
+              [disabled]="!exclusions.dirty || savingExclusions()"
+              (click)="saveExclusions()"
+            >
+              @if (savingExclusions()) {
+                <mat-spinner diameter="20" />
+              } @else {
+                Save
+              }
+            </button>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card id="preferences" class="profile-card preferences-card">
+      <mat-card-header>
+        <mat-card-title>Preferences</mat-card-title>
+        <mat-card-subtitle>Defaults used by the recipe filter</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        @if (prefsLoading()) {
+          <div class="card-status"><mat-spinner diameter="32" /></div>
+        } @else if (prefsLoadError()) {
+          <div class="card-status card-error">
+            <p>{{ prefsLoadError() }}</p>
+            <button
+              mat-stroked-button
+              type="button"
+              class="retry-preferences"
+              (click)="loadPreferences()"
+            >
+              Retry
+            </button>
+          </div>
+        } @else {
+          <form [formGroup]="prefsForm">
+            <mat-form-field>
+              <mat-label>Filter mode</mat-label>
+              <mat-select formControlName="filterMode">
+                @for (option of filterModeOptions; track option.value) {
+                  <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+
+            <div class="threshold-row">
+              <span class="threshold-label">Coverage threshold</span>
+              <span class="threshold-value">{{ prefsForm.controls.coverageThreshold.value }}%</span>
+              <mat-slider
+                class="threshold-slider"
+                [discrete]="true"
+                [showTickMarks]="true"
+                min="0"
+                max="100"
+                step="1"
+                [disabled]="coverageLocked()"
+              >
+                <input matSliderThumb formControlName="coverageThreshold" />
+              </mat-slider>
+            </div>
+
+            <mat-form-field>
+              <mat-label>Diet</mat-label>
+              <mat-select formControlName="diet">
+                @for (option of dietOptions; track option.value) {
+                  <mat-option [value]="option.value">{{ option.label }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+
+            <div class="theme-section">
+              <span class="theme-label" id="theme-label">Theme</span>
+              <mat-button-toggle-group
+                formControlName="themeId"
+                name="theme"
+                class="theme-toggle-group"
+                aria-labelledby="theme-label"
+              >
+                @for (theme of themeOptions; track theme.id) {
+                  <mat-button-toggle [value]="theme.id" class="theme-toggle">
+                    {{ theme.label }}
+                  </mat-button-toggle>
+                }
+              </mat-button-toggle-group>
+              <div class="theme-preview" aria-hidden="true">
+                <span class="theme-swatch theme-swatch-primary"></span>
+                <span class="theme-swatch theme-swatch-tertiary"></span>
+                <span class="theme-swatch theme-swatch-surface"></span>
+              </div>
+            </div>
+
+            @if (prefsSaveError()) {
+              <p class="save-error">{{ prefsSaveError() }}</p>
+            }
+          </form>
+          <div class="card-actions">
+            <button
+              mat-flat-button
+              type="button"
+              class="save-preferences"
+              [disabled]="!prefsForm.dirty || prefsForm.invalid || savingPrefs()"
+              (click)="savePreferences()"
+            >
+              @if (savingPrefs()) {
+                <mat-spinner diameter="20" />
+              } @else {
+                Save
+              }
+            </button>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card id="identity" class="profile-card identity-card">
+      <mat-card-header>
+        <mat-card-title>Identity</mat-card-title>
+        <mat-card-subtitle>Username and public name</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <form [formGroup]="identityForm">
+          <mat-form-field>
+            <mat-label>Username</mat-label>
+            <input
+              matInput
+              formControlName="username"
+              autocomplete="username"
+              [errorStateMatcher]="usernameErrorStateMatcher"
+            />
+            @if (identityForm.controls.username.hasError('taken')) {
+              <mat-error>{{ identityForm.controls.username.getError('taken') }}</mat-error>
+            } @else if (
+              identityForm.controls.username.touched &&
+              identityForm.controls.username.hasError('minlength')
+            ) {
+              <mat-error>Use at least 3 characters.</mat-error>
+            } @else if (
+              identityForm.controls.username.touched &&
+              identityForm.controls.username.hasError('maxlength')
+            ) {
+              <mat-error>Use at most 20 characters.</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>First name</mat-label>
+            <input matInput formControlName="firstName" autocomplete="given-name" />
+            @if (
+              identityForm.controls.firstName.touched &&
+              identityForm.controls.firstName.hasError('maxlength')
+            ) {
+              <mat-error>Use at most 50 characters.</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Last name</mat-label>
+            <input matInput formControlName="lastName" autocomplete="family-name" />
+            @if (
+              identityForm.controls.lastName.touched &&
+              identityForm.controls.lastName.hasError('maxlength')
+            ) {
+              <mat-error>Use at most 50 characters.</mat-error>
+            }
+          </mat-form-field>
+
+          @if (identitySaveError()) {
+            <p class="save-error">{{ identitySaveError() }}</p>
           }
         </form>
         <div class="card-actions">
           <button
             mat-flat-button
             type="button"
-            class="save-preferences"
-            [disabled]="!prefsForm.dirty || prefsForm.invalid || savingPrefs()"
-            (click)="savePreferences()"
+            class="save-identity"
+            [disabled]="!identityChanged() || identityForm.invalid || identitySaving()"
+            (click)="saveIdentity()"
           >
-            @if (savingPrefs()) {
+            @if (identitySaving()) {
               <mat-spinner diameter="20" />
             } @else {
               Save
             }
           </button>
         </div>
-      }
-    </mat-card-content>
-  </mat-card>
+      </mat-card-content>
+    </mat-card>
 
-  <mat-card class="profile-card exclusions-card">
-    <mat-card-header>
-      <mat-card-title>Allergy exclusions</mat-card-title>
-      <mat-card-subtitle>Recipes containing these allergens are filtered out</mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      @if (exclusionsLoading()) {
-        <div class="card-status"><mat-spinner diameter="32" /></div>
-      } @else if (exclusionsLoadError()) {
-        <div class="card-status card-error">
-          <p>{{ exclusionsLoadError() }}</p>
-          <button
-            mat-stroked-button
-            type="button"
-            class="retry-exclusions"
-            (click)="loadExclusions()"
-          >
-            Retry
-          </button>
-        </div>
-      } @else {
-        <div class="allergen-grid">
-          @for (allergen of allergens(); track allergen.code; let i = $index) {
-            <mat-checkbox [formControl]="exclusions.at(i)">{{ allergen.name }}</mat-checkbox>
+    <mat-card id="password" class="profile-card password-card">
+      <mat-card-header>
+        <mat-card-title>Change password</mat-card-title>
+        <mat-card-subtitle>Set a new password for your account</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <form [formGroup]="passwordForm">
+          <mat-form-field>
+            <mat-label>Current password</mat-label>
+            <input
+              matInput
+              formControlName="currentPassword"
+              type="password"
+              autocomplete="current-password"
+            />
+            <mat-hint
+              >If you sign in with Google and never set a password, leave it empty.</mat-hint
+            >
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>New password</mat-label>
+            <input
+              matInput
+              formControlName="newPassword"
+              type="password"
+              autocomplete="new-password"
+            />
+            @if (
+              passwordForm.controls.newPassword.touched &&
+              passwordForm.controls.newPassword.hasError('required')
+            ) {
+              <mat-error>Enter a password.</mat-error>
+            } @else if (
+              passwordForm.controls.newPassword.touched &&
+              passwordForm.controls.newPassword.hasError('minlength')
+            ) {
+              <mat-error>Use at least 8 characters.</mat-error>
+            } @else if (
+              passwordForm.controls.newPassword.touched &&
+              passwordForm.controls.newPassword.hasError('maxlength')
+            ) {
+              <mat-error>Use at most 72 characters.</mat-error>
+            }
+          </mat-form-field>
+
+          <mat-form-field>
+            <mat-label>Confirm new password</mat-label>
+            <input
+              matInput
+              formControlName="confirmPassword"
+              type="password"
+              autocomplete="new-password"
+              [errorStateMatcher]="passwordMismatchErrorStateMatcher"
+            />
+            @if (
+              passwordForm.controls.confirmPassword.touched &&
+              passwordForm.hasError('passwordMismatch')
+            ) {
+              <mat-error>Passwords do not match.</mat-error>
+            } @else if (
+              passwordForm.controls.confirmPassword.touched &&
+              passwordForm.controls.confirmPassword.hasError('required')
+            ) {
+              <mat-error>Confirm your password.</mat-error>
+            }
+          </mat-form-field>
+
+          @if (passwordSaveError()) {
+            <p class="save-error">{{ passwordSaveError() }}</p>
           }
-        </div>
-
-        @if (exclusionsSaveError()) {
-          <p class="save-error">{{ exclusionsSaveError() }}</p>
-        }
-
+        </form>
         <div class="card-actions">
           <button
             mat-flat-button
             type="button"
-            class="save-exclusions"
-            [disabled]="!exclusions.dirty || savingExclusions()"
-            (click)="saveExclusions()"
+            class="save-password"
+            [disabled]="passwordForm.invalid || passwordSaving()"
+            (click)="savePassword()"
           >
-            @if (savingExclusions()) {
+            @if (passwordSaving()) {
               <mat-spinner diameter="20" />
             } @else {
               Save
             }
           </button>
         </div>
-      }
-    </mat-card-content>
-  </mat-card>
+      </mat-card-content>
+    </mat-card>
+  </div>
 </div>

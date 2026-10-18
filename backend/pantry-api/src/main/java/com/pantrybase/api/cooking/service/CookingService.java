@@ -21,6 +21,7 @@ import com.pantrybase.api.recipe.domain.RecipeIngredient;
 import com.pantrybase.api.recipe.exception.RecipeNotFoundException;
 import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
 import com.pantrybase.api.recipe.repository.RecipeRepository;
+import com.pantrybase.api.social.service.SocialService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -58,6 +59,7 @@ public class CookingService {
     private final RecipeIngredientRepository recipeIngredientRepo;
     private final PantryItemRepository pantryItemRepo;
     private final PantryService pantryService;
+    private final SocialService socialService;
 
     /**
      * Counters the summary can also be read from without querying the database.
@@ -77,12 +79,14 @@ public class CookingService {
                           RecipeIngredientRepository recipeIngredientRepo,
                           PantryItemRepository pantryItemRepo,
                           PantryService pantryService,
+                          SocialService socialService,
                           MeterRegistry meterRegistry) {
         this.cookingSessionRepo = cookingSessionRepo;
         this.recipeRepo = recipeRepo;
         this.recipeIngredientRepo = recipeIngredientRepo;
         this.pantryItemRepo = pantryItemRepo;
         this.pantryService = pantryService;
+        this.socialService = socialService;
         this.completedCounter = meterRegistry.counter("pantry.cooking.sessions.completed");
         this.abandonedCounter = meterRegistry.counter("pantry.cooking.sessions.abandoned");
         this.sessionDuration = Timer.builder("pantry.cooking.sessions.duration")
@@ -213,6 +217,8 @@ public class CookingService {
             CompletionDeductionResponse deduction = complete(session, acceptShortage);
             completedCounter.increment();
             recordDuration(session);
+            // History and the deduction commit together; the session id makes it idempotent.
+            socialService.recordCompletion(session.getUserId(), session.getRecipeId(), session.getId());
             return toResponse(session, deduction);
         }
 

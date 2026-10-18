@@ -78,4 +78,31 @@ describe('App', () => {
     // The catchError path swallows the failure and the cached theme survives.
     expect(dataset()).toBe('amber');
   });
+
+  it('returns to the default theme and clears cache after logout', async () => {
+    const getPreferences = vi.fn(() => of(PREFERENCES));
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [provideRouter([]), { provide: ProfileService, useValue: { getPreferences } }],
+    }).compileComponents();
+
+    const session = TestBed.inject(SessionState);
+
+    session.setAccessToken('token-999');
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(dataset()).toBe('green');
+    expect(window.localStorage.getItem('pantry.themeId')).toBe('green');
+
+    session.clear();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(dataset()).toBe('blue');
+    expect(window.localStorage.getItem('pantry.themeId')).toBeNull();
+  });
 });

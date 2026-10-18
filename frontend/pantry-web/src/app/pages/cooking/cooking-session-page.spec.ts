@@ -90,6 +90,10 @@ const RECIPE: RecipeDetail = {
   allergenCodes: [],
   matchScore: 1,
   coverage: [],
+  favorite: false,
+  saved: false,
+  owned: false,
+  published: false,
 };
 
 /**

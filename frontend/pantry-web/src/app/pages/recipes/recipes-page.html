@@ -1,6 +1,12 @@
 <header class="recipes-heading">
-  <h1>Recipes</h1>
-  <p>Find dishes your pantry can cover.</p>
+  <div class="recipes-heading-text">
+    <h1>Recipes</h1>
+    <p>Find dishes your pantry can cover.</p>
+  </div>
+  <a mat-flat-button routerLink="/recipes/new" class="create-recipe">
+    <mat-icon aria-hidden="true">note_add</mat-icon>
+    Create recipe
+  </a>
 </header>
 
 <mat-card class="search-card">
@@ -77,6 +83,15 @@
           <span class="filter-hint">Filters the grid on screen — no new search.</span>
         </div>
 
+        <mat-form-field class="diet-field">
+          <mat-label>Diet</mat-label>
+          <mat-select [value]="diet()" (valueChange)="onDietChange($event)">
+            @for (option of dietOptions; track option.value) {
+              <mat-option [value]="option.value">{{ option.label }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
         <div class="filter-toggles">
           <mat-slide-toggle
             [checked]="strict()"
@@ -93,9 +108,7 @@
             Allergen-safe
           </mat-slide-toggle>
         </div>
-      </div>
 
-      <div class="actions-row">
         <button mat-stroked-button type="button" class="suggest-recipes" (click)="suggest()">
           Suggest
         </button>
@@ -229,6 +242,28 @@
               }
             </mat-chip-set>
           }
+          <div class="recipe-actions">
+            <button
+              mat-icon-button
+              type="button"
+              class="favorite-toggle"
+              [aria-label]="favoriteAria(recipe.favorite)"
+              [disabled]="favoritePending().has(recipe.id)"
+              (click)="toggleFavorite(recipe, $event)"
+            >
+              <mat-icon aria-hidden="true">{{ favoriteIcon(recipe.favorite) }}</mat-icon>
+            </button>
+            <button
+              mat-icon-button
+              type="button"
+              class="saved-toggle"
+              [aria-label]="savedAria(recipe.saved)"
+              [disabled]="savedPending().has(recipe.id)"
+              (click)="toggleSaved(recipe, $event)"
+            >
+              <mat-icon aria-hidden="true">{{ savedIcon(recipe.saved) }}</mat-icon>
+            </button>
+          </div>
         </mat-card-content>
       </mat-card>
     }

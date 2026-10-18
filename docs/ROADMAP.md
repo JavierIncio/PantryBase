@@ -168,12 +168,96 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ## H8 — Social y personalización
 
-- [ ] Favoritos (`Favorite`), guardadas (`SavedRecipe`), publicaciones (`PublishedRecipe`).
-- [ ] Historial de recetas realizadas (`RecipeHistory`) alimentado automáticamente al completar sesión.
-- [ ] Vista de perfil con estadísticas (nº recetas, ingredientes más usados).
-- [ ] Publicar receta propia: el backend ya existe desde H4-b (`POST /api/recipes`, recetas `source = USER` sobre el mismo modelo y con el mismo formato que TheMealDB — `CreateRecipeRequest` con `ingredients[] {ingredientId, amount, unitCode, position}` y canónicos vía `toStorageUnit`); lo que falta es el **formulario Angular** (ingresar/editar ingredientes y pasos) y el `RecipesService.create(...)` tipando ese DTO.
+**Objetivo:** persistir la relación del usuario con las recetas (favoritos/guardadas/historial), exponer estadísticas de perfil y permitir publicar recetas propias. El paquete `social` ya está scaffoldeado (ruta Angular placeholder). Las migraciones nuevas empiezan en **V18** (V18–V20 quedaron libres tras retirar H7).
 
-**Definition of done:** toda la interacción social requiere auth; historial 100% consistente con las sesiones completadas.
+**Decisiones de producto acordadas (2026-10-14):**
+1. **Favoritos y guardadas son dos conceptos distintos**: «favorito» = me gusta (corazón), «guardada» = para cocinar después (marcador). Tablas y UI separadas.
+2. **Publicación = flag en `Recipe`** (`published_at`), sin entidad nueva: reutiliza el modelo de H4 en lugar de duplicar recetas.
+3. **Estadísticas de perfil:** nº de recetas cocinadas, nº de recetas distintas y ranking de ingredientes más usados.
+4. **Tema al cerrar sesión:** reset a `blue` y limpieza de caché, para que las pantallas no autenticadas tengan color por defecto (ver H8-0).
+5. **Filtrado por dieta (acordado 2026-10-16, ver H8-F):** derivado de los nutrientes por ración y materializado en `recipe_diets`; las etiquetas no derivables (`HIGH_FIBER`, `LOW_SODIUM`) se retiran; `BALANCED` significa «sin filtro».
+
+### Bloque H8-0 — Tema por defecto en pantallas no autenticadas (frontend, independiente)
+
+**Bug de partida:** si el usuario guarda un `themeId` en preferencias y cierra sesión, el tema sigue aplicado. Diagnóstico confirmado en `frontend/pantry-web`:
+- `ThemeService.apply()` (`core/theme/theme.service.ts:20`) escribe `data-theme` **y** `localStorage['pantry.themeId']`; **no existe reset**.
+- El logout solo hace `SessionState.clear()` (`core/auth/session.state.ts:52`): no toca el tema. Lo mismo en los tres caminos de cierre (expiración, fallo y logout explícito: `core/auth/auth.service.ts:68`, `core/layout/shell.ts:109`, `core/auth/jwt.interceptor.ts:56`).
+- `App` (`app.ts:37-46`) filtra `isAuthenticated === true` → **ignora el paso a `false`**; al recargar, `ngOnInit` re-aplica el tema cacheado del perfil (`app.ts:50`).
+
+**Qué hacer:**
+- `ThemeService.reset()`: aplica `DEFAULT_THEME` (`blue`) al DOM y **borra** la clave de caché.
+- `App` reacciona en ambos sentidos de `isAuthenticated`: `true` → prefs del servidor; `false` → `reset()`. Cuidar el arranque en frío anónimo para no pisar `restoreCached()` ni provocar FOUC.
+- Tests: `theme.service.spec.ts` (reset) y `app.spec.ts` («logout vuelve a default»).
+
+**DoD:** tras logout la UI muestra el azul por defecto y la caché queda limpia; al re-entrar el mismo usuario recupera su tema desde `GET /api/users/preferences`.
+
+### Bloque H8-A — Modelo social y persistencia (backend)
+
+- Migración `V18` (favoritos + guardadas), `V19` (`recipe_history`) y `V20` (`recipes.published_at`).
+- Entidades y repositorios con FK y unicidad: una fila por `(user_id, recipe_id)` en favoritos y guardadas; historial idempotente por `session_id`.
+- `recipes.published_at` (NULL = privada).
+
+**DoD:** las migraciones aplican y hay tests de integración de los repositorios.
+
+### Bloque H8-B — API favoritos y guardadas (backend)
+
+- Endpoints autenticados e idempotentes (`PUT`/`DELETE`) con verificación de propiedad y DTOs en la frontera; documentados en OpenAPI.
+- `GET /api/recipes` y el detalle exponen `favorite`/`saved` del usuario actual para renderizar los toggles.
+
+**DoD:** el toggle funciona y es idempotente; receta inexistente → 404; tests de integración.
+
+### Bloque H8-C — Historial alimentado al completar sesión (backend)
+
+- Al pasar `CookingSession` a `COMPLETED`, insertar el historial en la **misma transacción** (no en `ABANDONED`), con unicidad por `session_id`.
+- `GET /api/history`.
+
+**DoD:** el historial es 100 % consistente con las sesiones completadas; un abandono no registra; un doble complete no duplica.
+
+### Bloque H8-D — Estadísticas de perfil (backend + frontend)
+
+- `GET /api/users/me/stats` (recetas cocinadas, distintas, top de ingredientes) + tarjeta en `profile-page`.
+
+**DoD:** los números cuadran con historial/descuento, cubierto con test.
+
+### Bloque H8-E — Publicar receta propia (backend + frontend)
+
+- `POST`/`DELETE /api/recipes/{id}/publish` (solo el autor, solo recetas `source = USER`) y un listado público mínimo de publicadas.
+- El backend de creación ya existe desde H4-b (`POST /api/recipes`, `CreateRecipeRequest` con `ingredients[] {ingredientId, amount, unitCode, position}` y canónicos vía `toStorageUnit`); falta la **visibilidad pública** y el **formulario Angular** de receta propia, con `RecipesService.create(...)` tipando ese DTO.
+
+**DoD:** publicar/despublicar funciona; no se publica receta ajena ni de TheMealDB; el formulario crea una receta.
+
+### Bloque H8-D frontend — UI social
+
+- Toggle de favorito/guardada en card y detalle, páginas de guardadas e historial y entradas de navegación.
+
+**DoD:** rutas y estados (vacío/carga/error) cubiertos con tests.
+
+### Bloque H8-F — Filtro por dieta (backend + frontend)
+
+**Decisión de producto (2026-10-16):** filtrar por dieta **derivando las etiquetas de los nutrientes por ración**, en lugar de pedírselas al proveedor (TheMealDB no expone etiquetas de dieta y el USDA tampoco, así que el valor llegaría inventado). El perfil guardaba la preferencia desde H1 pero nada la aplicaba. Umbrales por ración: `HIGH_PROTEIN` proteína ≥ 20 g · `LOW_CARB` carbohidratos ≤ 20 g · `LOW_FAT` grasa ≤ 10 g. Una receta puede llevar varias etiquetas; una sin nutrientes no recibe ninguna; `BALANCED` nunca se almacena (es la ausencia de filtro). `HIGH_FIBER` y `LOW_SODIUM` **se eliminan**: no derivan de `recipe_nutrients` y estaban sin efecto real.
+
+- Migración `V22__recipe_diets.sql`: tabla `recipe_diets` (clave primaria `(recipe_id, diet)` + índice por `diet`, patrón de `recipe_allergens`) y normalización de las preferencias persistidas con `HIGH_FIBER`/`LOW_SODIUM` a `BALANCED`.
+- Enum `Diet` reducido a `BALANCED | HIGH_PROTEIN | LOW_CARB | LOW_FAT`; `RecipeDiet`/`RecipeDietId`/`RecipeDietRepository` y campo `diet` en `RecipeSearchRequest`.
+- `RecipeService` materializa las etiquetas al crear, al refrescar por TTL y al materializar (`deriveAndStoreDiets`), y filtra en `scoreAndFilter` —compartido por `search` y `recommend`—, así que `GET /api/recipes` y `GET /api/recipes/recommend` respetan el mismo `diet`.
+- Frontend: `diet?: Diet` en `RecipeSearchQuery`, `DIET_OPTIONS` compartido con el perfil y selector `Diet` en la página de recetas (fija desde `GET /api/users/preferences`, re-busca y re-sugiere al cambiar; omite `diet` si es `BALANCED`).
+
+**DoD:** crear o refrescar una receta materializa sus etiquetas; `diet=HIGH_PROTEIN` excluye las que no lo son y `BALANCED` no excluye nada; los dos valores retirados ya no se pueden enviar ni persistir.
+
+### Bloque H8-G — Cierre
+
+- Docs (`FEATURE_GUIDE`, `README`, `ROADMAP`, `VERSIONS` si cambian dependencias), build y tests verdes, runtime Docker.
+
+**Riesgos anotados:** añadir `favorite`/`saved` a `GET /api/recipes` toca los DTOs y los modelos/tests de recetas del frontend; el listado público debe acotarse para no filtrar recetas privadas ajenas; la inserción del historial convive con el descuento `REQUIRES_NEW` de H5 y hay que ubicar bien el punto de escritura.
+
+**Orden propuesto:** H8-0 → H8-A → H8-C → H8-B → H8-D → H8-E → H8-D frontend (UI) → H8-G → H8-F.
+
+**Definition of done (hito):** toda la interacción social requiere auth; el historial es 100 % consistente con las sesiones completadas; publicar/despublicar respeta la propiedad; el filtrado por dieta excluye solo etiquetas derivadas de datos reales.
+
+**Estado (16-oct-2026): H8 cerrado.** Backend y frontend implementados y verificados (backend 312 tests verdes; frontend 378 tests verdes en 36 ficheros; build limpio); migraciones Flyway hasta V21. **Pendiente del bloque:** nada.
+
+**Estado (16-oct-2026, tarde): H8 cerrado + ronda de correcciones.** Cinco incidencias del usuario resueltas y verificadas: (1) retirada la pestaña/ruta/página «Social» (placeholder); (2) favoritos y guardadas unificados en una única página **«Mi recetario»** (`/saved`) con dos pestañas; (3) arregladas las estadísticas del perfil (faltaban las clases `.stats-*` de `profile-page.scss`); (4) **filtro por dieta implementado** (bloque H8-F); (5) **arreglado el nombre de los ingredientes** en top de estadísticas y etiquetas de deducción (`V23` backfill, ahora se guarda el nombre del catálogo para líneas emparejadas). Verificación: **backend 315 tests verdes** (V23 aplicada), **frontend 389 tests verdes en 36 ficheros**, build limpio. `docs/VERSIONS.md` sin cambios (ninguna dependencia nueva).
+
+**Estado (18-oct-2026): H8 cerrado + rediseño de navegación y segunda ronda de correcciones.** Cambios de frontend: (a) la navegación pasa a una **barra superior global** (`mat-toolbar`) con menú de usuario, en lugar del cajón lateral; (b) la **lista de sesiones de cocina se fusiona en «Historial»** (`/history`, con nombre e imagen de la receta y «Cook again»; `/cooking` redirige a `/history` y `/cooking/:id` sigue vivo); (c) **todo el texto visible del frontend pasa a inglés** (a la espera de i18n); (d) el **perfil** se reordena en una columna con **índice lateral** de anclas (usando `routerLink`+`fragment`+`anchorScrolling`, porque un `href="#…"` con `<base href="/">` saltaba a la despensa); (e) «Mi recetario» gana una **tercera pestaña «Created»** con las recetas propias, servidas por el nuevo **`GET /api/recipes/mine`** (backend `RecipeService.listMine` + `RecipeRepository.findUserRecipesOwnedBy`, sin filtro por cobertura). Verificación: **backend 42 tests en `RecipeControllerIntegrationTest`** (suite completa 318 `Tests run`), **frontend 389 tests verdes en 35 ficheros**, build limpio. `docs/VERSIONS.md` sin cambios.
 
 ---
 

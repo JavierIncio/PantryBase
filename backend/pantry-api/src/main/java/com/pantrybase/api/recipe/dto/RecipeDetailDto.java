@@ -23,5 +23,9 @@ public record RecipeDetailDto(
         RecipeNutrientsDto nutrients,
         List<String> allergenCodes,
         Double matchScore,
-        List<IngredientCoverageDto> coverage
+        List<IngredientCoverageDto> coverage,
+        Boolean favorite,
+        Boolean saved,
+        Boolean owned,
+        Boolean published
 ) {}

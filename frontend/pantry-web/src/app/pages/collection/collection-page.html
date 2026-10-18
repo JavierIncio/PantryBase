@@ -1,0 +1,63 @@
+<header class="collection-heading">
+  <h1>My cookbook</h1>
+  <p>Your favorite recipes, the ones you saved to cook later, and the ones you created.</p>
+</header>
+
+<mat-tab-group class="collection-tabs" animationDuration="200ms">
+  @for (tab of tabs; track tab.label) {
+    <mat-tab [label]="tab.label">
+      @if (tab.state.loading()) {
+        <div class="collection-status"><mat-spinner diameter="40" /></div>
+      } @else if (tab.state.loadError(); as message) {
+        <div class="collection-status collection-error">
+          <p class="collection-error-message">{{ message }}</p>
+          <button
+            mat-stroked-button
+            type="button"
+            class="retry-collection"
+            (click)="tab.state.load()"
+          >
+            Retry
+          </button>
+        </div>
+      } @else if (tab.state.isEmpty()) {
+        <mat-card class="collection-empty">
+          <mat-card-content>
+            <mat-icon class="collection-empty-icon" aria-hidden="true">{{ tab.icon }}</mat-icon>
+            <h2>{{ tab.emptyTitle }}</h2>
+            <p>{{ tab.emptyHint }}</p>
+            <a mat-flat-button routerLink="/recipes" class="browse-recipes">Browse recipes</a>
+          </mat-card-content>
+        </mat-card>
+      } @else {
+        <div class="collection-grid">
+          @for (recipe of tab.state.recipes(); track recipe.id) {
+            <mat-card class="collection-card" [routerLink]="['/recipes', recipe.id]">
+              @if (recipe.imageUrl; as imageUrl) {
+                <img
+                  class="collection-image"
+                  [src]="imageUrl"
+                  [alt]="recipe.name"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                />
+              } @else {
+                <div class="collection-image collection-image-fallback">
+                  <mat-icon aria-hidden="true">restaurant_menu</mat-icon>
+                </div>
+              }
+              <mat-card-header>
+                <mat-card-title>{{ recipe.name }}</mat-card-title>
+              </mat-card-header>
+              <mat-card-content>
+                <span class="collection-meta"
+                  >{{ recipe.category }}{{ recipe.area ? ' · ' + recipe.area : '' }}</span
+                >
+              </mat-card-content>
+            </mat-card>
+          }
+        </div>
+      }
+    </mat-tab>
+  }
+</mat-tab-group>

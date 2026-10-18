@@ -20,6 +20,10 @@ const PASTA: RecipeSummary = {
   matchScore: 1,
   missingCount: 0,
   allergenCodes: ['EGG', 'MILK'],
+  favorite: false,
+  saved: false,
+  owned: false,
+  published: false,
 };
 
 /** Partially covered: below the default bar once the slider moves, 2 missing. */
@@ -35,6 +39,10 @@ const STEW: RecipeSummary = {
   matchScore: 0.7,
   missingCount: 2,
   allergenCodes: [],
+  favorite: false,
+  saved: false,
+  owned: true,
+  published: false,
 };
 
 /** No match score at all: coverage unknown, so never above any bar. */
@@ -50,6 +58,10 @@ const SALAD: RecipeSummary = {
   matchScore: null,
   missingCount: null,
   allergenCodes: [],
+  favorite: false,
+  saved: false,
+  owned: true,
+  published: false,
 };
 
 /** Backend error body, as `ErrorResponse` serializes it on the wire. */
@@ -96,6 +108,10 @@ const CABBAGE_DISH: RecipeSummary = {
   matchScore: 1,
   missingCount: 0,
   allergenCodes: [],
+  favorite: false,
+  saved: false,
+  owned: false,
+  published: false,
 };
 
 describe('RecipesPage', () => {
@@ -210,6 +226,27 @@ describe('RecipesPage', () => {
 
     http.expectOne(`/api/catalog/ingredients/${hit.fdcId}`).flush(detail);
     fixture.detectChanges();
+  };
+
+  /**
+   * Picks a diet by the label the select shows through the overlay.
+   *
+   * The panel is an overlay (like the autocomplete's), so the option is read
+   * from `document` once the trigger has opened it; the request the change
+   * triggers is left for the caller to answer.
+   */
+  const pickDiet = async (fixture: ComponentFixture<RecipesPage>, label: string): Promise<void> => {
+    const trigger = nodes(fixture, '.diet-field .mat-mdc-select-trigger')[0] as HTMLElement;
+    trigger.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const option = [...document.querySelectorAll('.mat-mdc-select-panel mat-option')].find(
+      (node) => text(node) === label,
+    ) as HTMLElement;
+    option.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
   };
 
   afterEach(() => {
@@ -425,6 +462,62 @@ describe('RecipesPage', () => {
     fixture.detectChanges();
 
     expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara', 'Beef Stew']);
+  });
+
+  it('takes the saved diet as the page default and sends it on the first search', async () => {
+    await configure();
+    const fixture = TestBed.createComponent(RecipesPage);
+    fixture.detectChanges();
+    http.expectOne('/api/users/preferences').flush({
+      filterMode: 'LAX',
+      coverageThreshold: 70,
+      diet: 'LOW_CARB',
+    });
+
+    // The first request already carries the stored diet: the grid waits for
+    // the preferences rather than showing rows it would have to replace.
+    const req = expectSearch();
+    expect(req.request.params.get('diet')).toBe('LOW_CARB');
+    expect(req.request.params.get('threshold')).toBe('0');
+    req.flush([PASTA, STEW]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // And the select shows the stored choice instead of the balanced default.
+    expect(text(root(fixture).querySelector('.diet-field mat-select'))).toContain('Low carb');
+  });
+
+  it('re-searches with the new diet when the select changes', async () => {
+    const fixture = await render();
+
+    // The balanced default means "every diet", so the first search stayed bare.
+    await pickDiet(fixture, 'Low fat');
+
+    const req = expectSearch();
+    expect(req.request.params.get('diet')).toBe('LOW_FAT');
+    expect(req.request.params.get('threshold')).toBe('0');
+    req.flush([PASTA]);
+    fixture.detectChanges();
+
+    expect(cardNames(fixture)).toEqual(['Spaghetti alla Carbonara']);
+  });
+
+  it('re-runs suggest with the new diet when the select changes in suggest mode', async () => {
+    const fixture = await render();
+    click(fixture, '.suggest-recipes');
+    http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend')).flush([PASTA]);
+    fixture.detectChanges();
+
+    await pickDiet(fixture, 'High protein');
+
+    // The diet belongs to the suggestion too: the page asks again rather than
+    // leaving rows that the chosen diet would have filtered out.
+    const req = http.expectOne((req) => req.urlWithParams.startsWith('/api/recipes/recommend'));
+    expect(req.request.params.get('diet')).toBe('HIGH_PROTEIN');
+    req.flush([STEW]);
+    fixture.detectChanges();
+
+    expect(cardNames(fixture)).toEqual(['Beef Stew']);
   });
 
   it('drops the answer of a search the user has already moved past', async () => {
@@ -813,5 +906,17 @@ describe('RecipesPage', () => {
     expect(document.querySelector('.mat-mdc-autocomplete-panel mat-option')).toBeNull();
     // A failed catalog search is not a failed recipe search: the grid is intact.
     expect(root(fixture).querySelector('.recipes-error')).toBeNull();
+  });
+
+  it('offers the way into the create page from the heading', async () => {
+    const fixture = await render();
+
+    // Creating a recipe is an action inside the area, so it lives on the
+    // heading rather than in the shell navigation.
+    const link = root(fixture).querySelector('a.create-recipe');
+    expect(link?.getAttribute('href')).toBe(
+      TestBed.inject(Router).createUrlTree(['/recipes/new']).toString(),
+    );
+    expect(text(link)).toContain('Create recipe');
   });
 });

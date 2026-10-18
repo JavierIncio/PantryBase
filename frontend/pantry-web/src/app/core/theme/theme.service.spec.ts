@@ -59,4 +59,14 @@ describe('ThemeService', () => {
       expect(dataset()).toBe(theme);
     }
   });
+
+  it('resets the theme to the default and clears the cached preference', () => {
+    service.apply('amber');
+    expect(window.localStorage.getItem('pantry.themeId')).toBe('amber');
+
+    service.reset();
+
+    expect(dataset()).toBe(DEFAULT_THEME);
+    expect(window.localStorage.getItem('pantry.themeId')).toBeNull();
+  });
 });

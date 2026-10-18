@@ -54,7 +54,7 @@ describe('ForgotPasswordPage', () => {
     fixture.detectChanges();
 
     expect(authStub.requestPasswordReset).not.toHaveBeenCalled();
-    expect(host.textContent).toContain('Introduce tu email o nombre de usuario.');
+    expect(host.textContent).toContain('Enter your email or username.');
   });
 
   it('sends the loginMethod and replaces the form with the generic notice on 204', async () => {
@@ -72,7 +72,7 @@ describe('ForgotPasswordPage', () => {
     expect(authStub.requestPasswordReset).toHaveBeenCalledWith('ada');
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.auth-generic')?.textContent).toContain(
-      'Si existe una cuenta con ese email o username, recibirás un enlace de restablecimiento.',
+      'If an account with that email or username exists, you will receive a reset link.',
     );
     // The form is gone; only the notice and the back link remain.
     expect(host.querySelector('form')).toBeNull();
@@ -140,6 +140,6 @@ describe('ForgotPasswordPage', () => {
 
     const after = fixture.nativeElement.querySelector('a[href="/login"]') as HTMLAnchorElement;
     expect(after).toBeTruthy();
-    expect(after.textContent).toContain('Volver al inicio de sesión');
+    expect(after.textContent).toContain('Back to sign in');
   });
 });

@@ -11,14 +11,14 @@
       <mat-icon class="session-not-found-icon" aria-hidden="true">search_off</mat-icon>
       <h2>Cooking session not found</h2>
       <p>This session does not exist or is no longer yours.</p>
-      <a mat-flat-button routerLink="/cooking" class="back-to-cooking">Back to cooking</a>
+      <a mat-flat-button routerLink="/history" class="back-to-cooking">Back to history</a>
     </mat-card-content>
   </mat-card>
 } @else if (session(); as session) {
   <header class="session-heading">
-    <a class="session-back" routerLink="/cooking">
+    <a class="session-back" routerLink="/history">
       <mat-icon aria-hidden="true">arrow_back</mat-icon>
-      Cooking
+      History
     </a>
     <h1>{{ recipeTitle() }}</h1>
     <div class="session-facts">

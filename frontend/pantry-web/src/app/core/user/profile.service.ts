@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { UserResponse } from '../auth/auth.models';
+import { UserStats } from '../recipes/recipes.models';
 import {
   Allergen,
   AllergyExclusions,
@@ -63,5 +64,16 @@ export class ProfileService {
   /** Full allergen catalog (the 14 EU allergens, sorted by name). */
   getAllergenCatalog(): Observable<Allergen[]> {
     return this.http.get<Allergen[]>('/api/users/allergens');
+  }
+
+  /**
+   * Cooking totals of the signed-in user (completed sessions, distinct recipes
+   * and most-used ingredients); see {@link UserStats}.
+   *
+   * Served from the social module because it derives from the cooking history,
+   * but mounted here to keep the whole profile surface under `/api/users/me`.
+   */
+  stats(): Observable<UserStats> {
+    return this.http.get<UserStats>('/api/users/me/stats');
   }
 }

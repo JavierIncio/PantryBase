@@ -11,8 +11,13 @@ import com.pantrybase.api.catalog.repository.UnitRepository;
 import com.pantrybase.api.pantry.repository.PantryItemRepository;
 import com.pantrybase.api.recipe.domain.*;
 import com.pantrybase.api.recipe.dto.*;
+import com.pantrybase.api.recipe.exception.RecipeNotFoundException;
+import com.pantrybase.api.recipe.exception.RecipeNotOwnedException;
+import com.pantrybase.api.recipe.exception.RecipeNotPublishableException;
+import com.pantrybase.api.recipe.port.SocialFlagsPort;
 import com.pantrybase.api.recipe.repository.*;
 import com.pantrybase.api.user.domain.Allergen;
+import com.pantrybase.api.user.domain.Diet;
 import com.pantrybase.api.user.domain.User;
 import com.pantrybase.api.user.repository.UserRepository;
 import org.slf4j.Logger;
@@ -61,6 +66,13 @@ public class RecipeService {
     private static final int MAX_RECOMMEND_INGREDIENTS = 8;
     private static final int MAX_RECOMMEND_HITS = 24;
 
+    // Per-serving thresholds for the restrictive diets. A recipe meeting several is
+    // tagged with each; the values are a curated, deliberate heuristic (the provider
+    // exposes no diet labels), kept here so the rule is explicit and tunable in one place.
+    private static final BigDecimal HIGH_PROTEIN_MIN_G = new BigDecimal("20");
+    private static final BigDecimal LOW_CARB_MAX_G = new BigDecimal("20");
+    private static final BigDecimal LOW_FAT_MAX_G = new BigDecimal("10");
+
     private static final Pattern MEASURE_MIXED = Pattern.compile("^(\\d+)\\s+(\\d+)\\/(\\d+)(.*)$");
     private static final Pattern MEASURE_FRACTION = Pattern.compile("^(\\d+)\\/(\\d+)(.*)$");
     private static final Pattern MEASURE_DECIMAL = Pattern.compile("^(\\d+(?:\\.\\d+)?)(.*)$");
@@ -72,6 +84,7 @@ public class RecipeService {
     private final RecipeIngredientRepository ingredientRepo;
     private final RecipeNutrientsRepository nutrientsRepo;
     private final RecipeAllergenRepository allergenRepo;
+    private final RecipeDietRepository dietRepo;
     private final AllergenMappingRepository allergenMappingRepo;
     private final IngredientRepository catalogIngredientRepo;
     private final IngredientMeasureRepository measureRepo;
@@ -83,11 +96,13 @@ public class RecipeService {
     private final RecipeSearchCache searchCache;
     private final TransactionTemplate writeTx;
     private final Duration refreshTtl;
+    private final SocialFlagsPort socialFlagsPort;
 
     public RecipeService(RecipeRepository recipeRepo,
                          RecipeIngredientRepository ingredientRepo,
                          RecipeNutrientsRepository nutrientsRepo,
                          RecipeAllergenRepository allergenRepo,
+                         RecipeDietRepository dietRepo,
                          AllergenMappingRepository allergenMappingRepo,
                          IngredientRepository catalogIngredientRepo,
                          IngredientMeasureRepository measureRepo,
@@ -97,12 +112,14 @@ public class RecipeService {
                          UnitConverter unitConverter,
                          TheMealDbClient mealDbClient,
                          RecipeSearchCache searchCache,
+                         SocialFlagsPort socialFlagsPort,
                          PlatformTransactionManager txManager,
                          @Value("${app.recipe.refresh-ttl:24h}") Duration refreshTtl) {
         this.recipeRepo = recipeRepo;
         this.ingredientRepo = ingredientRepo;
         this.nutrientsRepo = nutrientsRepo;
         this.allergenRepo = allergenRepo;
+        this.dietRepo = dietRepo;
         this.allergenMappingRepo = allergenMappingRepo;
         this.catalogIngredientRepo = catalogIngredientRepo;
         this.measureRepo = measureRepo;
@@ -112,6 +129,7 @@ public class RecipeService {
         this.unitConverter = unitConverter;
         this.mealDbClient = mealDbClient;
         this.searchCache = searchCache;
+        this.socialFlagsPort = socialFlagsPort;
         this.refreshTtl = refreshTtl;
         this.writeTx = new TransactionTemplate(txManager);
         this.writeTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -140,9 +158,10 @@ public class RecipeService {
         Map<Long, Recipe> candidates = new LinkedHashMap<>();
         boolean hasName = request.name() != null && !request.name().isBlank();
 
-        // USER recipes always first, then already-materialised THE_MEAL_DB rows.
-        addCandidates(candidates, request, SOURCE_USER, hasName);
-        addCandidates(candidates, request, SOURCE_MEALDB, hasName);
+        // USER recipes visible to the caller always first, then already-materialised
+        // THE_MEAL_DB rows.
+        addCandidates(candidates, request, SOURCE_USER, hasName, userId);
+        addCandidates(candidates, request, SOURCE_MEALDB, hasName, userId);
 
         // Fresh TheMealDB search (name query or ingredient filter); hits are materialised
         // into the local store and then re-read through the same source-scoped queries
@@ -156,11 +175,11 @@ public class RecipeService {
                         return hits;
                     });
             materializeMissingMealDbHits(fresh);
-            addCandidates(candidates, request, SOURCE_MEALDB, hasName);
+            addCandidates(candidates, request, SOURCE_MEALDB, hasName, userId);
         }
         if (request.ingredientId() != null) {
             discoverFreshByIngredient(request.ingredientId());
-            addCandidates(candidates, request, SOURCE_MEALDB, hasName);
+            addCandidates(candidates, request, SOURCE_MEALDB, hasName, userId);
         }
 
         // Filtered searches re-fetch local provider rows that outlived the refresh TTL,
@@ -170,7 +189,7 @@ public class RecipeService {
             refreshStaleCandidates(candidates);
         }
 
-        return scoreAndFilter(candidates.values(), request, pantryAvailable, excludedAllergens);
+        return scoreAndFilter(candidates.values(), request, pantryAvailable, excludedAllergens, userId);
     }
 
     /**
@@ -279,7 +298,8 @@ public class RecipeService {
                         .toList());
 
         nutrientsRepo.deleteById(recipe.getId());
-        computeNutrients(recipe.getId(), lines, recipe.getServings());
+        RecipeNutrientsDto nutrients = computeNutrients(recipe.getId(), lines, recipe.getServings());
+        deriveAndStoreDiets(recipe.getId(), nutrients);
     }
 
     /**
@@ -392,20 +412,22 @@ public class RecipeService {
         }
 
         RecipeSearchRequest filtered = new RecipeSearchRequest(
-                null, null, request.strict(), 0, request.allergenSafe());
-        return scoreAndFilter(materialised.values(), filtered, pantryAvailable, excludedAllergens);
+                null, null, request.strict(), 0, request.allergenSafe(), request.diet());
+        return scoreAndFilter(materialised.values(), filtered, pantryAvailable, excludedAllergens, userId);
     }
 
     /**
      * Tail shared by {@link #search} and {@link #recommend}: optionally drops recipes
-     * carrying an excluded allergen, then computes binary coverage against the pantry
-     * and keeps only the rows at or above the request threshold ({@code strict} forces
-     * 100), ordered by descending score then name.
+     * carrying an excluded allergen and recipes outside the requested diet
+     * ({@link Diet#BALANCED} and a null diet mean "no diet filter"), then computes
+     * binary coverage against the pantry and keeps only the rows at or above the request
+     * threshold ({@code strict} forces 100), ordered by descending score then name.
      */
     private List<RecipeSummaryDto> scoreAndFilter(Collection<Recipe> candidates,
                                                   RecipeSearchRequest request,
                                                   Map<Long, BigDecimal> pantryAvailable,
-                                                  Set<String> excludedAllergens) {
+                                                  Set<String> excludedAllergens,
+                                                  Long userId) {
         boolean strict = Boolean.TRUE.equals(request.strict());
         int threshold = request.threshold() != null ? request.threshold() : (strict ? 100 : 50);
         double thresholdRatio = threshold / 100.0;
@@ -416,9 +438,20 @@ public class RecipeService {
                     .filter(r -> !hasExcludedAllergen(r.getId(), excludedAllergens))
                     .toList();
         }
+        if (request.diet() != null && request.diet() != Diet.BALANCED) {
+            Set<Long> onDiet = dietRepo.findRecipeIdsByDiet(request.diet());
+            filtered = filtered.stream()
+                    .filter(r -> onDiet.contains(r.getId()))
+                    .toList();
+        }
+
+        List<Long> recipeIds = filtered.stream().map(Recipe::getId).toList();
+        Set<Long> favorites = socialFlagsPort.favoriteRecipeIds(userId, recipeIds);
+        Set<Long> saved = socialFlagsPort.savedRecipeIds(userId, recipeIds);
 
         return filtered.stream()
-                .map(r -> toSummaryWithCoverage(r, pantryAvailable))
+                .map(r -> toSummaryWithCoverage(r, pantryAvailable,
+                        favorites.contains(r.getId()), saved.contains(r.getId()), userId))
                 .filter(s -> s.matchScore() != null && s.matchScore() >= (strict ? 1.0 : thresholdRatio))
                 .sorted(Comparator.comparingDouble((RecipeSummaryDto s) -> -s.matchScore())
                         .thenComparing(RecipeSummaryDto::name))
@@ -430,7 +463,9 @@ public class RecipeService {
     public Optional<RecipeDetailDto> detail(Long userId, long recipeId) {
         return recipeRepo.findById(recipeId).map(r -> {
             refreshIfStale(r);
-            return toDetailDto(r, loadPantryCanonical(userId));
+            boolean favorite = socialFlagsPort.favoriteRecipeIds(userId, List.of(r.getId())).contains(r.getId());
+            boolean saved = socialFlagsPort.savedRecipeIds(userId, List.of(r.getId())).contains(r.getId());
+            return toDetailDto(r, loadPantryCanonical(userId), favorite, saved, userId);
         });
     }
 
@@ -450,6 +485,7 @@ public class RecipeService {
 
         Recipe recipe = new Recipe();
         recipe.setSource(SOURCE_USER);
+        recipe.setOwnerId(userId);
         recipe.setExternalId(UUID.randomUUID().toString());
         recipe.setName(request.name());
         recipe.setCategory(request.category());
@@ -477,6 +513,7 @@ public class RecipeService {
             RecipeIngredient ri = new RecipeIngredient();
             ri.setRecipeId(saved.getId());
             ri.setIngredientId(ing.getId());
+            ri.setIngredientName(ing.getName());
             ri.setMatched(true);
             ri.setOriginalAmount(req.amount());
             ri.setOriginalUnitCode(req.unitCode());
@@ -503,6 +540,9 @@ public class RecipeService {
         // Allergens
         deriveAndStoreAllergens(saved.getId(), ingredientIds);
 
+        // Diets
+        deriveAndStoreDiets(saved.getId(), nutrients);
+
         return new RecipeDetailDto(
                 saved.getId(), SOURCE_USER, saved.getExternalId(),
                 saved.getName(), saved.getCategory(), saved.getArea(),
@@ -512,8 +552,98 @@ public class RecipeService {
                 dtos, nutrients,
                 allergenRepo.findAllergenCodesByRecipeId(saved.getId()).stream().toList(),
                 null, // no coverage for user recipes by default
-                List.of()
+                List.of(),
+                null, null,
+                true, false
         );
+    }
+
+    // ============ PUBLISHING ============
+
+    /**
+     * Publishes the caller's own recipe, making it visible in everybody's search.
+     *
+     * <p>Idempotent: publishing an already-published recipe changes nothing and still
+     * returns the current detail, so a retry after a dropped response is safe.</p>
+     *
+     * @throws com.pantrybase.api.recipe.exception.RecipeNotFoundException     if the recipe does not exist
+     * @throws com.pantrybase.api.recipe.exception.RecipeNotOwnedException    if it belongs to another user
+     * @throws com.pantrybase.api.recipe.exception.RecipeNotPublishableException if it is not a user recipe
+     */
+    @Transactional
+    public RecipeDetailDto publish(Long userId, long recipeId) {
+        Recipe recipe = requireOwnedUserRecipe(userId, recipeId);
+        if (recipe.getPublishedAt() == null) {
+            Instant now = Instant.now();
+            recipe.setPublishedAt(now);
+            recipe.setUpdatedAt(now);
+            recipeRepo.save(recipe);
+        }
+        return detail(userId, recipeId).orElseThrow();
+    }
+
+    /**
+     * Takes the caller's own recipe back to private.
+     *
+     * <p>Idempotent, like {@link #publish}: unpublishing something already private is a
+     * no-op. Bookmarks on the recipe survive — the row stays, only its visibility flips.</p>
+     */
+    @Transactional
+    public RecipeDetailDto unpublish(Long userId, long recipeId) {
+        Recipe recipe = requireOwnedUserRecipe(userId, recipeId);
+        if (recipe.getPublishedAt() != null) {
+            recipe.setPublishedAt(null);
+            recipe.setUpdatedAt(Instant.now());
+            recipeRepo.save(recipe);
+        }
+        return detail(userId, recipeId).orElseThrow();
+    }
+
+    /** Published recipes from every author, newest first, with the caller's own flags. */
+    public List<RecipeSummaryDto> listPublished(Long userId) {
+        Map<Long, BigDecimal> pantry = loadPantryCanonical(userId);
+        List<Recipe> published = recipeRepo.findPublishedUserRecipes();
+        List<Long> ids = published.stream().map(Recipe::getId).toList();
+        Set<Long> favorites = socialFlagsPort.favoriteRecipeIds(userId, ids);
+        Set<Long> saved = socialFlagsPort.savedRecipeIds(userId, ids);
+
+        return published.stream()
+                .map(r -> toSummaryWithCoverage(r, pantry,
+                        favorites.contains(r.getId()), saved.contains(r.getId()), userId))
+                .toList();
+    }
+
+    /**
+     * The caller's own recipes, private or published, newest first.
+     *
+     * <p>Unlike {@link #search}, coverage is never a filter here: the listing exists
+     * to show recipes the caller authored, and a draft whose pantry coverage is low
+     * must not silently disappear from it. The pantry is only read to annotate each
+     * row with its match score.</p>
+     */
+    public List<RecipeSummaryDto> listMine(Long userId) {
+        Map<Long, BigDecimal> pantry = loadPantryCanonical(userId);
+        List<Recipe> mine = recipeRepo.findUserRecipesOwnedBy(userId);
+        List<Long> ids = mine.stream().map(Recipe::getId).toList();
+        Set<Long> favorites = socialFlagsPort.favoriteRecipeIds(userId, ids);
+        Set<Long> saved = socialFlagsPort.savedRecipeIds(userId, ids);
+
+        return mine.stream()
+                .map(r -> toSummaryWithCoverage(r, pantry,
+                        favorites.contains(r.getId()), saved.contains(r.getId()), userId))
+                .toList();
+    }
+
+    private Recipe requireOwnedUserRecipe(Long userId, long recipeId) {
+        Recipe recipe = recipeRepo.findById(recipeId)
+                .orElseThrow(() -> new RecipeNotFoundException(recipeId));
+        if (!SOURCE_USER.equals(recipe.getSource())) {
+            throw new RecipeNotPublishableException(recipeId);
+        }
+        if (!isOwnedBy(recipe, userId)) {
+            throw new RecipeNotOwnedException(recipeId);
+        }
+        return recipe;
     }
 
     // ============ INTERNAL HELPERS ============
@@ -526,11 +656,23 @@ public class RecipeService {
      * these queries after materialising provider hits, and rows that were already
      * candidates must not be scored twice — a duplicate would appear twice in the grid
      * and skew any count the client derives from the result list.</p>
+     *
+     * <p>USER recipes are scoped to the caller: a private recipe is theirs alone, while a
+     * published one is offered to everyone. Provider recipes are public by nature and are
+     * not filtered by owner.</p>
      */
     private void addCandidates(Map<Long, Recipe> candidates, RecipeSearchRequest request,
-                               String source, boolean hasName) {
+                               String source, boolean hasName, Long userId) {
         List<Recipe> found;
-        if (request.ingredientId() != null) {
+        if (SOURCE_USER.equals(source)) {
+            if (request.ingredientId() != null) {
+                found = recipeRepo.findVisibleUserRecipesByIngredient(userId, request.ingredientId());
+            } else if (hasName) {
+                found = recipeRepo.searchVisibleUserRecipesByName(userId, request.name());
+            } else {
+                found = recipeRepo.findVisibleUserRecipes(userId);
+            }
+        } else if (request.ingredientId() != null) {
             found = recipeRepo.findBySourceAndIngredient(source, request.ingredientId());
         } else if (hasName) {
             found = recipeRepo.searchByName(source, request.name());
@@ -562,14 +704,18 @@ public class RecipeService {
                 .anyMatch(excluded::contains);
     }
 
-    private RecipeSummaryDto toSummaryWithCoverage(Recipe recipe, Map<Long, BigDecimal> pantry) {
+    private RecipeSummaryDto toSummaryWithCoverage(Recipe recipe, Map<Long, BigDecimal> pantry,
+                                                   boolean favorite, boolean saved, Long userId) {
         List<RecipeIngredient> ingredients = ingredientRepo.findByRecipeIdOrderByPositionAsc(recipe.getId());
+        boolean owned = isOwnedBy(recipe, userId);
+        boolean published = recipe.getPublishedAt() != null;
         if (ingredients.isEmpty()) {
             return new RecipeSummaryDto(
                     recipe.getId(), recipe.getSource(), recipe.getExternalId(),
                     recipe.getName(), recipe.getCategory(), recipe.getArea(),
                     recipe.getImageUrl(), recipe.getServings(),
-                    null, 0, allergenRepo.findAllergenCodesByRecipeId(recipe.getId()).stream().toList());
+                    null, 0, allergenRepo.findAllergenCodesByRecipeId(recipe.getId()).stream().toList(),
+                    favorite, saved, owned, published);
         }
 
         int total = ingredients.size();
@@ -598,10 +744,12 @@ public class RecipeService {
                 recipe.getName(), recipe.getCategory(), recipe.getArea(),
                 recipe.getImageUrl(), recipe.getServings(),
                 score, missing,
-                allergenRepo.findAllergenCodesByRecipeId(recipe.getId()).stream().toList());
+                allergenRepo.findAllergenCodesByRecipeId(recipe.getId()).stream().toList(),
+                favorite, saved, owned, published);
     }
 
-    private RecipeDetailDto toDetailDto(Recipe recipe, Map<Long, BigDecimal> pantry) {
+    private RecipeDetailDto toDetailDto(Recipe recipe, Map<Long, BigDecimal> pantry,
+                                        boolean favorite, boolean saved, Long userId) {
         List<RecipeIngredient> ingredients = ingredientRepo.findByRecipeIdOrderByPositionAsc(recipe.getId());
         List<RecipeIngredientDetailDto> detailIngredients = ingredients.stream().map(ri -> {
             if (ri.getIngredientId() == null) {
@@ -652,8 +800,15 @@ public class RecipeService {
                 nutrientsRepo.findById(recipe.getId()).map(this::toNutrientsDto).orElse(null),
                 allergenRepo.findAllergenCodesByRecipeId(recipe.getId()).stream().toList(),
                 score,
-                coverage
+                coverage,
+                favorite, saved,
+                isOwnedBy(recipe, userId),
+                recipe.getPublishedAt() != null
         );
+    }
+
+    private boolean isOwnedBy(Recipe recipe, Long userId) {
+        return userId != null && userId.equals(recipe.getOwnerId());
     }
 
     private void deriveAndStoreAllergens(Long recipeId, List<Long> ingredientIds) {
@@ -668,6 +823,52 @@ public class RecipeService {
             }).toList();
             allergenRepo.saveAll(toSave);
         }
+    }
+
+    /**
+     * Replaces a recipe's diet tags with the ones its per-serving nutrients satisfy.
+     *
+     * <p>Always clears the previous rows first, so a refresh that moved a recipe out of a
+     * diet really drops the tag instead of keeping a stale one. A recipe with no computed
+     * nutrient profile keeps no tags — an unknown profile satisfies no restrictive diet,
+     * and guessing one would be a false claim. A single recipe may carry several tags
+     * (a lean, high-protein dish is LOW_FAT and HIGH_PROTEIN at once).</p>
+     *
+     * <p>{@link Diet#BALANCED} is never stored: it is the absence of a filter, not a
+     * property a recipe can have.</p>
+     */
+    private void deriveAndStoreDiets(Long recipeId, RecipeNutrientsDto nutrients) {
+        dietRepo.deleteByRecipeId(recipeId);
+        if (nutrients == null) return;
+
+        List<RecipeDiet> tags = new ArrayList<>();
+        if (atLeast(nutrients.proteinG(), HIGH_PROTEIN_MIN_G)) {
+            tags.add(dietTag(recipeId, Diet.HIGH_PROTEIN));
+        }
+        if (atMost(nutrients.carbsG(), LOW_CARB_MAX_G)) {
+            tags.add(dietTag(recipeId, Diet.LOW_CARB));
+        }
+        if (atMost(nutrients.fatG(), LOW_FAT_MAX_G)) {
+            tags.add(dietTag(recipeId, Diet.LOW_FAT));
+        }
+        if (!tags.isEmpty()) {
+            dietRepo.saveAll(tags);
+        }
+    }
+
+    private static boolean atLeast(BigDecimal value, BigDecimal min) {
+        return value != null && value.compareTo(min) >= 0;
+    }
+
+    private static boolean atMost(BigDecimal value, BigDecimal max) {
+        return value != null && value.compareTo(max) <= 0;
+    }
+
+    private static RecipeDiet dietTag(Long recipeId, Diet diet) {
+        RecipeDiet tag = new RecipeDiet();
+        tag.setRecipeId(recipeId);
+        tag.setDiet(diet);
+        return tag;
     }
 
     /**
@@ -751,7 +952,8 @@ public class RecipeService {
                         .filter(Objects::nonNull)
                         .toList());
 
-        computeNutrients(saved.getId(), lines, saved.getServings());
+        RecipeNutrientsDto nutrients = computeNutrients(saved.getId(), lines, saved.getServings());
+        deriveAndStoreDiets(saved.getId(), nutrients);
     }
 
     /**
@@ -788,6 +990,7 @@ public class RecipeService {
             if (line == null) {
                 line = new RecipeIngredient();
                 line.setIngredientId(catalog.getId());
+                line.setIngredientName(catalog.getName());
                 line.setMatched(true);
                 line.setOriginalAmount(measure.amount());
                 line.setOriginalUnitCode(measure.unitCode());

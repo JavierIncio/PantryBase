@@ -20,6 +20,7 @@ import {
   isTerminal,
 } from '../../core/cooking/cooking.models';
 import { CookingService } from '../../core/cooking/cooking.service';
+import { RecipeSummary } from '../../core/recipes/recipes.models';
 import { RecipesService } from '../../core/recipes/recipes.service';
 
 /** How each status is named in the UI. */
@@ -33,7 +34,9 @@ const STATUS_LABELS: Record<CookingSessionStatus, string> = {
 const statusLabel = (status: CookingSessionStatus): string => STATUS_LABELS[status] ?? status;
 
 /**
- * "Cooking": the user's sessions, live ones first and history underneath.
+ * "History": every cooking session the user has, live ones first and finished
+ * or abandoned ones underneath — the former standalone "Cooking" list merged
+ * with the recipe-level history into a single, session-shaped record.
  *
  * The two groups are a reading of the same list and not two requests: the API
  * already answers every session, most recent first, and the split is a filter
@@ -41,10 +44,11 @@ const statusLabel = (status: CookingSessionStatus): string => STATUS_LABELS[stat
  * server chose is the one to keep.
  *
  * A session carries only its `recipeId`, so the page reads the recipe catalog
- * once (`GET /api/recipes`, the unfiltered local list) to name each row. That
- * is a single request for the whole screen rather than one per recipe, and a
- * name that is missing falls back to the id instead of hiding the session — a
- * session is a fact even if its recipe left the catalog.
+ * once (`GET /api/recipes`, the unfiltered local list) to name and illustrate
+ * each row. That is a single request for the whole screen rather than one per
+ * recipe, and a recipe that is missing falls back to its id and an icon
+ * instead of hiding the session — a session is a fact even if its recipe left
+ * the catalog.
  *
  * A terminal session can start a new one for the same recipe ("Cook again":
  * the same dish cooked twice is two sessions, never a reused one), which is the
@@ -52,7 +56,7 @@ const statusLabel = (status: CookingSessionStatus): string => STATUS_LABELS[stat
  * `/cooking/:id`, where the live controls are.
  */
 @Component({
-  selector: 'app-cooking-page',
+  selector: 'app-history-page',
   imports: [
     DatePipe,
     MatButton,
@@ -64,18 +68,18 @@ const statusLabel = (status: CookingSessionStatus): string => STATUS_LABELS[stat
     MatProgressSpinner,
     RouterLink,
   ],
-  templateUrl: './cooking-page.html',
-  styleUrl: './cooking-page.scss',
+  templateUrl: './history-page.html',
+  styleUrl: './history-page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CookingPage implements OnInit {
+export class HistoryPage implements OnInit {
   private readonly cooking = inject(CookingService);
   private readonly recipes = inject(RecipesService);
   private readonly router = inject(Router);
 
   private readonly sessions = signal<CookingSession[]>([]);
-  /** Recipe names by id, empty until the catalog answers. */
-  private readonly recipeNames = signal<ReadonlyMap<number, string>>(new Map());
+  /** Recipe summaries by id, empty until the catalog answers. */
+  private readonly recipeCatalog = signal<ReadonlyMap<number, RecipeSummary>>(new Map());
 
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
@@ -94,6 +98,7 @@ export class CookingPage implements OnInit {
     this.sessions().filter((session) => isTerminal(session.status)),
   );
 
+  /** Empty only once the load settled; a failure is its own state, not "nothing cooked". */
   protected readonly isEmpty = computed(
     () => !this.loading() && this.loadError() === null && this.sessions().length === 0,
   );
@@ -103,11 +108,12 @@ export class CookingPage implements OnInit {
   }
 
   /**
-   * Reads the sessions and, with them, the names to label them.
+   * Reads the sessions and, with them, the catalog that labels them.
    *
    * The two reads are independent: a session list that arrives without the
-   * catalog is perfectly usable (the rows fall back to the recipe id), so the
-   * name lookup is a second, best-effort read that never sets the page's error.
+   * catalog is perfectly usable (the rows fall back to the recipe id and an
+   * icon), so the catalog lookup is a second, best-effort read that never sets
+   * the page's error.
    */
   protected load(): void {
     this.loading.set(true);
@@ -117,7 +123,7 @@ export class CookingPage implements OnInit {
       next: (sessions) => {
         this.sessions.set(sessions);
         this.loading.set(false);
-        this.loadRecipeNames(sessions);
+        this.loadRecipeCatalog(sessions);
       },
       error: (error: HttpErrorResponse) => {
         this.loading.set(false);
@@ -129,29 +135,38 @@ export class CookingPage implements OnInit {
   }
 
   /**
-   * Labels the sessions with recipe names, from the one local catalog read.
+   * Labels the sessions with recipe names and images, from the one local
+   * catalog read.
    *
    * The unfiltered recipe list is deliberately local (the H4 rule: an
    * un-filtered listing never calls the provider), so this costs one bounded
-   * request whatever the size of the history.
+   * request whatever the size of the history. The whole summary is kept — not
+   * just the name — so each row can also render the recipe image without a
+   * second read per session.
    */
-  private loadRecipeNames(sessions: readonly CookingSession[]): void {
+  private loadRecipeCatalog(sessions: readonly CookingSession[]): void {
     if (sessions.length === 0) {
       return;
     }
     this.recipes.search().subscribe({
       next: (recipes) => {
-        this.recipeNames.set(new Map(recipes.map((recipe) => [recipe.id, recipe.name])));
+        this.recipeCatalog.set(new Map(recipes.map((recipe) => [recipe.id, recipe])));
       },
       error: () => {
-        // A name is a convenience: the rows keep the recipe id and stay usable.
+        // A name and an image are conveniences: the rows keep the recipe id
+        // and fall back to the id label plus an icon.
       },
     });
   }
 
   /** The name of a session's recipe, or its id when the catalog has no name. */
   protected recipeName(session: CookingSession): string {
-    return this.recipeNames().get(session.recipeId) ?? `Recipe #${session.recipeId}`;
+    return this.recipeCatalog().get(session.recipeId)?.name ?? `Recipe #${session.recipeId}`;
+  }
+
+  /** The image of a session's recipe, or null when the catalog has none. */
+  protected recipeImage(session: CookingSession): string | null {
+    return this.recipeCatalog().get(session.recipeId)?.imageUrl ?? null;
   }
 
   /**

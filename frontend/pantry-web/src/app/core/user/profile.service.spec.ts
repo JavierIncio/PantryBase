@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { UserResponse } from '../auth/auth.models';
+import { UserStats } from '../recipes/recipes.models';
 import { Allergen, AllergyExclusions, UserPreferences } from './profile.models';
 import { ProfileService } from './profile.service';
 
@@ -30,6 +31,15 @@ const CATALOG: Allergen[] = [
   { id: 1, code: 'EGG', name: 'Egg' },
   { id: 2, code: 'FISH', name: 'Fish' },
 ];
+
+const STATS: UserStats = {
+  cookedSessions: 12,
+  distinctRecipes: 5,
+  topIngredients: [
+    { ingredientId: 12, name: 'Onion', count: 7 },
+    { ingredientId: 30, name: 'Olive oil', count: 4 },
+  ],
+};
 
 describe('ProfileService', () => {
   let service: ProfileService;
@@ -143,5 +153,15 @@ describe('ProfileService', () => {
     req.flush(CATALOG);
 
     await expect(result).resolves.toEqual(CATALOG);
+  });
+
+  it('stats GETs the caller cooking totals', async () => {
+    const result = firstValueFrom(service.stats());
+
+    const req = http.expectOne('/api/users/me/stats');
+    expect(req.request.method).toBe('GET');
+    req.flush(STATS);
+
+    await expect(result).resolves.toEqual(STATS);
   });
 });

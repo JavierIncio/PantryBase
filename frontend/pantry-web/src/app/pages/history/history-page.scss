@@ -1,6 +1,6 @@
-// Cooking sessions: a header, then one card per group (live sessions, then
-// history). Rows are the same shape in both groups so the list scans as one.
-.cooking-header {
+// History: a heading, then one card per group (live sessions, then past
+// sessions). Rows are the same shape in both groups so the list scans as one.
+.history-heading {
   margin-bottom: 1.5rem;
 
   h1 {
@@ -14,7 +14,7 @@
   }
 }
 
-.cooking-status {
+.history-status {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -22,17 +22,17 @@
   padding: 3rem 0;
 }
 
-.cooking-error p {
+.history-error p {
   margin: 0;
   color: var(--mat-sys-error);
 }
 
-.cooking-action-error {
+.history-action-error {
   margin: 0 0 1rem;
   color: var(--mat-sys-error);
 }
 
-.cooking-empty {
+.history-empty {
   mat-card-content {
     display: flex;
     flex-direction: column;
@@ -42,7 +42,7 @@
     text-align: center;
   }
 
-  .cooking-empty-icon {
+  .history-empty-icon {
     width: 48px;
     height: 48px;
     font-size: 48px;
@@ -65,7 +65,7 @@
   }
 }
 
-.cooking-group {
+.history-group {
   margin-bottom: 1.5rem;
 
   mat-card-content {
@@ -74,7 +74,7 @@
 }
 
 // A row is a link the whole width of the card, so the target is never a small
-// word: the two history rows keep the "Cook again" button outside the link, so
+// word: the past-session rows keep the "Cook again" button outside the link, so
 // one click cannot both navigate and start a session.
 .session-row {
   display: flex;
@@ -115,6 +115,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+// Row thumbnail: a fixed square that never reflows the row, with the same
+// image-or-icon degradation the cookbook tiles use.
+.session-thumb {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--mat-sys-corner-small);
+  object-fit: cover;
+}
+
+.session-thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .session-status {

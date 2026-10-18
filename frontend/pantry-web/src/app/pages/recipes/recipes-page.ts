@@ -23,6 +23,8 @@ import { MatInput } from '@angular/material/input';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSlideToggle, MatSlideToggleChange } from '@angular/material/slide-toggle';
+import { MatSelect } from '@angular/material/select';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 import { toErrorResponse } from '../../core/auth/auth.models';
@@ -36,6 +38,7 @@ import {
   passesThreshold,
 } from '../../core/recipes/recipe-matching';
 import { RecipesService } from '../../core/recipes/recipes.service';
+import { DIET_OPTIONS, Diet } from '../../core/user/profile.models';
 import { ProfileService } from '../../core/user/profile.service';
 
 /** How the two recipe origins are named in the UI. */
@@ -80,6 +83,13 @@ const SEARCH_DEBOUNCE_MS = 300;
  * `allergenSafe` toggles fire an immediate search, because the first is a
  * server-side filter (`matchScore == 1`, per the H4 engine) and the second
  * reads the user's allergy exclusions the client does not hold.
+ *
+ * The `diet` select is the third server-side filter: the per-serving nutrients
+ * a diet is derived from only exist in the backend, so a row already on screen
+ * cannot be re-filtered here. Picking a diet therefore re-asks the current view
+ * (search or suggest), the same reaction the allergen-safe toggle has; the
+ * saved preference is the default, and `BALANCED` never travels because the
+ * backend reads an absent `diet` as "every diet".
  *
  * The threshold slider is deliberately local: it recomputes over the rows the
  * last search already brought, sorting them by coverage (the lax order of H4)
@@ -137,6 +147,7 @@ const SEARCH_DEBOUNCE_MS = 300;
     MatLabel,
     MatOption,
     MatProgressSpinner,
+    MatSelect,
     MatSlider,
     MatSliderThumb,
     MatSlideToggle,
@@ -153,6 +164,7 @@ export class RecipesPage implements OnInit {
   private readonly recipesService = inject(RecipesService);
   private readonly profileService = inject(ProfileService);
   private readonly catalog = inject(CatalogService);
+  private readonly snackBar = inject(MatSnackBar);
 
   /**
    * The search box.
@@ -237,6 +249,19 @@ export class RecipesPage implements OnInit {
   /** Excludes recipes carrying an allergen the user excluded. */
   protected readonly allergenSafe = signal(false);
 
+  /**
+   * The diet filter as the server names it; `BALANCED` means "every diet".
+   *
+   * Starts balanced so the page can search before the preferences answer, and
+   * is replaced by the stored diet as soon as they arrive (see
+   * {@link loadPreferences}): the saved choice is the page's default, not a
+   * filter the user must re-pick on every visit.
+   */
+  protected readonly diet = signal<Diet>('BALANCED');
+
+  /** The diet choices, shared with the profile preferences ({@link DIET_OPTIONS}). */
+  protected readonly dietOptions = DIET_OPTIONS;
+
   /** The rows of the last answered search, in the server's order. */
   private readonly recipes = signal<RecipeSummary[]>([]);
 
@@ -298,6 +323,11 @@ export class RecipesPage implements OnInit {
   private catalogSeq = 0;
   private ingredientSeq = 0;
 
+  /** Tracks pending favorite toggles per recipe id. */
+  protected readonly favoritePending = signal<Set<number>>(new Set());
+  /** Tracks pending saved toggles per recipe id. */
+  protected readonly savedPending = signal<Set<number>>(new Set());
+
   ngOnInit(): void {
     this.nameControl.valueChanges
       .pipe(debounceTime(SEARCH_DEBOUNCE_MS), distinctUntilChanged())
@@ -309,9 +339,17 @@ export class RecipesPage implements OnInit {
       .subscribe((value) => this.onIngredientValueChange(value));
     this.filters.controls.threshold.valueChanges.subscribe((value) => this.threshold.set(value));
     this.loadPreferences();
-    this.load();
   }
 
+  /**
+   * Reads the saved preferences into the filter state and runs the first search.
+   *
+   * The grid deliberately waits for this answer instead of searching in
+   * parallel: the stored diet is part of the first request, and a search that
+   * started before it arrived would either show unfiltered rows or cost a
+   * second request to correct them. A failed read keeps the defaults and still
+   * searches, so the page stays usable without preferences.
+   */
   private loadPreferences(): void {
     this.profileService.getPreferences().subscribe({
       next: (preferences) => {
@@ -325,9 +363,16 @@ export class RecipesPage implements OnInit {
           this.filters.controls.threshold.setValue(100, { emitEvent: false });
           this.threshold.set(100);
         }
+        // The value crosses the wire, so only a name the enum still knows may
+        // replace the default; anything else leaves "every diet" in place.
+        if (DIET_OPTIONS.some((option) => option.value === preferences.diet)) {
+          this.diet.set(preferences.diet);
+        }
+        this.load();
       },
       error: () => {
-        // If the profile fails to load, keep defaults as-is.
+        // If the profile fails to load, keep defaults as-is — and still search.
+        this.load();
       },
     });
   }
@@ -343,6 +388,10 @@ export class RecipesPage implements OnInit {
    * The name is trimmed before it travels and dropped when empty: searching
    * for spaces is not a search, and an absent value means "no name filter" on
    * the API, which is what a cleared box has to say.
+   *
+   * The diet is added the same way: the backend derives it from nutrients the
+   * client never sees, so it is a server-side filter like `strict`, and
+   * `BALANCED` — the default — says the same thing an absent param does.
    */
   protected load(): void {
     const seq = ++this.searchSeq;
@@ -356,6 +405,7 @@ export class RecipesPage implements OnInit {
       ...(ingredientId !== undefined ? { ingredientId } : {}),
       ...(this.strict() ? { strict: true } : {}),
       ...(this.allergenSafe() ? { allergenSafe: true } : {}),
+      ...(this.diet() !== 'BALANCED' ? { diet: this.diet() } : {}),
       threshold: 0,
     };
 
@@ -388,6 +438,14 @@ export class RecipesPage implements OnInit {
     });
   }
 
+  /**
+   * Asks the server for pantry-driven suggestions and shows them in the grid.
+   *
+   * `recommend` shares the two toggles with the search and the diet as well: a
+   * suggestion that ignored the user's diet would recommend what the page is
+   * filtering out. `BALANCED` is left out of the request, exactly as
+   * {@link load} does, because the backend reads it as "every diet".
+   */
   protected suggest(): void {
     const seq = ++this.searchSeq;
     this.mode.set('suggest');
@@ -401,6 +459,7 @@ export class RecipesPage implements OnInit {
       .recommend({
         strict: this.strict() ? true : false,
         allergenSafe: this.allergenSafe() ? true : false,
+        ...(this.diet() !== 'BALANCED' ? { diet: this.diet() } : {}),
       })
       .subscribe({
         next: (recipes) => {
@@ -588,6 +647,113 @@ export class RecipesPage implements OnInit {
       return;
     }
     this.load();
+  }
+
+  /**
+   * Applies the picked diet and re-runs the view the user is looking at.
+   *
+   * The diet is derived server-side from each recipe's nutrients, so the rows
+   * already on screen cannot be re-filtered here: changing it must ask again —
+   * search or suggest, mirroring {@link onAllergenSafeChange}, so the grid
+   * always shows the answer to the filter that is set.
+   */
+  protected onDietChange(diet: Diet): void {
+    this.diet.set(diet);
+    if (this.mode() === 'suggest') {
+      this.suggest();
+      return;
+    }
+    this.load();
+  }
+
+  protected readonly favoriteIcon = (fav: boolean | null): string =>
+    fav === true ? 'favorite' : 'favorite_border';
+  protected readonly favoriteAria = (fav: boolean | null): string =>
+    fav === true ? 'Remove from favorites' : 'Add to favorites';
+
+  protected readonly savedIcon = (saved: boolean | null): string =>
+    saved === true ? 'bookmark' : 'bookmark_border';
+  protected readonly savedAria = (saved: boolean | null): string =>
+    saved === true ? 'Remove from saved' : 'Add to saved';
+
+  /**
+   * Toggles favorite state for a recipe with optimistic update.
+   */
+  protected toggleFavorite(recipe: RecipeSummary, event: Event): void {
+    event.stopPropagation();
+    if (this.favoritePending().has(recipe.id)) {
+      return;
+    }
+    const next = !(recipe.favorite === true);
+    const previous = recipe.favorite;
+    this.updateRecipe(recipe.id, { favorite: next });
+    this.setFavoritePending(recipe.id, true);
+    this.recipesService.toggleFavorite(recipe.id, next).subscribe({
+      next: () => this.setFavoritePending(recipe.id, false),
+      error: (error: HttpErrorResponse) => {
+        this.updateRecipe(recipe.id, { favorite: previous });
+        this.setFavoritePending(recipe.id, false);
+        this.snackBar.open(toErrorResponse(error).message || 'Could not update favorites', 'OK', {
+          duration: 8000,
+        });
+      },
+    });
+  }
+
+  /**
+   * Toggles saved state for a recipe with optimistic update.
+   */
+  protected toggleSaved(recipe: RecipeSummary, event: Event): void {
+    event.stopPropagation();
+    if (this.savedPending().has(recipe.id)) {
+      return;
+    }
+    const next = !(recipe.saved === true);
+    const previous = recipe.saved;
+    this.updateRecipe(recipe.id, { saved: next });
+    this.setSavedPending(recipe.id, true);
+    this.recipesService.toggleSaved(recipe.id, next).subscribe({
+      next: () => this.setSavedPending(recipe.id, false),
+      error: (error: HttpErrorResponse) => {
+        this.updateRecipe(recipe.id, { saved: previous });
+        this.setSavedPending(recipe.id, false);
+        this.snackBar.open(
+          toErrorResponse(error).message || 'Could not update saved recipes',
+          'OK',
+          { duration: 8000 },
+        );
+      },
+    });
+  }
+
+  private updateRecipe(id: number, patch: Partial<RecipeSummary>): void {
+    this.recipes.update((list) =>
+      list.map((r) => (r.id === id ? ({ ...r, ...patch } as RecipeSummary) : r)),
+    );
+  }
+
+  private setFavoritePending(id: number, pending: boolean): void {
+    this.favoritePending.update((set) => {
+      const s = new Set(set);
+      if (pending) {
+        s.add(id);
+      } else {
+        s.delete(id);
+      }
+      return s;
+    });
+  }
+
+  private setSavedPending(id: number, pending: boolean): void {
+    this.savedPending.update((set) => {
+      const s = new Set(set);
+      if (pending) {
+        s.add(id);
+      } else {
+        s.delete(id);
+      }
+      return s;
+    });
   }
 
   protected coveragePercent = coveragePercent;

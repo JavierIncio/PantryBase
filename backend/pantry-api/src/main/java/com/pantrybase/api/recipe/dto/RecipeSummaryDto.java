@@ -20,5 +20,9 @@ public record RecipeSummaryDto(
         Integer servings,
         Double matchScore,
         Integer missingCount,
-        List<String> allergenCodes
+        List<String> allergenCodes,
+        Boolean favorite,
+        Boolean saved,
+        Boolean owned,
+        Boolean published
 ) {}

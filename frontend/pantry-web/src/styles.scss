@@ -130,9 +130,9 @@ body {
     --mat-menu-item-trailing-spacing: 16px;
   }
 
-  // Destructive action («Cerrar sesión»): error color on text and icon, with an
+  // Destructive action ("Sign out"): error color on text and icon, with an
   // error-tinted state layer on hover/focus, so it reads as irreversible next to
-  // the neutral «Perfil» item (Material's own convention for such actions).
+  // the neutral "Profile" item (Material's own convention for such actions).
   .mat-mdc-menu-item.logout-item {
     color: var(--mat-sys-error);
     --mat-menu-item-icon-color: var(--mat-sys-error);

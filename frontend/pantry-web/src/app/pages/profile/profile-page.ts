@@ -34,11 +34,14 @@ import { MatSelect } from '@angular/material/select';
 import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
 import { MatSlider, MatSliderThumb } from '@angular/material/slider';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { RouterLink } from '@angular/router';
+import { UserStats } from '../../core/recipes/recipes.models';
 import { ChangePasswordRequest, toErrorResponse, UserResponse } from '../../core/auth/auth.models';
 import { AuthService } from '../../core/auth/auth.service';
 import { SessionState } from '../../core/auth/session.state';
 import {
   Allergen,
+  DIET_OPTIONS,
   Diet,
   FilterMode,
   UpdateProfileRequest,
@@ -55,15 +58,6 @@ import {
 const FILTER_MODE_OPTIONS: ReadonlyArray<{ value: FilterMode; label: string }> = [
   { value: 'STRICT', label: 'Strict' },
   { value: 'LAX', label: 'Lax' },
-];
-
-const DIET_OPTIONS: ReadonlyArray<{ value: Diet; label: string }> = [
-  { value: 'BALANCED', label: 'Balanced' },
-  { value: 'HIGH_FIBER', label: 'High fiber' },
-  { value: 'HIGH_PROTEIN', label: 'High protein' },
-  { value: 'LOW_CARB', label: 'Low carb' },
-  { value: 'LOW_FAT', label: 'Low fat' },
-  { value: 'LOW_SODIUM', label: 'Low sodium' },
 ];
 
 /**
@@ -131,6 +125,7 @@ class UsernameErrorStateMatcher implements ErrorStateMatcher {
     MatSlider,
     MatSliderThumb,
     ReactiveFormsModule,
+    RouterLink,
   ],
   templateUrl: './profile-page.html',
   styleUrl: './profile-page.scss',
@@ -145,10 +140,15 @@ export class ProfilePage implements OnInit {
   private readonly themeService = inject(ThemeService);
 
   protected readonly filterModeOptions = FILTER_MODE_OPTIONS;
+  /** Diet choices shared with the recipes filter, from {@link DIET_OPTIONS}. */
   protected readonly dietOptions = DIET_OPTIONS;
   protected readonly themeOptions: ReadonlyArray<{ id: ThemeId; label: string }> = THEMES.map(
     (id) => ({ id, label: THEME_LABELS[id] }),
   );
+
+  protected readonly stats = signal<UserStats | null>(null);
+  protected readonly statsLoading = signal(true);
+  protected readonly statsError = signal<string | null>(null);
 
   /** Identity shown in the header: email when present, else the username. */
   protected readonly email = computed(
@@ -264,12 +264,12 @@ export class ProfilePage implements OnInit {
       next: () => {
         this.passwordSaving.set(false);
         this.passwordForm.reset();
-        this.snackBar.open('Contraseña actualizada', 'OK', { duration: 3000 });
+        this.snackBar.open('Password updated', 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
         this.passwordSaving.set(false);
         this.passwordSaveError.set(
-          toErrorResponse(error).message || 'No se pudo actualizar la contraseña.',
+          toErrorResponse(error).message || 'Could not update the password.',
         );
       },
     });
@@ -321,6 +321,22 @@ export class ProfilePage implements OnInit {
     this.loadPreferences();
     this.loadExclusions();
     this.syncIdentity(this.session.user());
+    this.loadStats();
+  }
+
+  private loadStats(): void {
+    this.statsLoading.set(true);
+    this.statsError.set(null);
+    this.profile.stats().subscribe({
+      next: (stats) => {
+        this.stats.set(stats);
+        this.statsLoading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.statsLoading.set(false);
+        this.statsError.set(toErrorResponse(error).message || 'Could not load your statistics');
+      },
+    });
   }
 
   /**
@@ -400,7 +416,7 @@ export class ProfilePage implements OnInit {
         this.session.restore(updated);
         this.syncIdentity(updated);
         this.identitySaving.set(false);
-        this.snackBar.open('Perfil actualizado', 'OK', { duration: 3000 });
+        this.snackBar.open('Profile updated', 'OK', { duration: 3000 });
       },
       error: (error: HttpErrorResponse) => {
         this.identitySaving.set(false);
@@ -408,7 +424,7 @@ export class ProfilePage implements OnInit {
         if (error.status === 400 && message) {
           this.identityForm.controls.username.setErrors({ taken: message });
         } else {
-          this.identitySaveError.set(message || 'No se pudo actualizar el perfil.');
+          this.identitySaveError.set(message || 'Could not update your profile.');
         }
       },
     });

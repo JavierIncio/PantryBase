@@ -21,6 +21,7 @@ import com.pantrybase.api.recipe.repository.RecipeAllergenRepository;
 import com.pantrybase.api.recipe.repository.RecipeIngredientRepository;
 import com.pantrybase.api.recipe.repository.RecipeRepository;
 import com.pantrybase.api.recipe.service.TheMealDbClient;
+import com.pantrybase.api.user.domain.Diet;
 import com.pantrybase.api.user.dto.AllergyExclusionsResponse;
 import com.pantrybase.api.user.dto.ReplaceAllergyExclusionsRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,6 +82,7 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         // Parent already wiped pantry items and users; recipes and the catalog they
         // reference must go too, children first or the foreign keys refuse.
         recipeAllergenRepository.deleteAll();
+        recipeDietRepository.deleteAll();
         recipeIngredientRepository.deleteAll();
         recipeRepository.deleteAll();
         allergenMappingRepository.deleteAll();
@@ -442,12 +444,14 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
 
         RecipeIngredient flourLine = lines.get(0);
         assertThat(flourLine.getIngredientId()).isEqualTo(flour.getId());
+        assertThat(flourLine.getIngredientName()).isEqualTo("Wheat Flour");
         assertThat(flourLine.getOriginalUnitCode()).isEqualTo("GRAM");
         assertThat(flourLine.getCanonicalUnitCode()).isEqualTo("GRAM");
         assertThat(flourLine.getCanonicalAmount()).isEqualByComparingTo("200");
 
         RecipeIngredient milkLine = lines.get(1);
         assertThat(milkLine.getIngredientId()).isEqualTo(milk.getId());
+        assertThat(milkLine.getIngredientName()).isEqualTo("Milk");
         assertThat(milkLine.getOriginalUnitCode()).isEqualTo("CUP");
         assertThat(milkLine.getCanonicalUnitCode()).isEqualTo("ML");
         assertThat(milkLine.getOriginalAmount()).isEqualByComparingTo("1.5");
@@ -455,6 +459,8 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
 
         RecipeIngredient eggLine = lines.get(2);
         assertThat(eggLine.getIngredientId()).isEqualTo(egg.getId());
+        // The stored name is the catalog's, not the provider's wording ("Egg, whole").
+        assertThat(eggLine.getIngredientName()).isEqualTo("Egg, whole, raw");
         assertThat(eggLine.getOriginalUnitCode()).isEqualTo("UNIT");
         assertThat(eggLine.getCanonicalUnitCode()).isEqualTo("UNIT");
         assertThat(eggLine.getOriginalAmount()).isEqualByComparingTo("2");
@@ -804,6 +810,9 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(body.allergenCodes()).containsExactlyInAnyOrder("EGG");
         assertThat(body.matchScore()).isNull();
         assertThat(body.coverage()).isEmpty();
+        // A freshly created recipe belongs to its author and starts private.
+        assertThat(body.owned()).isTrue();
+        assertThat(body.published()).isFalse();
     }
 
     @Test
@@ -857,12 +866,241 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         assertThat(readBack.getBody().nutrients().energyKcal()).isEqualByComparingTo("50");
     }
 
+    // ============ DIET FILTERING ============
+
+    @Test
+    void create_derivesDietTagsFromPerServingNutrients() {
+        HttpHeaders headers = authenticate();
+        Ingredient lean = ingredient("Lean Chicken", "Poultry");
+        lean.setProteinG(30.0);
+        lean.setFatG(3.0);
+        lean.setCarbsG(5.0);
+        ingredientRepository.saveAndFlush(lean);
+
+        long recipeId = createRecipe(headers, "Lean Plate", lean, "200", 1);
+
+        // 200 g of a 30/3/5-per-100g food, one serving: 60 g protein, 6 g fat, 10 g carbs.
+        assertThat(recipeDietRepository.findDietsByRecipeId(recipeId))
+                .containsExactlyInAnyOrder(Diet.HIGH_PROTEIN, Diet.LOW_CARB, Diet.LOW_FAT);
+    }
+
+    @Test
+    void search_filtersByDiet_andBalancedShowsEveryRecipe() {
+        HttpHeaders headers = authenticate();
+        Ingredient lean = ingredient("Lean Meat", "Meat");
+        lean.setProteinG(40.0);
+        lean.setFatG(5.0);
+        lean.setCarbsG(2.0);
+        ingredientRepository.saveAndFlush(lean);
+
+        Ingredient fatty = ingredient("Fatty Meat", "Meat");
+        fatty.setProteinG(40.0);
+        fatty.setFatG(60.0);
+        fatty.setCarbsG(2.0);
+        ingredientRepository.saveAndFlush(fatty);
+
+        long leanId = createRecipe(headers, "Lean Dish", lean, "200", 1);
+        long fattyId = createRecipe(headers, "Fatty Dish", fatty, "200", 1);
+
+        // Stock both so each recipe clears the default coverage threshold and reaches the filter.
+        stock(lean, "200");
+        stock(fatty, "200");
+
+        assertThat(recipeIds(search(headers, "?diet=LOW_FAT")))
+                .contains(leanId).doesNotContain(fattyId);
+        // Both are high protein, so that filter keeps them and BALANCED narrows nothing.
+        assertThat(recipeIds(search(headers, "?diet=HIGH_PROTEIN"))).contains(leanId, fattyId);
+        assertThat(recipeIds(search(headers, "?diet=BALANCED"))).contains(leanId, fattyId);
+    }
+
+    @Test
+    void createUserRecipe_storesTheCatalogIngredientNameOnEachLine() {
+        HttpHeaders headers = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+
+        long recipeId = createRecipe(headers, "Rice Bowl", rice, "100", 1);
+
+        // The stored name feeds consumers that read the line without the catalog —
+        // cooking deduction labels and the profile's top-ingredient ranking.
+        assertThat(recipeIngredientRepository.findByRecipeIdOrderByPositionAsc(recipeId))
+                .singleElement()
+                .satisfies(line -> assertThat(line.getIngredientName()).isEqualTo("Rice"));
+    }
+
+    // ============ PUBLISHING (H8-E) ============
+
+    @Test
+    void publish_makesRecipeVisibleToOthers_andIsIdempotent() {
+        HttpHeaders owner = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("USER", "Shared Pilaf");
+        line(recipe, rice, "100", 0);
+
+        HttpHeaders other = authenticateSecondUser();
+        assertThat(publishedList(other)).isEmpty();
+
+        ResponseEntity<RecipeDetailDto> first = publish(owner, recipe.getId());
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getBody().published()).isTrue();
+        assertThat(first.getBody().owned()).isTrue();
+
+        // Publishing again changes nothing and still reports published.
+        assertThat(publish(owner, recipe.getId()).getBody().published()).isTrue();
+
+        assertThat(publishedList(other)).singleElement().satisfies(summary -> {
+            assertThat(summary.id()).isEqualTo(recipe.getId());
+            assertThat(summary.published()).isTrue();
+            assertThat(summary.owned()).isFalse();
+        });
+    }
+
+    @Test
+    void unpublish_hidesRecipeAgain() {
+        HttpHeaders owner = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("USER", "Ephemeral Pilaf");
+        line(recipe, rice, "100", 0);
+        publish(owner, recipe.getId());
+
+        HttpHeaders other = authenticateSecondUser();
+        assertThat(publishedList(other)).hasSize(1);
+
+        ResponseEntity<RecipeDetailDto> response = unpublish(owner, recipe.getId());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().published()).isFalse();
+        assertThat(publishedList(other)).isEmpty();
+        // A second unpublish is a harmless no-op.
+        assertThat(unpublish(owner, recipe.getId()).getBody().published()).isFalse();
+    }
+
+    @Test
+    void search_includesPublishedRecipeFromAnotherAuthor() {
+        HttpHeaders author = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe recipe = recipe("USER", "Author Pilaf");
+        line(recipe, rice, "100", 0);
+        publish(author, recipe.getId());
+
+        // The reader stocks the ingredient, so the recipe can score above the threshold.
+        HttpHeaders reader = authenticateSecondUser();
+        stockFor(secondUser(), rice, "100");
+
+        assertThat(search(reader, "").getBody())
+                .filteredOn(s -> s.id() == recipe.getId())
+                .singleElement()
+                .satisfies(s -> assertThat(s.published()).isTrue());
+    }
+
+    @Test
+    void publish_otherUsersRecipe_returns403() {
+        HttpHeaders owner = authenticate();
+        Recipe recipe = recipe("USER", "Not Yours");
+        HttpHeaders other = authenticateSecondUser();
+
+        ResponseEntity<ErrorResponse> response = publishError(other, recipe.getId());
+
+        assertError(response, HttpStatus.FORBIDDEN,
+                RECIPES + "/" + recipe.getId() + "/publish");
+    }
+
+    @Test
+    void publish_providerRecipe_returns400() {
+        HttpHeaders headers = authenticate();
+        Recipe provider = recipe("THE_MEAL_DB", "Provider Dish");
+
+        ResponseEntity<ErrorResponse> response = publishError(headers, provider.getId());
+
+        assertError(response, HttpStatus.BAD_REQUEST,
+                RECIPES + "/" + provider.getId() + "/publish");
+    }
+
+    @Test
+    void publish_unknownRecipe_returns404() {
+        HttpHeaders headers = authenticate();
+
+        ResponseEntity<ErrorResponse> response = publishError(headers, 999_999L);
+
+        assertError(response, HttpStatus.NOT_FOUND, RECIPES + "/999999/publish");
+    }
+
+    @Test
+    void publish_requiresAuthentication() {
+        assertUnauthorized(RECIPES + "/1/publish", HttpMethod.POST);
+    }
+
+    // ============ MY RECIPES (COOKBOOK "CREATED") ============
+
+    @Test
+    void mine_listsOwnPrivateAndPublishedRecipes_newestFirst() {
+        HttpHeaders owner = authenticate();
+        Ingredient rice = ingredient("Rice", "Grain");
+        Recipe privateDraft = recipe("USER", "Private Draft");
+        line(privateDraft, rice, "100", 0);
+        Recipe publicDish = recipe("USER", "Public Dish");
+        line(publicDish, rice, "100", 0);
+        publish(owner, publicDish.getId());
+
+        // A provider recipe is not authored by anyone and never belongs here.
+        Recipe provider = recipe("THE_MEAL_DB", "Provider Dish");
+
+        assertThat(mineList(owner))
+                .extracting(RecipeSummaryDto::name)
+                .containsExactlyInAnyOrder("Private Draft", "Public Dish")
+                .doesNotContain("Provider Dish");
+
+        // Coverage is not a filter: the draft scores 0/1 against an empty pantry yet
+        // still appears (the whole point of the listing).
+        assertThat(mineList(owner))
+                .filteredOn(s -> s.id() == privateDraft.getId())
+                .singleElement()
+                .satisfies(s -> {
+                    assertThat(s.owned()).isTrue();
+                    assertThat(s.published()).isFalse();
+                });
+    }
+
+    @Test
+    void mine_doesNotIncludeAnotherUsersPrivateRecipe() {
+        HttpHeaders owner = authenticate();
+        Recipe recipe = recipe("USER", "Own Secret");
+        HttpHeaders other = authenticateSecondUser();
+
+        assertThat(mineList(other)).isEmpty();
+        assertThat(mineList(owner)).extracting(RecipeSummaryDto::name).containsExactly("Own Secret");
+        assertThat(recipe.getId()).isNotNull();
+    }
+
+    @Test
+    void mine_requiresAuthentication() {
+        assertUnauthorized(RECIPES + "/mine", HttpMethod.GET);
+    }
+
     // ============ HELPERS ============
 
     private ResponseEntity<List<RecipeSummaryDto>> search(HttpHeaders headers, String query) {
         return rest.exchange(RECIPES + query, HttpMethod.GET, new HttpEntity<>(headers),
                 new ParameterizedTypeReference<>() {
                 });
+    }
+
+    private List<Long> recipeIds(ResponseEntity<List<RecipeSummaryDto>> response) {
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return response.getBody().stream().map(RecipeSummaryDto::id).toList();
+    }
+
+    private long createRecipe(HttpHeaders headers, String name, Ingredient ingredient,
+                              String grams, int servings) {
+        CreateRecipeRequest request = new CreateRecipeRequest(
+                name, null, null, null, null, null, null, servings, null,
+                List.of(new CreateRecipeIngredientRequest(ingredient.getId(),
+                        new BigDecimal(grams), "GRAM", 0)));
+
+        ResponseEntity<RecipeDetailDto> response = rest.exchange(
+                RECIPES, HttpMethod.POST, new HttpEntity<>(request, headers), RecipeDetailDto.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        return response.getBody().id();
     }
 
     private ResponseEntity<List<RecipeSummaryDto>> recommend(HttpHeaders headers, String query) {
@@ -912,6 +1150,11 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         recipe.setName(name);
         recipe.setCreatedAt(Instant.now());
         recipe.setUpdatedAt(Instant.now());
+        // USER rows carry their author: search scopes private recipes to the owner, and
+        // these tests create them as the already-authenticated default user.
+        if ("USER".equals(source)) {
+            recipe.setOwnerId(currentUser());
+        }
 
         return recipeRepository.saveAndFlush(recipe);
     }
@@ -930,7 +1173,10 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
     }
 
     private void stock(Ingredient ingredient, String grams) {
-        Long userId = currentUser();
+        stockFor(currentUser(), ingredient, grams);
+    }
+
+    private void stockFor(Long userId, Ingredient ingredient, String grams) {
         // Upsert: the pantry holds one line per (user, ingredient), so a second insert
         // would be refused by the unique constraint instead of updating the quantity.
         PantryItem item = pantryItemRepository.findAll().stream()
@@ -946,6 +1192,55 @@ class RecipeControllerIntegrationTest extends AbstractIntegrationTest {
         }
         item.setQuantity(new BigDecimal(grams));
         pantryItemRepository.saveAndFlush(item);
+    }
+
+    private HttpHeaders authenticateSecondUser() {
+        ResponseEntity<com.pantrybase.api.auth.dto.AuthResponse> registered = registerUser(
+                java.util.Map.of("username", "JaneDoe", "email", "jane.doe@example.com",
+                        "password", "password123"));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(registered.getBody().accessToken());
+        return headers;
+    }
+
+    private Long secondUser() {
+        return userRepository
+                .findByUsernameOrEmail("JaneDoe", "jane.doe@example.com")
+                .orElseThrow()
+                .getId();
+    }
+
+    private List<RecipeSummaryDto> publishedList(HttpHeaders headers) {
+        ResponseEntity<List<RecipeSummaryDto>> response = rest.exchange(
+                RECIPES + "/published", HttpMethod.GET, new HttpEntity<>(headers),
+                new ParameterizedTypeReference<>() {
+                });
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return response.getBody();
+    }
+
+    private List<RecipeSummaryDto> mineList(HttpHeaders headers) {
+        ResponseEntity<List<RecipeSummaryDto>> response = rest.exchange(
+                RECIPES + "/mine", HttpMethod.GET, new HttpEntity<>(headers),
+                new ParameterizedTypeReference<>() {
+                });
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return response.getBody();
+    }
+
+    private ResponseEntity<RecipeDetailDto> publish(HttpHeaders headers, long recipeId) {
+        return rest.exchange(RECIPES + "/" + recipeId + "/publish", HttpMethod.POST,
+                new HttpEntity<>(headers), RecipeDetailDto.class);
+    }
+
+    private ResponseEntity<RecipeDetailDto> unpublish(HttpHeaders headers, long recipeId) {
+        return rest.exchange(RECIPES + "/" + recipeId + "/publish", HttpMethod.DELETE,
+                new HttpEntity<>(headers), RecipeDetailDto.class);
+    }
+
+    private ResponseEntity<ErrorResponse> publishError(HttpHeaders headers, long recipeId) {
+        return rest.exchange(RECIPES + "/" + recipeId + "/publish", HttpMethod.POST,
+                new HttpEntity<>(headers), ErrorResponse.class);
     }
 
     private void allergenRow(Ingredient ingredient, String code) {

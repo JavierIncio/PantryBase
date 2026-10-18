@@ -179,7 +179,7 @@ describe('LoginPage', () => {
 
     const banner = host.querySelector('.auth-success');
     expect(banner).toBeTruthy();
-    expect(banner?.textContent).toContain('Contraseña restablecida');
+    expect(banner?.textContent).toContain('Password reset');
     // The banner is additive: the sign-in form is still there.
     expect(host.querySelector('form.auth-form')).toBeTruthy();
   });

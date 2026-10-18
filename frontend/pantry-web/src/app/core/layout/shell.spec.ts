@@ -22,21 +22,6 @@ describe('Shell', () => {
   let session: SessionState;
 
   beforeEach(async () => {
-    // jsdom does not implement matchMedia; stub it for the CDK BreakpointObserver.
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      value: (query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addListener: () => undefined,
-        removeListener: () => undefined,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-        dispatchEvent: () => false,
-      }),
-    });
-
     authStub = { logout: vi.fn() };
     await TestBed.configureTestingModule({
       imports: [Shell],
@@ -69,11 +54,11 @@ describe('Shell', () => {
     const toolbar = fixture.nativeElement.querySelector('mat-toolbar') as HTMLElement;
     expect(toolbar.textContent).toContain('PantryBase');
 
-    const navList = fixture.nativeElement.querySelector('mat-nav-list') as HTMLElement;
-    const links = navList.querySelectorAll('a');
-    expect(links.length).toBe(5);
-    for (const label of ['Pantry', 'Recipes', 'Cooking', 'Social', 'Profile']) {
-      expect(navList.textContent).toContain(label);
+    const nav = fixture.nativeElement.querySelector('.shell-nav') as HTMLElement;
+    const links = nav.querySelectorAll('a');
+    expect(links.length).toBe(4);
+    for (const label of ['Pantry', 'Recipes', 'My cookbook', 'History']) {
+      expect(nav.textContent).toContain(label);
     }
   });
 
@@ -91,7 +76,7 @@ describe('Shell', () => {
     fixture.detectChanges();
 
     const toolbar = fixture.nativeElement.querySelector('mat-toolbar') as HTMLElement;
-    expect(toolbar.textContent).toContain('Cuenta');
+    expect(toolbar.textContent).toContain('Account');
   });
 
   it('navigates to the profile route from the user menu', async () => {
@@ -102,7 +87,7 @@ describe('Shell', () => {
     fixture.detectChanges();
 
     const items = await openUserMenu(fixture);
-    const profileItem = menuItemByText(items, 'Perfil');
+    const profileItem = menuItemByText(items, 'Profile');
     expect(profileItem).toBeTruthy();
     // Profile keeps the neutral menu-item look (no destructive marker).
     expect(profileItem?.classList).not.toContain('logout-item');
@@ -117,7 +102,7 @@ describe('Shell', () => {
     );
   });
 
-  it('calls AuthService.logout and navigates to /login when Cerrar sesión is clicked', async () => {
+  it('calls AuthService.logout and navigates to /login when Log out is clicked', async () => {
     session.restore(USER);
     authStub.logout.mockReturnValue(of(undefined));
     const fixture = TestBed.createComponent(Shell);
@@ -126,7 +111,7 @@ describe('Shell', () => {
     fixture.detectChanges();
 
     const items = await openUserMenu(fixture);
-    const logoutItem = menuItemByText(items, 'Cerrar sesión');
+    const logoutItem = menuItemByText(items, 'Log out');
     // Destructive affordance: the item carries the styling hook used by the
     // global `.shell-user-menu .logout-item` rules in styles.scss.
     expect(logoutItem?.classList).toContain('logout-item');
@@ -147,7 +132,7 @@ describe('Shell', () => {
     fixture.detectChanges();
 
     const items = await openUserMenu(fixture);
-    const logoutItem = menuItemByText(items, 'Cerrar sesión');
+    const logoutItem = menuItemByText(items, 'Log out');
     (logoutItem as HTMLButtonElement).click();
     fixture.detectChanges();
 

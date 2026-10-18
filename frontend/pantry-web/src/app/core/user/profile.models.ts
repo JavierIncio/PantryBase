@@ -10,9 +10,28 @@ import { ThemeId } from '../theme/theme.types';
 /** How strictly the recipe filter must cover the available pantry. */
 export type FilterMode = 'STRICT' | 'LAX';
 
-/** Dietary profile the recipe filter applies to, matching the backend enum. */
-export type Diet =
-  'BALANCED' | 'HIGH_FIBER' | 'HIGH_PROTEIN' | 'LOW_CARB' | 'LOW_FAT' | 'LOW_SODIUM';
+/**
+ * Dietary profile a recipe search can be filtered by, matching the backend enum.
+ *
+ * `BALANCED` is the "no filter" value: the backend derives the other three from
+ * each recipe's per-serving nutrients, which only exist server-side.
+ */
+export type Diet = 'BALANCED' | 'HIGH_PROTEIN' | 'LOW_CARB' | 'LOW_FAT';
+
+/**
+ * Every {@link Diet} paired with the name the UI shows it under.
+ *
+ * One shared list for all diet selectors (the profile preferences form and the
+ * recipes filter), so a choice can never be spelled differently in two places
+ * nor survive the removal of its backend enum value. Labels are English to
+ * match the sibling selects of both forms (`Filter mode`, `Strict`/`Lax`).
+ */
+export const DIET_OPTIONS: ReadonlyArray<{ value: Diet; label: string }> = [
+  { value: 'BALANCED', label: 'Balanced' },
+  { value: 'HIGH_PROTEIN', label: 'High protein' },
+  { value: 'LOW_CARB', label: 'Low carb' },
+  { value: 'LOW_FAT', label: 'Low fat' },
+];
 
 /** Default filtering preferences; all four fields are required upstream. */
 export interface UserPreferences {

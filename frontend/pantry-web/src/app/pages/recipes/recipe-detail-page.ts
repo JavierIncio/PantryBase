@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { MatButton } from '@angular/material/button';
+import { MatButton, MatIconButton } from '@angular/material/button';
 import {
   MatCard,
   MatCardContent,
@@ -19,6 +19,8 @@ import { MatChip, MatChipSet } from '@angular/material/chips';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIcon } from '@angular/material/icon';
 import { MatProgressSpinner } from '@angular/material/progress-spinner';
+import { MatSlideToggle, MatSlideToggleChange } from '@angular/material/slide-toggle';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toErrorResponse } from '../../core/auth/auth.models';
 import { UnitService } from '../../core/catalog/unit.service';
@@ -82,6 +84,7 @@ const categoryArea = (category: string, area: string): string | null => {
   selector: 'app-recipe-detail-page',
   imports: [
     MatButton,
+    MatIconButton,
     MatCard,
     MatCardContent,
     MatCardHeader,
@@ -91,6 +94,7 @@ const categoryArea = (category: string, area: string): string | null => {
     MatChipSet,
     MatIcon,
     MatProgressSpinner,
+    MatSlideToggle,
     RecipeAvailabilityPanel,
     RouterLink,
   ],
@@ -105,11 +109,19 @@ export class RecipeDetailPage implements OnInit {
   private readonly cooking = inject(CookingService);
   private readonly units = inject(UnitService);
   private readonly dialog = inject(MatDialog);
+  private readonly snackBar = inject(MatSnackBar);
 
   protected readonly recipe = signal<RecipeDetail | null>(null);
   protected readonly loading = signal(true);
   protected readonly loadError = signal<string | null>(null);
   protected readonly notFound = signal(false);
+
+  /** Tracks pending favorite toggle. */
+  protected readonly favoritePending = signal(false);
+  /** Tracks pending saved toggle. */
+  protected readonly savedPending = signal(false);
+  /** Tracks the publish/unpublish call while it is in flight. */
+  protected readonly publishPending = signal(false);
 
   /** True while the cooking session of this recipe is being created. */
   protected readonly starting = signal(false);
@@ -145,6 +157,19 @@ export class RecipeDetailPage implements OnInit {
   protected readonly availability = computed<RecipeAvailability | null>(() => {
     const recipe = this.recipe();
     return recipe ? recipeAvailability(recipe) : null;
+  });
+
+  /**
+   * Whether the publish toggle may be shown.
+   *
+   * Only on the caller's own `USER` recipes: a provider recipe is already
+   * public (the API answers 400 for it) and someone else's recipe is not ours
+   * to publish (403), so on any other recipe the control could only ever
+   * answer with a refusal.
+   */
+  protected readonly canPublish = computed(() => {
+    const recipe = this.recipe();
+    return recipe !== null && recipe.owned === true && recipe.source === 'USER';
   });
 
   ngOnInit(): void {
@@ -293,5 +318,126 @@ export class RecipeDetailPage implements OnInit {
   protected coveragePercent = coveragePercent;
   protected coverageClass = coverageClass;
   protected formatAmount = formatAmount;
+  protected readonly favoriteIcon = (fav: boolean | null): string =>
+    fav === true ? 'favorite' : 'favorite_border';
+  protected readonly favoriteAria = (fav: boolean | null): string =>
+    fav === true ? 'Remove from favorites' : 'Add to favorites';
+
+  protected readonly savedIcon = (saved: boolean | null): string =>
+    saved === true ? 'bookmark' : 'bookmark_border';
+  protected readonly savedAria = (saved: boolean | null): string =>
+    saved === true ? 'Remove from saved' : 'Add to saved';
+
+  /**
+   * Toggles favorite state on the detail page with optimistic update.
+   */
+  protected toggleFavorite(): void {
+    const recipe = this.recipe();
+    if (!recipe || this.favoritePending()) {
+      return;
+    }
+    const next = !(recipe.favorite === true);
+    const previous = recipe.favorite;
+    this.recipe.set({ ...recipe, favorite: next });
+    this.favoritePending.set(true);
+    this.recipesService.toggleFavorite(recipe.id, next).subscribe({
+      next: () => this.favoritePending.set(false),
+      error: (error: HttpErrorResponse) => {
+        const current = this.recipe();
+        if (current?.id === recipe.id) {
+          this.recipe.set({ ...current, favorite: previous });
+        }
+        this.favoritePending.set(false);
+        this.snackBar.open(toErrorResponse(error).message || 'Could not update favorites', 'OK', {
+          duration: 8000,
+        });
+      },
+    });
+  }
+
+  /**
+   * Toggles saved state on the detail page with optimistic update.
+   */
+  protected toggleSaved(): void {
+    const recipe = this.recipe();
+    if (!recipe || this.savedPending()) {
+      return;
+    }
+    const next = !(recipe.saved === true);
+    const previous = recipe.saved;
+    this.recipe.set({ ...recipe, saved: next });
+    this.savedPending.set(true);
+    this.recipesService.toggleSaved(recipe.id, next).subscribe({
+      next: () => this.savedPending.set(false),
+      error: (error: HttpErrorResponse) => {
+        const current = this.recipe();
+        if (current?.id === recipe.id) {
+          this.recipe.set({ ...current, saved: previous });
+        }
+        this.savedPending.set(false);
+        this.snackBar.open(
+          toErrorResponse(error).message || 'Could not update saved recipes',
+          'OK',
+          { duration: 8000 },
+        );
+      },
+    });
+  }
+
+  /**
+   * Publishes or takes back this recipe with optimistic update.
+   *
+   * The toggle flips ahead of the answer — visibility is the user's intent and
+   * the request is one round trip — and a refusal puts it back exactly where
+   * it was: the previous detail is restored wholesale, because the backend's
+   * answer is the authority on the recipe and a revert that only touched
+   * `published` could leave the rest of the copy stale.
+   *
+   * A failure is reported in a snackbar with the backend's own wording first
+   * and a status-specific fallback second, because the three refusals say
+   * different things: 403 means the recipe belongs to someone else, 400 that
+   * it is not a user recipe, and neither has a repair this page can offer —
+   * they are facts to read, not errors to retry.
+   */
+  protected togglePublish(change: MatSlideToggleChange): void {
+    const recipe = this.recipe();
+    if (recipe === null || !this.canPublish() || this.publishPending()) {
+      return;
+    }
+    const previous = recipe;
+    this.recipe.set({ ...recipe, published: change.checked });
+    this.publishPending.set(true);
+    const request$ = change.checked
+      ? this.recipesService.publish(recipe.id)
+      : this.recipesService.unpublish(recipe.id);
+    request$.subscribe({
+      next: () => this.publishPending.set(false),
+      error: (error: HttpErrorResponse) => {
+        const current = this.recipe();
+        if (current?.id === previous.id) {
+          this.recipe.set(previous);
+        }
+        this.publishPending.set(false);
+        this.snackBar.open(this.describePublishFailure(error), 'OK', { duration: 8000 });
+      },
+    });
+  }
+
+  /** The backend's own wording for a publish refusal, or a status-specific fallback. */
+  private describePublishFailure(error: HttpErrorResponse): string {
+    const message = toErrorResponse(error).message;
+    if (message) {
+      return message;
+    }
+    switch (error.status) {
+      case 403:
+        return 'This recipe is not yours, so it cannot be published.';
+      case 400:
+        return 'Only your own recipes can be published.';
+      default:
+        return "Could not change the recipe's visibility.";
+    }
+  }
+
   protected nutrientText = (value: number | null): string => (value === null ? '—' : String(value));
 }

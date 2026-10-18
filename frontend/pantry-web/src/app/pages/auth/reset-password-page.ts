@@ -106,7 +106,7 @@ export class ResetPasswordPage {
       error: (error: HttpErrorResponse) => {
         this.submitting.set(false);
         this.errorMessage.set(
-          toErrorResponse(error).message || 'El enlace no es válido o ha caducado.',
+          toErrorResponse(error).message || 'The link is invalid or has expired.',
         );
       },
     });

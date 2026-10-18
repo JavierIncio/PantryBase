@@ -3,10 +3,9 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { provideRouter } from '@angular/router';
-import { Subject } from 'rxjs';
 import { CookingSession } from '../../core/cooking/cooking.models';
 import { RecipeSummary } from '../../core/recipes/recipes.models';
-import { CookingPage } from './cooking-page';
+import { HistoryPage } from './history-page';
 
 /** The same recipe cooked twice: one session still live, one finished. */
 const PASTA_SUMMARIES: RecipeSummary[] = [
@@ -17,13 +16,18 @@ const PASTA_SUMMARIES: RecipeSummary[] = [
     name: 'Spaghetti alla Carbonara',
     category: 'Pasta',
     area: 'Italian',
-    imageUrl: null,
+    imageUrl: 'https://www.themealdb.com/images/media/meals/llcbn01574260722.jpg',
     servings: 4,
     matchScore: 1,
     missingCount: 0,
     allergenCodes: [],
+    favorite: false,
+    saved: false,
+    owned: false,
+    published: false,
   },
   {
+    // No image: its rows must fall back to the icon, not a broken frame.
     id: 2,
     source: 'USER',
     externalId: null,
@@ -35,6 +39,10 @@ const PASTA_SUMMARIES: RecipeSummary[] = [
     matchScore: null,
     missingCount: null,
     allergenCodes: [],
+    favorite: false,
+    saved: false,
+    owned: true,
+    published: false,
   },
 ];
 
@@ -83,12 +91,12 @@ const errorResponse = (status: number, message: string) => ({
   path: '/api/cooking/sessions',
 });
 
-describe('CookingPage', () => {
+describe('HistoryPage', () => {
   let http: HttpTestingController;
 
   const configure = async () => {
     await TestBed.configureTestingModule({
-      imports: [CookingPage],
+      imports: [HistoryPage],
       providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
     http = TestBed.inject(HttpTestingController);
@@ -97,7 +105,7 @@ describe('CookingPage', () => {
   /** Creates the page and answers both initial reads. */
   const render = async (sessions: CookingSession[] = SESSIONS) => {
     await configure();
-    const fixture = TestBed.createComponent(CookingPage);
+    const fixture = TestBed.createComponent(HistoryPage);
     fixture.detectChanges();
     http.expectOne('/api/cooking/sessions').flush(sessions);
     // The name lookup is separate and best-effort: it is answered, never
@@ -109,18 +117,18 @@ describe('CookingPage', () => {
     return fixture;
   };
 
-  const root = (fixture: ComponentFixture<CookingPage>): HTMLElement =>
+  const root = (fixture: ComponentFixture<HistoryPage>): HTMLElement =>
     fixture.nativeElement as HTMLElement;
 
   /** Rendered text with the template's whitespace collapsed, icon ligatures included. */
   const text = (node: Element | null | undefined): string =>
     (node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
-  const nodes = (fixture: ComponentFixture<CookingPage>, selector: string): Element[] => [
+  const nodes = (fixture: ComponentFixture<HistoryPage>, selector: string): Element[] => [
     ...root(fixture).querySelectorAll(selector),
   ];
 
-  const click = (fixture: ComponentFixture<CookingPage>, selector: string, index = 0): void => {
+  const click = (fixture: ComponentFixture<HistoryPage>, selector: string, index = 0): void => {
     (nodes(fixture, selector)[index] as HTMLButtonElement).click();
     fixture.detectChanges();
   };
@@ -132,16 +140,16 @@ describe('CookingPage', () => {
     expect(pending.map((req) => req.request.urlWithParams)).toEqual([]);
   });
 
-  it('splits the list into live sessions and history, keeping the server order', async () => {
+  it('splits the list into live sessions and past ones, keeping the server order', async () => {
     const fixture = await render();
 
     // The two active sessions lead, in the order they arrived; the finished
     // and abandoned ones follow.
-    expect(nodes(fixture, '.cooking-group mat-card-title').map((node) => text(node))).toEqual([
+    expect(nodes(fixture, '.history-group mat-card-title').map((node) => text(node))).toEqual([
       'In progress',
-      'History',
+      'Past sessions',
     ]);
-    expect(nodes(fixture, '.cooking-group .session-name').map((node) => text(node))).toEqual([
+    expect(nodes(fixture, '.history-group .session-name').map((node) => text(node))).toEqual([
       'Spaghetti alla Carbonara',
       'Beef Stew',
       'Spaghetti alla Carbonara',
@@ -154,7 +162,7 @@ describe('CookingPage', () => {
       'Completed',
       'Abandoned',
     ]);
-    // Only the live group gets the tinted badge; the history keeps the neutral one.
+    // Only the live group gets the tinted badge; the past keeps the neutral one.
     expect(nodes(fixture, '.status-active').length).toBe(2);
   });
 
@@ -162,7 +170,7 @@ describe('CookingPage', () => {
     const fixture = await render();
     const router = TestBed.inject(Router);
 
-    // Live rows are the whole link; history rows wrap theirs in a link so the
+    // Live rows are the whole link; past rows wrap theirs in a link so the
     // "Cook again" button stays outside it.
     const liveLinks = nodes(fixture, 'a.session-row');
     const historyLinks = nodes(fixture, 'a.session-link');
@@ -172,16 +180,39 @@ describe('CookingPage', () => {
     );
   });
 
-  it('names a recipe the catalog does not know as its id', async () => {
+  it('names a recipe the catalog does not know as its id and falls back to the icon', async () => {
     const fixture = await render([{ ...SESSIONS[0], recipeId: 99 }]);
 
     expect(text(nodes(fixture, '.session-name')[0])).toBe('Recipe #99');
+    // No catalog summary means no image: the row keeps its thumbnail slot.
+    expect(nodes(fixture, '.session-thumb-fallback').length).toBe(1);
+    expect(root(fixture).querySelector('.session-thumb:not(.session-thumb-fallback)')).toBeNull();
+  });
+
+  it('shows the recipe image in both groups and the icon when there is none', async () => {
+    const fixture = await render();
+
+    // Carbonara has an image (live + past rows); Beef Stew has none, so its
+    // two rows carry the fallback icon instead of a broken frame.
+    const images = nodes(fixture, 'img.session-thumb') as HTMLImageElement[];
+    expect(images.length).toBe(2);
+    expect(images.map((img) => img.getAttribute('src'))).toEqual([
+      PASTA_SUMMARIES[0].imageUrl,
+      PASTA_SUMMARIES[0].imageUrl,
+    ]);
+    expect(images.map((img) => img.getAttribute('alt'))).toEqual([
+      'Spaghetti alla Carbonara',
+      'Spaghetti alla Carbonara',
+    ]);
+    expect(nodes(fixture, '.session-thumb-fallback').length).toBe(2);
   });
 
   it('invites the user to browse recipes when there are no sessions', async () => {
     const fixture = await render([]);
 
-    expect(text(root(fixture).querySelector('.cooking-empty h2'))).toBe('No cooking sessions yet');
+    expect(text(root(fixture).querySelector('.history-empty h2'))).toBe(
+      "You haven't cooked anything yet",
+    );
     const browse = root(fixture).querySelector('a.browse-recipes');
     expect(browse?.getAttribute('href')).toBe(
       TestBed.inject(Router).createUrlTree(['/recipes']).toString(),
@@ -190,7 +221,7 @@ describe('CookingPage', () => {
 
   it('shows the backend message when the load fails and retries on demand', async () => {
     await configure();
-    const fixture = TestBed.createComponent(CookingPage);
+    const fixture = TestBed.createComponent(HistoryPage);
     fixture.detectChanges();
 
     http
@@ -198,15 +229,15 @@ describe('CookingPage', () => {
       .flush(errorResponse(500, 'Sessions are down'), { status: 500, statusText: 'Server Error' });
     fixture.detectChanges();
 
-    expect(text(root(fixture).querySelector('.cooking-error-message'))).toBe('Sessions are down');
-    expect(root(fixture).querySelector('.cooking-empty')).toBeNull();
+    expect(text(root(fixture).querySelector('.history-error-message'))).toBe('Sessions are down');
+    expect(root(fixture).querySelector('.history-empty')).toBeNull();
 
-    click(fixture, 'button.retry-cooking');
+    click(fixture, 'button.retry-history');
     http.expectOne('/api/cooking/sessions').flush(SESSIONS);
     http.expectOne('/api/recipes').flush(PASTA_SUMMARIES);
     fixture.detectChanges();
 
-    expect(root(fixture).querySelector('.cooking-error')).toBeNull();
+    expect(root(fixture).querySelector('.history-error')).toBeNull();
     expect(nodes(fixture, '.session-row').length).toBe(4);
   });
 
@@ -217,7 +248,7 @@ describe('CookingPage', () => {
 
     click(fixture, 'button.cook-again', 0);
 
-    // "Cook again" is on the history rows only, so it is the completed one
+    // "Cook again" is on the past rows only, so it is the completed one
     // (same recipe as the first live session: Spaghetti alla Carbonara).
     const req = http.expectOne('/api/cooking/sessions');
     expect(req.request.method).toBe('POST');
@@ -244,7 +275,7 @@ describe('CookingPage', () => {
       .flush(errorResponse(404, 'Recipe 1 not found'), { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
-    expect(text(root(fixture).querySelector('.cooking-action-error'))).toBe('Recipe 1 not found');
+    expect(text(root(fixture).querySelector('.history-action-error'))).toBe('Recipe 1 not found');
     // Nothing navigated and the rows are still all there.
     expect(nodes(fixture, '.session-row').length).toBe(4);
   });

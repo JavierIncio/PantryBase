@@ -1,7 +1,17 @@
 // Recipes page: a heading, one search/filter card and a responsive grid of
 // recipe cards. The grid is the whole view, so its states (loading, error,
 // empty) replace it instead of decorating it.
+//
+// The heading doubles as the way into the create page: the action sits on the
+// right of the title block so it is visible before the grid, but it is a link
+// and not a nav entry — "Recipes" is an area, creating one is an action
+// inside it.
 .recipes-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.25rem;
 
   h1 {
@@ -55,17 +65,21 @@
   }
 }
 
-// The filter bar: threshold slider on its own line, the two toggles beside it.
+// The filter bar: the coverage slider, the diet select, the two toggles and the
+// Suggest action share one wrapping line, so the card stays compact on wide
+// viewports and breaks into readable lines when there is no room.
 .filter-controls {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: center;
   gap: 1rem 2rem;
 }
 
+// The slider needs the most room, and it is the only group carrying a second
+// line (its hint), so it declares the basis the others wrap around.
 .threshold-group {
   flex: 1 1 22rem;
-  min-width: 0;
+  min-width: 16rem;
 }
 
 // The slider shares its line with its label and value; the form around it only
@@ -73,8 +87,8 @@
 // runs the same pattern on a form per section).
 .threshold-controls {
   display: grid;
-  grid-template-columns: 1fr auto;
-  column-gap: 1rem;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.75rem;
   align-items: center;
 
   .threshold-slider {
@@ -89,6 +103,7 @@
 }
 
 .threshold-value {
+  justify-self: end;
   font-variant-numeric: tabular-nums;
 }
 
@@ -99,11 +114,20 @@
   font: var(--mat-sys-body-small);
 }
 
-.filter-toggles,
-.actions-row {
+// The two toggles are siblings, not a row of their own: they wrap together so
+// one never strands the other on a line by itself.
+.filter-toggles {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 1.5rem;
-  padding-bottom: 0.25rem;
+}
+
+// The diet select is a server-side filter, so it needs a labelled field of its
+// own rather than a toggle that could not name the four choices.
+.diet-field {
+  flex: 0 1 12rem;
+  min-width: 9.5rem;
 }
 
 .strict-hint {
@@ -275,11 +299,9 @@
   font-weight: 600;
 }
 
-.recipe-source {
-  background: var(--mat-sys-surface-container-highest);
-  color: var(--mat-sys-on-surface-variant);
-}
-
+// Source and servings are the same neutral chip: one rule, so the pair cannot
+// drift apart visually as the card is edited.
+.recipe-source,
 .recipe-servings {
   background: var(--mat-sys-surface-container-highest);
   color: var(--mat-sys-on-surface-variant);
