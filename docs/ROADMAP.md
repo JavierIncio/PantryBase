@@ -263,6 +263,17 @@ Hoja de ruta por hitos. Cada hito termina con una demo jugable o un incremento v
 
 ## H9 — Producción y endurecimiento
 
+### Bloque H9-1 — Rate limit por IP en endpoints anónimos (cerrado 18-oct-2026)
+
+Dos niveles de cubo de fichas sobre el mismo script Lua: los endpoints autenticados ya tenían cubo por **usuario** desde H1; este bloque añade el cubo por **IP** con su propia política para las peticiones que llegan **sin autenticar** (login, registro, refresh —que va en cookie, sin token— y restablecimiento de contraseña), que es por donde entra la fuerza bruta de credenciales y donde no existe identidad que usar como clave. El filtro, colocado tras `JwtAuthFilter`, decide la clave según el `SecurityContext`; `TokenBucketRateLimiter` pasa a ser mecanismo sin política (recibe capacidad e intervalo como argumentos), y `RateLimitProperties` gana el bloque `anonymous` con política por defecto y overrides más estrechos (`strict-paths`) para login/registro/reset. La IP se toma de `remoteAddr` y no de `X-Forwarded-For` (sin proxy de confianza delante, la cabecera la controla el cliente). Verificado: **suite backend en 320 tests verdes** (7 en `RateLimitFilterIntegrationTest`: aislamiento entre cubos, política estricta, cabeceras con la capacidad aplicada). FEATURE_GUIDE §15 actualizado. Sin dependencias nuevas.
+
+- [x] Cubo por IP para peticiones no autenticadas, con política `anonymous` y overrides `strict-paths`.
+- [x] Tests de aislamiento de cubos (agotar el de usuario no consume el de IP) y cabeceras con capacidad aplicada.
+
+**Pendiente del bloque:** nada.
+
+---
+
 - [ ] Hardening de seguridad: rate limiting por IP, auditoría de llamadas externas, secretos en Vault/CI. Hecho en H2-B-5: la key de USDA FDC viaja en la query string (la API no admite otra forma) y ya no se escribe en los logs, porque las URLs de error se sanean antes de entrar en `FdcProviderException`; además `FdcProperties` está validada al arrancar, de modo que una key ausente, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos rompen el arranque en lugar de degradarse en silencio, y la caída a `DEMO_KEY` (30 req/h) emite un warning. Pendiente: Vault/CI.
 - [ ] Dashboards de Grafana finales: salud, cuotas de APIs externas (USDA FDC, TheMealDB, LLM), cobertura de despensa, rendimiento del recomendador.
 - [ ] Alertas (Prometheus Alertmanager) para: errores 5xx, circuito abierto, cuota de LLM agotada, sesiones colgadas.

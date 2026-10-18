@@ -60,6 +60,17 @@ app:
   rate-limit:
     capacity: 10
     refill-interval-millis: 1000
+    anonymous:
+      capacity: 100
+      refill-interval-millis: 60000
+      strict-paths:
+        - paths:
+            - /api/auth/login
+            - /api/auth/register
+            - /api/auth/password-reset-token
+            - /api/auth/password-reset
+          capacity: 20
+          refill-interval-millis: 60000
     excluded-paths:
       - /actuator/**
       - /swagger-ui/**

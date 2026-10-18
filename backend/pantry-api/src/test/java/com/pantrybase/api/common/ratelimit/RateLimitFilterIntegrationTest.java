@@ -19,10 +19,12 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
     void login_exhaustedBucket_shouldReturn429() {
         registerUser(DEFAULT_USER);
 
-        for (int request = 1; request <= props.capacity(); request++) {
+        // Login has no authenticated user yet, so it is limited by the strict IP policy.
+        long capacity = strictLoginCapacity();
+        for (int request = 1; request <= capacity; request++) {
             ResponseEntity<ErrorResponse> response = loginWith("wrongpassword");
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-            assertRateLimitHeaders(response, props.capacity() - request);
+            assertRateLimitHeaders(response, capacity, capacity - request);
         }
 
         assertLimited(loginWith("wrongpassword"), LOGIN);
@@ -32,10 +34,11 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
     void login_allowedRequests_shouldDecreaseRemainingHeader() {
         registerUser(DEFAULT_USER);
 
+        long capacity = strictLoginCapacity();
         for (int request = 1; request <= 3; request++) {
             ResponseEntity<ErrorResponse> response = loginWith("wrongpassword");
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-            assertRateLimitHeaders(response, props.capacity() - request);
+            assertRateLimitHeaders(response, capacity, capacity - request);
         }
     }
 
@@ -46,17 +49,19 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
         for (int request = 1; request <= props.capacity(); request++) {
             ResponseEntity<UserResponse> response = me(session);
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-            assertRateLimitHeaders(response, props.capacity() - request);
+            assertRateLimitHeaders(response, props.capacity(), props.capacity() - request);
         }
         assertLimited(meFailed(session), ME);
 
+        // The refresh carries the session cookie but no bearer token, so it lands on
+        // the anonymous tier: its generous default capacity, not the user's bucket.
         HttpHeaders headers = new HttpHeaders();
         headers.add(HttpHeaders.COOKIE, "refresh_token=" + session.tokens().refreshToken());
         ResponseEntity<AuthResponse> refresh =
                 rest.postForEntity(REFRESH, new HttpEntity<>(headers), AuthResponse.class);
 
         assertThat(refresh.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertRateLimitHeaders(refresh, props.capacity() - 1);
+        assertRateLimitHeaders(refresh, props.anonymous().capacity(), props.anonymous().capacity() - 1);
     }
 
     @Test
@@ -67,17 +72,47 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
         for (int request = 1; request <= props.capacity(); request++) {
             ResponseEntity<UserResponse> user = me(session);
             assertThat(user.getStatusCode()).isEqualTo(HttpStatus.OK);
-            assertRateLimitHeaders(user, props.capacity() - request);
+            assertRateLimitHeaders(user, props.capacity(), props.capacity() - request);
         }
         assertLimited(meFailed(session), ME);
 
         // Ensure that anonymous requests are not affected by the authenticated user's bucket
-        for (int request = 1; request <= props.capacity(); request++) {
+        long anonymousCapacity = props.anonymous().capacity();
+        for (int request = 1; request <= anonymousCapacity; request++) {
             ResponseEntity<ErrorResponse> response = meAnonymous();
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-            assertRateLimitHeaders(response, props.capacity() - request);
+            assertRateLimitHeaders(response, anonymousCapacity, anonymousCapacity - request);
         }
         assertLimited(meAnonymous(), ME);
+    }
+
+    @Test
+    void authenticatedRequests_doNotConsumeTheIpBucket() {
+        Session session = registerSession();
+
+        for (int request = 1; request <= props.capacity(); request++) {
+            assertThat(me(session).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+        assertLimited(meFailed(session), ME);
+
+        // The user exhausted their own bucket; the IP bucket behind it must still be full.
+        ResponseEntity<ErrorResponse> anonymous = meAnonymous();
+        assertThat(anonymous.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertRateLimitHeaders(anonymous,
+                props.anonymous().capacity(), props.anonymous().capacity() - 1);
+    }
+
+    @Test
+    void limitHeader_reflectsTheAppliedPolicy() {
+        registerUser(DEFAULT_USER);
+
+        ResponseEntity<ErrorResponse> login = loginWith("wrongpassword");
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertRateLimitHeaders(login, strictLoginCapacity(), strictLoginCapacity() - 1);
+
+        ResponseEntity<ErrorResponse> anonymous = meAnonymous();
+        assertThat(anonymous.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertRateLimitHeaders(anonymous, props.anonymous().capacity(), props.anonymous().capacity() - 1);
     }
 
     @Test
@@ -113,14 +148,23 @@ public class RateLimitFilterIntegrationTest extends AbstractIntegrationTest {
         return rest.getForEntity(ME, ErrorResponse.class);
     }
 
-    private void assertRateLimitHeaders(ResponseEntity<?> response, long remaining) {
+    private long strictLoginCapacity() {
+        return props.anonymous().strictPaths().stream()
+                .filter(strict -> strict.paths().contains(LOGIN))
+                .findFirst()
+                .orElseThrow()
+                .capacity();
+    }
+
+    private void assertRateLimitHeaders(ResponseEntity<?> response, long expectedLimit, long remaining) {
         HttpHeaders headers = response.getHeaders();
-        assertThat(headers.getFirst(RateLimitFilter.RATE_LIMIT_LIMIT_HEADER)).isEqualTo(String.valueOf(props.capacity()));
+        assertThat(headers.getFirst(RateLimitFilter.RATE_LIMIT_LIMIT_HEADER)).isEqualTo(String.valueOf(expectedLimit));
         assertThat(headers.getFirst(RateLimitFilter.RATE_LIMIT_REMAINING_HEADER)).isEqualTo(String.valueOf(remaining));
     }
 
     private void assertLimited(ResponseEntity<ErrorResponse> response, String path) {
         assertError(response, HttpStatus.TOO_MANY_REQUESTS, path);
-        assertRateLimitHeaders(response, 0);
+        HttpHeaders headers = response.getHeaders();
+        assertThat(headers.getFirst(RateLimitFilter.RATE_LIMIT_REMAINING_HEADER)).isEqualTo("0");
     }
 }

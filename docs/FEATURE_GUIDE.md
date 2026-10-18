@@ -572,11 +572,16 @@ El filtro se aplica dentro de `scoreAndFilter`, que comparten `search` y `recomm
 
 **Por qué un script en Lua y no Java:** el cubo vive en Redis, así que la operación «comprobar y descontar fichas» tiene que ser **atómica**. Si se hiciera en dos viajes (preguntar cuántos tokens hay y después restar), dos peticiones simultáneas podrían gastarlos dos veces. Un script de Lua se ejecuta dentro de Redis de una sola vez, sin que nada pueda interponerse.
 
-**Quién consume cada ficha:** el cubo se identifica por `rate:{user}:{method}:{path}`. Si hay un usuario autenticado se usa su identificador; si no, la dirección IP de la petición. Se incluye método y ruta en la clave, de modo que el cubo limita cada endpoint por separado. El script fija además una caducidad (el doble del tiempo que tardaría en llenarse el cubo) para que las claves de Redis no crezcan sin límite.
+**Quién paga la cuota: dos niveles.** El filtro corre justo después del filtro JWT, que es el último punto donde se decide la identidad de la petición, y aplica una política u otra según lo que encuentre. La clave del cubo es `rate:{subject}:{method}:{path}` — método y ruta van en la clave para limitar cada endpoint por separado) — el script fija además una caducidad (el doble del tiempo que tardaría en llenarse el cubo) para que las claves de Redis no crezcan sin límite — y el sujeto cambia de nivel:
 
-Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-Limit` y `X-RateLimit-Remaining`, que permiten al cliente saber su margen sin recibir el cuerpo de un error.
+- **Usuario autenticado:** sujeto `user:{id}`, política por defecto (`capacity` + `refill-interval-millis`).
+- **Sin autenticar** (login, registro, refresh, restablecimiento de contraseña): sujeto `ip:{dirección}` con su propia política (`app.rate-limit.anonymous`), más generosa de por sí porque una página anónima legítima puede lanzar varias peticiones en paralelo. La IP se toma del socket (`remoteAddr`) y **nunca de cabeceras `X-Forwarded-For`**: sin un proxy de confianza delante, esa cabecera la controla el cliente y creerla permitiría rotar cubos a voluntad con IPs falsas.
 
-**Configuración** (`app.rate-limit` en `application.yml`): `capacity` (fichas con las que arranca el cubo), `refill-interval-millis` (cuánto tarda en reponerse **una** ficha) y `excluded-paths` (rutas libres, como el actuator y la documentación).
+El motivo de este diseño no es «los endpoints autenticados están protegidos y los anónimos no»: los autenticados ya tenían cubo propio desde H1; lo que faltaba era cubrir el tramo **donde aún no existe identidad**, que es exactamente por donde entra la fuerza bruta de credenciales. Dentro del nivel anónimo, las rutas más sensibles (`strict-paths`: login, registro y restablecimiento de contraseña) admiten un cubo **más estrecho**, para que una máquina que intente adivinar contraseñas se agote antes sin castigar al resto de usuarios que comparten NAT.
+
+Cuando la petición se rechaza, la respuesta incluye las cabeceras `X-RateLimit-Limit` y `X-RateLimit-Remaining` (con la capacidad y margen **reales de la política aplicada**), que permiten al cliente saber su margen sin recibir el cuerpo de un error.
+
+**Configuración** (`app.rate-limit` en `application.yml`): `capacity` y `refill-interval-millis` (nivel usuario), `excluded-paths` (rutas libres, como el actuator y la documentación) y el bloque `anonymous` (`capacity`, `refill-interval-millis` y `strict-paths` con lista de rutas Ant + capacidad propia).
 
 ---
 

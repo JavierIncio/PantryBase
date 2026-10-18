@@ -67,6 +67,17 @@ app:
     # them flaky. Refill behaviour is covered in TokenBucketRefillIntegrationTest, which
     # overrides this interval to a few hundred milliseconds.
     refill-interval-millis: 3600000
+    anonymous:
+      capacity: 15
+      refill-interval-millis: 3600000
+      strict-paths:
+        - paths:
+            - /api/auth/login
+            - /api/auth/register
+            - /api/auth/password-reset-token
+            - /api/auth/password-reset
+          capacity: 10
+          refill-interval-millis: 3600000
     excluded-paths:
       - /actuator/**
       - /swagger-ui/**

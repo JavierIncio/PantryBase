@@ -9,19 +9,22 @@ import java.util.List;
 /**
  * TokenBucketRateLimiter implements a token bucket rate limiting algorithm using Redis.
  * It allows for controlling the rate of requests by consuming tokens from a bucket.
+ *
+ * <p>The bucket capacity and refill interval are arguments rather than properties read
+ * inside this class because the mechanism is policy-agnostic: the filter applies
+ * different policies (per-user vs per-IP, with stricter overrides) to the same
+ * algorithm. Keeping the policy out of here means a new tier is a filter change only,
+ * never a change to the script or the Redis interaction.</p>
  */
 @Component
 public class TokenBucketRateLimiter {
 
     private final StringRedisTemplate redisTemplate;
-    private final RateLimitProperties properties;
     private final DefaultRedisScript<List> script;
 
     public TokenBucketRateLimiter(StringRedisTemplate redisTemplate,
-                                  RateLimitProperties properties,
                                   DefaultRedisScript<List> script) {
         this.redisTemplate = redisTemplate;
-        this.properties = properties;
         this.script = script;
     }
 
@@ -36,15 +39,17 @@ public class TokenBucketRateLimiter {
     /**
      * Tries to consume a token from the bucket for the given bucket key.
      *
-     * @param bucketKey the key representing the bucket in Redis
+     * @param bucketKey          the key representing the bucket in Redis
+     * @param capacity           the bucket capacity for this policy
+     * @param refillIntervalMillis milliseconds per token refill for this policy
      * @return a RateLimitResult indicating whether the request is allowed and the remaining tokens
      */
-    public RateLimitResult consume(String bucketKey) {
+    public RateLimitResult consume(String bucketKey, long capacity, long refillIntervalMillis) {
         List<?> result = redisTemplate.execute(
                 script,
                 List.of(bucketKey),
-                String.valueOf(properties.capacity()),
-                String.valueOf(properties.refillIntervalMillis()),
+                String.valueOf(capacity),
+                String.valueOf(refillIntervalMillis),
                 String.valueOf(System.currentTimeMillis())
         );
 
