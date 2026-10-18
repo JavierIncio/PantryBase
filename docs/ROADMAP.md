@@ -272,12 +272,20 @@ Dos niveles de cubo de fichas sobre el mismo script Lua: los endpoints autentica
 
 **Pendiente del bloque:** nada.
 
+### Bloque H9-4 — Índices analizados con EXPLAIN y concurrencia del descontado (cerrado 18-oct-2026)
+
+**H9-4a (análisis, con `EXPLAIN ANALYZE` real contra la BD local, 123 recetas / 16 líneas de despensa):** todas las queries calientes resuelven por índice — historial de sesiones (`idx_cooking_sessions_user`), historial social (`idx_recipe_history_user_created`, cubre filtro y orden), recetas visibles (`idx_recipes_source`), libro mayor (`idx_consumption_entries_pantry_item_id`) y lookup de descuento. **Hallazgo:** `idx_pantry_items_user_id` (V12) es **redundante** — `UNIQUE (user_id, ingredient_id)` sirve también cualquier `WHERE user_id = …` por prefijo izquierdo; coste: cada escritura de despensa mantiene dos índices donde bastaría uno. **Decisión: no se retira aún** (deuda anotada, impacto bajo); retirada para cuando haya una medida que la justifique. **Límite honesto:** con 16 líneas los planes prueban existencia/usabilidad de los índices, no comportamiento a escala — a vigilar con el crecimiento: el `OR` de recetas visibles y los `LIKE '%…%'` de búsqueda (candidatos a trigram/FTS). **Conclusión: sin `V24`** — el análisis es el entregable, no una migración por cumplir.
+
+**H9-4c (test):** nueva clase `CookingCompletionConcurrencyIntegrationTest`: 8 sesiones del mismo usuario completadas simultáneamente (`CyclicBarrier`) sobre la misma línea de despensa con stock justo para todas (8 × 200 g), de modo que un 409 solo puede ser carrera optimista, nunca carencia. Afirmaciones **invariantes, no estadísticas**: ningún 5xx; cantidad final = stock − lo cobraron los éxitos; identidad del libro (suma de deltas == cantidad); el perdedor queda `IN_PROGRESS` (rollback completo de la transacción) y **puede reintentarse con éxito** (409 recuperable). No exige que haya conflicto: si el planificador serializa, los invariantes siguen valiendo. **Suite en 321 tests verdes.** Sin dependencias nuevas.
+
+**Pendiente del bloque:** nada.
+
 ---
 
-- [ ] Hardening de seguridad: rate limiting por IP, auditoría de llamadas externas, secretos en Vault/CI. Hecho en H2-B-5: la key de USDA FDC viaja en la query string (la API no admite otra forma) y ya no se escribe en los logs, porque las URLs de error se sanean antes de entrar en `FdcProviderException`; además `FdcProperties` está validada al arrancar, de modo que una key ausente, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos rompen el arranque en lugar de degradarse en silencio, y la caída a `DEMO_KEY` (30 req/h) emite un warning. Pendiente: Vault/CI.
+- [ ] Hardening de seguridad: rate limiting por IP (hecho en H9-1), auditoría de llamadas externas, secretos en Vault/CI. Hecho en H2-B-5: la key de USDA FDC viaja en la query string (la API no admite otra forma) y ya no se escribe en los logs, porque las URLs de error se sanean antes de entrar en `FdcProviderException`; además `FdcProperties` está validada al arrancar, de modo que una key ausente, `data-types` vacío, `page-size < 1` o timeouts nulos/negativos rompen el arranque en lugar de degradarse en silencio, y la caída a `DEMO_KEY` (30 req/h) emite un warning. Pendiente: auditoría y Vault/CI.
 - [ ] Dashboards de Grafana finales: salud, cuotas de APIs externas (USDA FDC, TheMealDB, LLM), cobertura de despensa, rendimiento del recomendador.
 - [ ] Alertas (Prometheus Alertmanager) para: errores 5xx, circuito abierto, cuota de LLM agotada, sesiones colgadas.
-- [ ] Carga y escalado: caché Redis efectiva, índices de BBDD analizados con `EXPLAIN`, test de concurrencia sobre descontado.
+- [ ] Carga y escalado: índices de BBDD analizados con `EXPLAIN` y test de concurrencia sobre descontado (hecho en H9-4: sin V24, `idx_pantry_items_user_id` anotado como redundante y `CookingCompletionConcurrencyIntegrationTest` con invariantes). Pendiente: caché Redis efectiva (medición).
 - [ ] Backups de PostgreSQL + estrategia de restauración.
 - [ ] Pipeline de promoción a producción con gates de calidad.
 
