@@ -54,7 +54,7 @@ app:
     refresh-ttl: 7d
   security:
     cookie:
-      secure: false
+      secure: ${COOKIE_SECURE:false}
     oauth2:
       redirect-uri: http://localhost:4200/auth/callback
   rate-limit:

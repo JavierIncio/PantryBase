@@ -97,7 +97,7 @@ Dentro de cada paquete, las subcarpetas sí siguen capas (`domain`, `dto`, `repo
 | `spring.security.oauth2` | Credenciales de Google para el login social. |
 | `spring.mail` | Servidor SMTP de envío de correos. |
 | `app.jwt` | Secreto de firma y duración de los tokens de acceso y refresco. |
-| `app.security.cookie` | Marca `secure` de la cookie de refresco (falso en local, **debe ser `true` en producción**). |
+| `app.security.cookie.secure` | Marca `secure` de la cookie de refresco, configurable por la variable `COOKIE_SECURE` (por defecto `false` en local; **debe ser `true` en producción**, ver `docs/RUNBOOK.md`). |
 | `app.security.oauth2` | URL a la que Google devuelve al usuario tras el login. |
 | `app.rate-limit` | Capacidad del cubo de fichas, intervalo de recarga y rutas exentas. |
 | `app.mail` / `app.frontend-base-url` | Remitente de correos y base de las URLs de los enlaces. |

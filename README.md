@@ -180,7 +180,7 @@ npm install && npm start        # dev server con proxy a la API
 # API docs en http://localhost:8080/swagger-ui.html
 ```
 
-Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`. TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
+Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`, `COOKIE_SECURE` (marca `Secure` de la cookie de refresco; `false` en local, `true` tras TLS). TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
 
 ---
 
