@@ -2,7 +2,7 @@
 
 Recetario inteligente que recomienda recetas en función de lo que el usuario tiene en su despensa (ingredientes y cantidades registradas), con información nutricional y de alérgenos, y modo cocina con seguimiento de progreso y descontado automático de stock.
 
-**Estado:** en desarrollo. H0–H6 y H8 (social y personalización) completados, con backend y frontend operativos; H7 (recomendador con LLM) retirado del alcance. Ver [docs/ROADMAP.md](docs/ROADMAP.md).
+**Estado:** funcionalidad completa. H0–H6, H8 (social y personalización) y H9 (producción y endurecimiento) completados, con backend y frontend operativos; H7 (recomendador con LLM) retirado del alcance. Ver [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
@@ -12,7 +12,7 @@ El usuario registra su inventario de ingredientes con cantidades en medidas esta
 
 ### Funcionalidades principales
 
-- **Inventario (despensa):** ingredientes con cantidades en unidades estandarizadas, y todos sus movimientos auditados. La API (`GET/POST/PUT/DELETE /api/pantry`, más `POST /api/pantry/{id}/adjustments` y `GET /api/pantry/{id}/entries`) llegó en H3-1 y H3-2: una fila por ingrediente y usuario, cantidad normalizada a gramos (o a unidades de conteo) al entrar, y una edición que no admite cantidad porque mover stock es un ajuste que deja un asiento con signo. La cantidad de una línea y la suma de sus asientos son el mismo hecho, y eso se comprueba en un test en vez de darse por bueno. La vista «Mi despensa» (H3-3) muestra la lista agrupada por categoría y permite editar, ajustar, eliminar y leer el historial de cada línea en el sitio; el alta desde el catálogo sigue siendo un bloque aparte.
+- **Inventario (despensa):** ingredientes con cantidades en unidades estandarizadas, y todos sus movimientos auditados. La API (`GET/POST/PUT/DELETE /api/pantry`, más `POST /api/pantry/{id}/adjustments` y `GET /api/pantry/{id}/entries`) llegó en H3-1 y H3-2: una fila por ingrediente y usuario, cantidad normalizada a gramos (o a unidades de conteo) al entrar, y una edición que no admite cantidad porque mover stock es un ajuste que deja un asiento con signo. La cantidad de una línea y la suma de sus asientos son el mismo hecho, y eso se comprueba en un test en vez de darse por bueno. La vista «Mi despensa» (H3-3) muestra la lista agrupada por categoría y permite editar, ajustar, eliminar y leer el historial de cada línea en el sitio; el alta desde el catálogo se hace en un diálogo sobre la lista (H3-4).
 - **Autenticación:** registro y login con JWT (access token por header, refresh token en cookie `httpOnly` con rotación) y login social OAuth2 (Google) con link-or-create.
 - **Catálogo de ingredientes:** datos y nutrición vía **USDA FoodData Central** (ficha por 100 g y porciones domésticas con peso), cacheado en base de datos; alérgenos derivados por mapeo interno.
 - **Recetas:** búsqueda y detalle desde **TheMealDB**, materializadas en BBDD como entidades propias (`Recipe.source` = `THE_MEAL_DB` o `USER`) con nutrición por ración calculada localmente desde el catálogo USDA.
@@ -40,7 +40,7 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
 | Cache / RL     | Redis                                   | Rate limiting y caché de respuestas de proveedores externos (USDA FDC, TheMealDB) |
 | Docs API       | springdoc-openapi (+)                   | Contrato OpenAPI                                             |
 | Frontend       | Angular 22.1 (activa) + Angular Material | SPA                                                          |
-| CI/CD          | Jenkins                                 | Pipeline build, test, quality gates y deploy                 |
+| CI/CD          | Jenkins                                 | Pipeline build, test, quality gates y deploy (Jenkinsfile local; servidor CI aún sin desplegar) |
 | Observabilidad | Micrometer + Prometheus + Grafana       | Métricas, dashboards y alertas                               |
 | Testing        | JUnit 5 + Testcontainers (back) y Vitest (front) (+) | Tests de integración con infraestructura real    |
 | Infra          | Docker Compose (dev) · Docker           | Contenedorización de servicios                               |
@@ -71,7 +71,7 @@ Propuesto inicialmente por el cliente, con adiciones/recomendaciones marcadas (+
                                                        ▼
 ┌────────────┐   JWT    ┌──────────────────────────────── Spring Boot ──────────────────────────────┐
 │ Frontend   │ ───────► │                                                                           │
-│ Angular+Mat│ ◄─────── │  Modulos: Security · Catalog · Pantry · Recipes · Cooking · Social         │
+│ Angular+Mat│ ◄─────── │  Modulos: Auth · User · Catalog · Pantry · Recipe · Cooking · Social · Common      │
 └────────────┘ Rest/JSON│                                                                           │
                         └───┬──────────────┬───────────────┬───────────────┬───────────────────────┘
                             │              │               │               │
@@ -140,30 +140,31 @@ PantryBase/
 ├── docs/
 │   ├── FEATURE_GUIDE.md         # qué hace cada funcionalidad y qué archivos la implementan
 │   ├── ROADMAP.md
+│   ├── RUNBOOK.md               # operación: arranque, alertas, config de producción, respaldo
 │   └── VERSIONS.md
 ├── backend/
 │   └── pantry-api/            # Spring Boot
 │       └── src/main/java/com/pantrybase/api/
-│           ├── config/        # seguridad, openapi, redis
-│           ├── user/          # auth, preferencias
-│           ├── catalog/       # ingredientes, medidas, conversiones, alergenos
-│           ├── pantry/        # inventario
-│           ├── recipes/       # recetas (TheMealDB y propias), filtrado
+│           ├── auth/          # JWT, OAuth2 Google, refresh tokens
+│           ├── user/          # perfil, preferencias, alérgenos
+│           ├── catalog/       # ingredientes USDA, medidas, conversiones
+│           ├── pantry/        # inventario y libro de movimientos
+│           ├── recipe/        # recetas (TheMealDB y propias), filtrado
 │           ├── cooking/       # sesiones, estados, descontado
-│           ├── social/        # favoritas, guardadas, publicadas, historial
-│           └── common/        # utilidades, mappers
+│           ├── social/        # favoritos, guardadas, publicadas, historial, stats
+│           └── common/        # seguridad, rate limit, métricas, utilidades
 ├── frontend/
 │   └── pantry-web/            # Angular + Material
 ├── infra/
-│   ├── docker-compose.yml     # postgres, redis, prometheus, grafana
-│   ├── prometheus/
-│   └── grafana/provisioning/
+│   ├── docker-compose.yml     # postgres, redis, prometheus, alertmanager, grafana, mailpit
+│   ├── prometheus/            # scrape + reglas de alerta
+│   └── grafana/provisioning/  # datasource y dashboards versionados
 └── jenkins/                   # Jenkinsfile y pipelines
 ```
 
 ---
 
-## Puesta en marcha (dev, planificada)
+## Puesta en marcha (dev)
 
 ```bash
 # 1. Infraestructura local
@@ -180,15 +181,16 @@ npm install && npm start        # dev server con proxy a la API
 # API docs en http://localhost:8080/swagger-ui.html
 ```
 
-Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`, `COOKIE_SECURE` (marca `Secure` de la cookie de refresco; `false` en local, `true` tras TLS). TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git).
+Variables de entorno clave: `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `REDIS_HOST`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `USDA_FDC_API_KEY`, `MAIL_HOST`, `MAIL_FROM`, `FRONTEND_BASE_URL`, `GRAFANA_PASSWORD`, `COOKIE_SECURE` (marca `Secure` de la cookie de refresco; `false` en local, `true` tras TLS). TheMealDB usa su test key pública (`1`) en dev, sin credencial propia. Secretos solo en `infra/.env` (ignorado por git); los nombres documentados en `infra/.env.example` y en [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ---
 
 ## Observabilidad
 
-- **Métricas ya incluidas:** tiempos y errores por endpoint (Micrometer), latencia a USDA FDC y TheMealDB, tamaño del inventario y sesiones de cocina completadas.
-- **Dashboards en Grafana** para: salud de servicios, cuotas de APIs externas y uso de la despensa.
-- **Rate limiting** implementado en Redis (por usuario y por endpoint) y expuesto en métricas para detectar abusos.
+- **Métricas (Micrometer):** tiempos y errores por endpoint, cuota y frescura del catálogo FDC, sesiones de cocina completadas/abandonadas con su duración y sesiones colgadas (gauge de scrape), más el resumen del inventario (`GET /api/pantry/summary`).
+- **Dashboards provisionados en Grafana** (`PantryBase / Health` y `PantryBase / Operations`), versionados como JSON en `infra/grafana/dashboards/`.
+- **Alertas (Prometheus + Alertmanager)** para caída de la API, tasa de 5xx, degradación/cuota de USDA FDC y sesiones colgadas, con entrega por correo verificada en local vía Mailpit.
+- **Rate limiting** en Redis: cubo por usuario en endpoints autenticados y cubo por IP en los anónimos, con cabeceras de capacidad expuestas.
 
 ---
 

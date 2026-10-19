@@ -4,7 +4,7 @@ Documento de referencia que explica **qué hace cada parte de la aplicación y q
 
 No sustituye al `README.md` (visión, arquitectura y decisiones) ni al `docs/ROADMAP.md` (plan de trabajo). Aquí no se explica *por qué* se eligió una tecnología, sino *cómo funciona* la funcionalidad y dónde vive.
 
-**Estado actual:** hay funcionalidad terminada de H0 a H6 (base del proyecto, autenticación, catálogo de ingredientes con motor de unidades, despensa, recetas, modo cocina y temas de usuario) y el bloque H8 (social y personalización: favoritos, guardadas, historial, estadísticas de perfil y publicación de recetas propias) con backend y frontend operativos. H7 (recomendador con LLM) se retiró del alcance. Los apartados que describen cada pieza indican si esa funcionalidad existe ya o si está planificada; el resto de áreas de producto todavía no existe y sus páginas web son marcadores de posición.
+**Estado actual:** hay funcionalidad terminada de H0 a H6 (base del proyecto, autenticación, catálogo de ingredientes con motor de unidades, despensa, recetas, modo cocina y temas de usuario), el bloque H8 (social y personalización: favoritos, guardadas, historial, estadísticas de perfil y publicación de recetas propias) y H9 (producción y endurecimiento: rate limit anónimo, alertas, dashboards y análisis de índices), con backend y frontend operativos. H7 (recomendador con LLM) se retiró del alcance. Los apartados que describen cada pieza indican si esa funcionalidad existe ya o si está planificada; el único marcador de posición que queda en la UI es la página `not-found`.
 
 ---
 
@@ -105,7 +105,7 @@ Dentro de cada paquete, las subcarpetas sí siguen capas (`domain`, `dto`, `repo
 | `management.endpoints` | Qué expone el actuator: `health`, `info`, `prometheus`. |
 | `springdoc` | Documentación interactiva de la API (Swagger). |
 
-**Servicios en `infra/docker-compose.yml`:** `postgres`, `redis`, `pantry-api`, más los de soporte `prometheus`, `grafana` y `mailpit`. Los secretos se leen de `infra/.env` (ignorado por git); `infra/.env.example` solo tiene los nombres de variable con valores de ejemplo.
+**Servicios en `infra/docker-compose.yml`:** `postgres`, `redis`, `pantry-api`, más los de soporte `prometheus`, `alertmanager`, `grafana` y `mailpit`. Los secretos se leen de `infra/.env` (ignorado por git); `infra/.env.example` solo tiene los nombres de variable con valores de ejemplo. Operación completa en [`docs/RUNBOOK.md`](RUNBOOK.md).
 
 ---
 
@@ -337,7 +337,7 @@ Asignar una clase que no existe produce un error `404`: así este endpoint no se
 
 ## 11. Despensa: inventario del usuario (H3-1 y H3-2)
 
-**Qué hace:** guarda qué tiene cada usuario en casa, cuánto y dónde, y lleva el registro de los movimientos que explican esa cantidad. El alta rápida con búsqueda desde el catálogo sigue en un bloque posterior.
+**Qué hace:** guarda qué tiene cada usuario en casa, cuánto y dónde, y lleva el registro de los movimientos que explican esa cantidad. El alta rápida con búsqueda desde el catálogo se abre en un diálogo sobre la lista, para no perder de vista la despensa.
 
 | Pieza | Ruta |
 |---|---|
